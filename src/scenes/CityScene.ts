@@ -8,6 +8,7 @@ import { residentNamePlate } from '../city/residents.ts'
 import { RoomView } from './RoomView.ts'
 import { ResidentView, addDrawingTexture } from './ResidentView.ts'
 import { nearbyRooms } from '../camera.ts'
+import { sleepingResidents } from '../sleep.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -17,6 +18,7 @@ export class CityScene extends Phaser.Scene {
   private clock?: Clock
   private rooms?: RoomView
   private figures = new Map<number, ResidentView>()
+  private sleepers: ReadonlySet<number> = new Set()
   private cursor = 0
   private elapsed = 0
   private paused = false
@@ -52,13 +54,17 @@ export class CityScene extends Phaser.Scene {
       this.replay = record.value
       this.timeline = prepareTimeline(this.replay.timeline)
       this.layout = nestedLayout(this.replay.map.places, roomCapacity(this.replay, census))
-      this.clock = createClock(this.replay.window_start, this.replay.window_end)
+      const speed = Number((document.getElementById('speed') as HTMLSelectElement).value)
+      this.clock = createClock(this.replay.window_start, this.replay.window_end, speed)
+      this.sleepers = sleepingResidents(this.replay, census)
       this.residents = createResidents(this.replay, census, this.layout)
       this.rooms = new RoomView(this, this.layout)
+      this.rooms.update(this.cameras.main, this.clock.time)
       addDrawingTexture(this, 'resident-default', null)
       this.drawResidents()
       this.focusResidents()
       this.readStatus = `Read ${this.replay.map.places.length} places and ${this.replay.timeline.length} recorded events. ${this.replay.complete ? 'Recorded window loaded.' : 'This is the saved part of the window; older events are not included.'}`
+      if (this.sleepers.size) this.readStatus += " Sleep marks use today's census for residents with no recorded activity."
       this.updateHud()
       await this.loadDrawings(census)
       document.body.dataset['liveReady'] = censusRead.status === 'fulfilled' ? 'true' : 'error'
@@ -105,7 +111,7 @@ export class CityScene extends Phaser.Scene {
       this.residents = stepResidents(this.residents, due.events, elapsed, this.elapsed, this.layout, this.clock.speed)
     }
     this.drawResidents()
-    this.rooms?.update(this.cameras.main)
+    this.rooms?.update(this.cameras.main, this.clock.time)
     this.updateHud()
   }
 
@@ -118,7 +124,7 @@ export class CityScene extends Phaser.Scene {
         if (this.textures.exists(`resident-${resident.id}`)) figure.sprite.setTexture(`resident-${resident.id}`)
         this.figures.set(resident.id, figure)
       }
-      figure.update(resident, camera.zoom, this.elapsed, resident.id === this.following)
+      figure.update(resident, camera.zoom, this.elapsed, resident.id === this.following, this.sleepers.has(resident.id))
     }
     if (!this.fixtureMode) return
     const listed = JSON.stringify([...this.figures].flatMap(([id, figure]) => {
