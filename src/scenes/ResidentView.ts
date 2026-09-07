@@ -76,6 +76,7 @@ export class ResidentView {
     this.zzz.setPosition(resident.x + 13, resident.y - 13).setVisible(sleeping && resident.visible)
     const bubble = resident.bubble
     const moment = showingFor(bubble, resident.visible, places, resident.handle)
+      ?? (resident.visible ? resident.showingNotice ?? null : null)
     const contest = moment ? showingFrame(moment, now) : null
     this.showing.clear().setVisible(contest !== null); this.contest.clear().setVisible(contest !== null)
     if (contest) {

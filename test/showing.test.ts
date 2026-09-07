@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ReplayPlace } from '../src/city/types.ts'
 import type { SpeechBubble } from '../src/speech.ts'
-import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../src/showing.ts'
+import { ballotCells, confettiCells, showingFor, showingFrame, showingNoticeFor, spotlightCells } from '../src/showing.ts'
+import type { NestedLayout } from '../src/ground/nested.ts'
+import type { ReplayFile, Resident } from '../src/city/types.ts'
+import { createResidents, stepResidents } from '../src/replay/simulation.ts'
 
 const places = [{ id: 438, name: 'the showing room', quiet: false }] as ReplayPlace[]
 const bubble = (text: string, placeId = 438, noteId?: number): SpeechBubble => ({ text, cut: false, placeId, noteId, startedAt: 100,
@@ -22,6 +25,40 @@ test('confetti belongs only to the one verified published-count note', () => {
   assert.equal(showingFor(bubble(line, 438, 10060), true, places, 'founder')?.confetti, false)
   assert.equal(showingFor(bubble(line, 438, 10059), true, places, 'someone-else')?.confetti, false)
   assert.equal(showingFor(bubble('CORRECTION TO MY OWN COUNT, note #10059.', 438, 10065), true, places, 'founder')?.confetti, false)
+})
+
+test('a reference-only recorded note gets a brief spotlight without guessed contest meaning', () => {
+  const event = { actor: 'ada', at: '2026-09-07T00:00:00Z', change_id: '12', event_id: 12, kind: 'note',
+    detail: { note_id: 77, place_id: 438 } }
+  const moment = showingNoticeFor(event, 100, 120, places)
+  assert.equal(moment?.ballot, false)
+  assert.equal(moment?.confetti, false)
+  assert.ok((moment?.expiresAt ?? 0) > 100)
+  assert.equal(showingNoticeFor({ ...event, actor: null }, 100, 120, places), null)
+  assert.equal(showingNoticeFor({ ...event, detail: { place_id: 438 } }, 100, 120, places), null)
+})
+
+test('a reference-only spotlight holds a later recorded walk, then drains cleanly', () => {
+  const layout = { rootId: 1, width: 520, height: 220, rooms: {
+    1: { id: 1, parentId: null, name: 'world', quiet: false, depth: 0, x: 0, y: 0, width: 220, height: 180,
+      door: { x: 200, y: 90 }, standing: { x: 20, y: 20, width: 160, height: 130 }, children: [438] },
+    438: { id: 438, parentId: 1, name: 'the showing room', quiet: false, depth: 1, x: 300, y: 0, width: 220, height: 180,
+      door: { x: 300, y: 90 }, standing: { x: 320, y: 20, width: 160, height: 130 }, children: [] },
+  } } as unknown as NestedLayout
+  const replay: ReplayFile = { span: '1h', window_start: '2026-09-07T00:00:00Z', window_end: '2026-09-07T01:00:00Z',
+    checkpoint: '2', complete: true, row_ceiling: 2, map: { places: [] }, counts: {}, timeline: [],
+    start: { 'resident:1': { origin_event_id: 1, place_id: 438 } } }
+  const census: Resident[] = [{ id: 1, handle: 'ada', current_place_id: 438, model: '', joined_at: '', has_drawing: false, asleep: false }]
+  const note = { actor: 'ada', at: replay.window_start, change_id: '1', event_id: 1, kind: 'note', detail: { note_id: 77, place_id: 438 } }
+  const walk = { actor: 'ada', at: replay.window_start, change_id: '2', event_id: 2, kind: 'action',
+    detail: { action: 'move', status: 'applied', from_place_id: 438, to_place_id: 1 } }
+  let state = stepResidents(createResidents(replay, census, layout), [note, walk], 0, 100, layout)
+  const expires = state.residents[1]!.showingNotice!.expiresAt
+  assert.equal(state.residents[1]!.walking, false)
+  assert.equal(state.residents[1]!.queue.length, 1)
+  state = stepResidents(state, [], 0, expires, layout)
+  assert.equal(state.residents[1]!.showingNotice, null)
+  assert.equal(state.residents[1]!.walking, true)
 })
 
 test('missing, hidden, quiet, wrong-name, and wrong-room notes draw nothing', () => {

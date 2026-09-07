@@ -10,6 +10,7 @@ import { transferDuration, transferFor, transferPartners, type Transfer, type Tr
 import { inventionDuration, inventionFor, type StartedInvention } from '../inventions.ts'
 import { agreementSignature, handshakeDuration, planHandshake, type AgreementSignature, type HandshakeResident, type StartedHandshake } from '../agreements.ts'
 import type { AgreementPair } from '../city/agreements.ts'
+import { showingNoticeFor, type ShowingMoment } from '../showing.ts'
 
 export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
@@ -39,6 +40,7 @@ export type ResidentState = Readonly<{
   transferUntil: number | null
   inventionUntil?: number | null
   agreementUntil?: number | null
+  showingNotice?: ShowingMoment | null
 }>
 
 export type Simulation = Readonly<{
@@ -179,10 +181,11 @@ export function stepResidents(
     if (resident.transferUntil !== null && nowMs >= resident.transferUntil) resident = { ...resident, transferUntil: null }
     if (resident.inventionUntil != null && nowMs >= resident.inventionUntil) resident = { ...resident, inventionUntil: null }
     if (resident.agreementUntil != null && nowMs >= resident.agreementUntil) resident = { ...resident, agreementUntil: null }
+    if (resident.showingNotice && nowMs >= resident.showingNotice.expiresAt) resident = { ...resident, showingNotice: null }
     if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
     if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
     if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
-    if (!resident.walking && !resident.bubble && !resident.sparkle && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null) {
+    if (!resident.walking && !resident.bubble && !resident.sparkle && !resident.showingNotice && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null) {
       resident = startNext(resident, residents, nowMs, layout, issues, speed, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs)
     }
     residents[id] = resident
@@ -326,7 +329,7 @@ function startNext(
     }
     if (event.kind === 'note') {
       next = handleNote(next, event, queue, all, nowMs, layout, issues, speed, reservations)
-      if (next.bubble) return next
+      if (next.bubble || next.showingNotice) return next
       continue
     }
     next = { ...next, queue }
@@ -386,7 +389,10 @@ function handleNote(
     if (resident.placeId !== null) addIssue(issues, 'route-gap')
     next = { ...resident, placeId, x: destination.x, y: destination.y, visible: placeVisible(layout, placeId) }
   }
-  return { ...next, queue, bubble: bubbleFor({ ...event, detail: { ...event.detail, place_id: placeId ?? undefined } }, nowMs, speed) }
+  const bubble = bubbleFor({ ...event, detail: { ...event.detail, place_id: placeId ?? undefined } }, nowMs, speed)
+  const room = placeId === null ? undefined : layout.rooms[placeId]
+  const showingNotice = !bubble && room ? showingNoticeFor(event, nowMs, speed, [room]) : null
+  return { ...next, queue, bubble, showingNotice }
 }
 
 function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLayout): ResidentState {
@@ -482,13 +488,13 @@ function baseResident(id: number, handle: string, placeId: number | null): Resid
 }
 
 function isPending(resident: ResidentState): boolean {
-  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
+  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.showingNotice != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
 }
 
 function handshakeResident(row: ResidentState, drawn: boolean): HandshakeResident {
   return Object.freeze({ id: row.id, handle: row.handle, placeId: row.placeId, x: row.x, y: row.y, visible: row.visible && drawn,
     destinationId: row.destinationId, walking: row.walking,
-    busy: Boolean(row.bubble || row.sparkle || row.transferUntil || row.inventionUntil || row.agreementUntil) })
+    busy: Boolean(row.bubble || row.showingNotice || row.sparkle || row.transferUntil || row.inventionUntil || row.agreementUntil) })
 }
 
 function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean, reservations: ThingReservations, startedTransfers: readonly StartedTransfer[]): Simulation {

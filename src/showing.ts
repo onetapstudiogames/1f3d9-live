@@ -1,5 +1,5 @@
-import type { ReplayPlace } from './city/types.ts'
-import type { SpeechBubble } from './speech.ts'
+import type { ReplayEvent, ReplayPlace } from './city/types.ts'
+import { bubbleDuration, type SpeechBubble } from './speech.ts'
 
 export type ShowingMoment = Readonly<{ ballot: boolean; confetti: boolean; startedAt: number; expiresAt: number }>
 export type ShowingFrame = Readonly<{ alpha: number; ballotY: number | null; confetti: number }>
@@ -17,6 +17,16 @@ export function showingFor(bubble: SpeechBubble | null, visible: boolean, places
   const ballot = /^\s*VOTE(?:\s|$)/.test(bubble.text)
   const confetti = bubble.noteId === 10059 && actor.trim() === 'founder' && bubble.text === COUNT_LINE
   return Object.freeze({ ballot, confetti, startedAt: bubble.startedAt, expiresAt: bubble.expiresAt })
+}
+
+export function showingNoticeFor(event: ReplayEvent, startedAt: number, speed: number,
+  places: readonly Pick<ReplayPlace, 'id' | 'name' | 'quiet'>[]): ShowingMoment | null {
+  const actor = typeof event.actor === 'string' ? event.actor.trim() : ''
+  const noteId = event.detail.note_id; const placeId = event.detail.place_id
+  const room = places.find(place => place.id === placeId)
+  if (event.kind !== 'note' || !actor || !Number.isSafeInteger(noteId) || Number(noteId) < 1
+    || !Number.isFinite(startedAt) || !room || room.id !== ROOM_ID || room.name !== ROOM_NAME || room.quiet) return null
+  return Object.freeze({ ballot: false, confetti: false, startedAt, expiresAt: startedAt + bubbleDuration(speed, 0) })
 }
 
 export function showingFrame(moment: ShowingMoment, now: number): ShowingFrame | null {
