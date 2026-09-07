@@ -1,4 +1,5 @@
 import type { ReplayEvent, ReplayFile, Resident } from './city/types.ts'
+import type { AgreementPair } from './city/agreements.ts'
 import type { NestedLayout } from './ground/nested.ts'
 import { createHandovers, stepHandovers, type HandoverState } from './handovers.ts'
 import { createThings, stepThings, type ThingSimulation } from './things.ts'
@@ -73,6 +74,7 @@ export type SettledCity = Readonly<{ residents: Simulation; things: ThingSimulat
 
 export function settleAtNow(
   replay: ReplayFile, census: readonly Resident[], layout: NestedLayout, speed: number = BASE_SPEED,
+  agreementPairs: ReadonlyMap<string, AgreementPair> = new Map(),
 ): SettledCity {
   let things = createThings(replay, layout)
   let residents = createResidents(replay, census, layout, things.reservations)
@@ -83,7 +85,7 @@ export function settleAtNow(
     let incoming: readonly ReplayEvent[] = [event]
     for (let frame = 0; frame < 100_000; frame += 1) {
       elapsed += settleStep
-      residents = stepResidents(residents, incoming, settleStep, elapsed, layout, speed)
+      residents = stepResidents(residents, incoming, settleStep, elapsed, layout, speed, agreementPairs)
       const handover = stepHandovers(handovers, incoming, residents, layout, elapsed, speed)
       handovers = handover.state
       things = stepThings(things, handover.floorEvents, elapsed, speed)
