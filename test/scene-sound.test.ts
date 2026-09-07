@@ -18,6 +18,19 @@ test('a remembered on choice stays silent until a trusted keyboard gesture, even
   assert.equal(h.voices.length, 1, 'a new visible note can pop after the gesture')
 })
 
+test('a scripted checkbox activation cannot unlock sound through its browser-generated change event', t => {
+  const h = setup(); t.after(h.restore)
+  // Chromium emits trusted input/change events after HTMLElement.click(), but its click is untrusted.
+  h.control.checked = false; h.controlEvents.emit('change', true)
+  h.documentEvents.emit('click', false)
+  h.control.checked = true; h.controlEvents.emit('change', true)
+  h.update(1, 100)
+  assert.equal(h.voices.length, 0)
+  h.documentEvents.emit('click', true)
+  h.update(2, 200)
+  assert.equal(h.voices.length, 1)
+})
+
 test('pause, sound off, reset, and destruction immediately stop active voices', t => {
   const h = setup(); t.after(h.restore)
   h.documentEvents.emit('pointerdown', true)

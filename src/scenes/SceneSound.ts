@@ -19,8 +19,7 @@ export class SceneSound {
   private readonly trustPointer = (event: Event): void => this.trust(event)
   private readonly trustKey = (event: Event): void => this.trust(event)
   private control: HTMLInputElement | null = null
-  private readonly change = (event: Event): void => {
-    this.trusted ||= event.isTrusted
+  private readonly change = (): void => {
     this.enabled = this.control?.checked === true
     saveSoundEnabled(browserStorage(), this.enabled)
     document.body.dataset['liveSound'] = String(this.enabled)
@@ -38,6 +37,7 @@ export class SceneSound {
     if (this.control) this.control.checked = this.enabled
     document.body.dataset['liveSound'] = String(this.enabled)
     document.addEventListener('pointerdown', this.trustPointer)
+    document.addEventListener('click', this.trustPointer)
     document.addEventListener('keydown', this.trustKey)
     document.addEventListener('visibilitychange', this.visibility)
     window.addEventListener('blur', this.blur)
@@ -52,6 +52,7 @@ export class SceneSound {
   stop(): void { this.view.stop() }
   destroy(): void {
     document.removeEventListener('pointerdown', this.trustPointer)
+    document.removeEventListener('click', this.trustPointer)
     document.removeEventListener('keydown', this.trustKey)
     document.removeEventListener('visibilitychange', this.visibility)
     window.removeEventListener('blur', this.blur)
