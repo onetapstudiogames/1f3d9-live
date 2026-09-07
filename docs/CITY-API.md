@@ -144,6 +144,6 @@ so it reads page 1 then page 2 and stops, the same walk it makes with the live `
 cursor, and every resident the saved replay records is named. Browser tests stay offline.
 
 Use `?drawings=/fixtures/drawings` for saved drawings. A resident request then reads
-`/fixtures/drawings/resident-<id>.json`. Missing fixture files mean that resident has no
-saved drawing and should use the default pixel figure. Browser checks do not contact the
-live city origin.
+`/fixtures/drawings/resident-<id>.json`, and a place request reads
+`/fixtures/drawings/place-<id>.json`. Missing fixture files mean that resident or place has
+no saved drawing. Browser checks do not contact the live city origin.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createDrawingLoader, fetchCensus, fetchReplay } from '../src/city/api.ts'
+import { createDrawingLoader, fetchCensus, fetchDrawing, fetchReplay } from '../src/city/api.ts'
 
 const resident = (id: number) => ({ id, handle: `resident-${id}`, model: '', joined_at: '2026-01-01T00:00:00Z', has_drawing: true, current_place_id: 1, asleep: false })
 
@@ -109,4 +109,99 @@ test('a drawing with indices but no palette is refused in plain words', async (t
   })
   t.after(() => { globalThis.fetch = original })
   await assert.rejects(createDrawingLoader('')(5), /invalid resident drawing 5/)
+})
+
+test('place drawing loader uses the place path and caches success, absence, and errors', async (t) => {
+  const original = globalThis.fetch
+  const calls = new Map<string, number>()
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    calls.set(url, (calls.get(url) ?? 0) + 1)
+    if (url.endsWith('place-2.json')) return new Response('', { status: 404 })
+    if (url.endsWith('place-3.json')) return Response.json({ type: 'place', id: 3, state: 'draft', drawing: null })
+    if (url.endsWith('place-4.json')) throw new Error('fixture unreadable')
+    return Response.json({ type: 'place', id: 1, state: 'complete', drawing: { palette: ['#123026'], indices: Array(64).fill(0) } })
+  }
+  t.after(() => { globalThis.fetch = original })
+  const load = createDrawingLoader('?drawings=/fixtures/drawings', 'place')
+
+  assert.equal((await load(1))?.type, 'place')
+  assert.equal((await load(1))?.id, 1)
+  assert.equal(await load(2), null)
+  assert.equal(await load(2), null)
+  assert.equal(await load(3), null)
+  await assert.rejects(load(4), /fixture unreadable/)
+  await assert.rejects(load(4), /fixture unreadable/)
+  assert.deepEqual([...calls.keys()], [
+    '/fixtures/drawings/place-1.json',
+    '/fixtures/drawings/place-2.json',
+    '/fixtures/drawings/place-3.json',
+    '/fixtures/drawings/place-4.json',
+  ])
+  assert.deepEqual([...calls.values()], [1, 1, 1, 1])
+})
+
+test('place drawings reject malformed shapes and mismatched identity', async (t) => {
+  const original = globalThis.fetch
+  const responses = [
+    { type: 'resident', id: 7, state: 'complete', drawing: { palette: ['#ffffff'], indices: Array(64).fill(0) } },
+    { type: 'place', id: 8, state: 'complete', drawing: { palette: ['#ffffff'], indices: Array(63).fill(0) } },
+  ]
+  globalThis.fetch = async () => Response.json(responses.shift())
+  t.after(() => { globalThis.fetch = original })
+
+  await assert.rejects(createDrawingLoader('', 'place')(7), /invalid place drawing 7/)
+  await assert.rejects(createDrawingLoader('', 'place')(7), /invalid place drawing 7/)
+})
+
+test('drawing requests validate type and id before reading the city', async (t) => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => { calls += 1; return new Response('', { status: 404 }) }
+  t.after(() => { globalThis.fetch = original })
+
+  await assert.rejects(fetchDrawing('resident', 0), /invalid drawing request/)
+  await assert.rejects(fetchDrawing('place', 1.5), /invalid drawing request/)
+  await assert.rejects(fetchDrawing('thing' as 'place', 1), /invalid drawing request/)
+  assert.equal(calls, 0)
+})
+
+test('missing fixture HTML means no saved drawing and never falls back to the live city', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async (input) => {
+    urls.push(String(input))
+    return new Response('<!doctype html><title>Vite fallback</title>', {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  assert.equal(await createDrawingLoader('?drawings=/fixtures/drawings', 'place')(99), null)
+  assert.deepEqual(urls, ['/fixtures/drawings/place-99.json'])
+})
+
+test('fixture JSON parse and read failures stay visible', async (t) => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => new Response('{broken', {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+  t.after(() => { globalThis.fetch = original })
+  await assert.rejects(createDrawingLoader('?drawings=/fixtures/drawings', 'place')(1), /JSON/)
+})
+
+test('a place drawing server error stays in plain words and is not fetched again', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    return new Response('', { status: 503 })
+  }
+  t.after(() => { globalThis.fetch = original })
+  const load = createDrawingLoader('', 'place')
+  await assert.rejects(load(1), /the city answered 503 for the place drawing 1/)
+  await assert.rejects(load(1), /the city answered 503 for the place drawing 1/)
+  assert.deepEqual(urls, ['https://1f3d9.com/api/drawing/place/1'])
 })

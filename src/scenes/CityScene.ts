@@ -9,6 +9,7 @@ import { RoomView } from './RoomView.ts'
 import { ResidentView, addDrawingTexture } from './ResidentView.ts'
 import { nearbyRooms } from '../camera.ts'
 import { sleepingResidents } from '../sleep.ts'
+import { placesWithDrawings } from '../room-art.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -67,6 +68,7 @@ export class CityScene extends Phaser.Scene {
       if (this.sleepers.size) this.readStatus += " Sleep marks use today's census for residents with no recorded activity."
       this.updateHud()
       await this.loadDrawings(census)
+      await this.loadPlaceDrawings()
       document.body.dataset['liveReady'] = censusRead.status === 'fulfilled' ? 'true' : 'error'
       this.updateHud()
     } catch (error) {
@@ -97,6 +99,25 @@ export class CityScene extends Phaser.Scene {
         }
       }))
     }
+  }
+
+  private async loadPlaceDrawings(): Promise<void> {
+    if (!this.layout || !this.replay) return
+    const drawing = createDrawingLoader(undefined, 'place')
+    const ids = placesWithDrawings(this.replay.map.places, this.layout)
+    for (let offset = 0; offset < ids.length; offset += 4) {
+      await Promise.all(ids.slice(offset, offset + 4).map(async id => {
+        try {
+          const art = await drawing(id)
+          if (art) this.rooms?.addDrawing(this, id, art)
+        } catch (error) {
+          console.error(error)
+          const message = 'Some place drawings could not be read; their rooms are kept.'
+          if (!this.readIssues.includes(message)) this.readIssues.push(message)
+        }
+      }))
+    }
+    if (this.fixtureMode) document.body.dataset['livePlaceDrawing'] = String(this.textures.exists('place-1'))
   }
 
   update(_time: number, delta: number): void {
@@ -226,7 +247,7 @@ export class CityScene extends Phaser.Scene {
     const ended = this.clock && this.clock.time >= this.clock.end && !this.residents?.pending
     const failed = document.body.dataset['liveReady'] === 'error'
     const state = failed ? 'Playback is stopped; the last drawn state is kept.' : !this.clock ? ''
-      : document.body.dataset['liveReady'] === 'loading' ? 'Reading resident drawings.'
+      : document.body.dataset['liveReady'] === 'loading' ? 'Reading resident and place drawings.'
       : ended ? 'Replay finished. The live feed is not connected yet.'
       : this.paused ? 'Paused.' : this.residents?.pending ? 'Watching a recorded moment.' : 'The clock runs faster between recorded moments.'
     const issues = [...this.readIssues, ...(this.residents?.issues ?? [])]

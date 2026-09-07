@@ -104,9 +104,14 @@ function drawingUrl(type: 'resident' | 'place', id: number, search: string): str
 }
 
 export async function fetchDrawing(type: 'resident' | 'place', id: number, search: string = browserSearch()): Promise<Drawing | null> {
+  if ((type !== 'resident' && type !== 'place') || !Number.isInteger(id) || id < 1) {
+    throw new Error('invalid drawing request: expected a resident or place and a positive integer id')
+  }
   const response = await fetch(drawingUrl(type, id, search), readOptions())
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`the city answered ${response.status} for the ${type} drawing ${id}`)
+  const fixtureRoot = searchValue(search, 'drawings')
+  if (fixtureRoot && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
   const value = await response.json() as Partial<Drawing>
   if (value.state !== 'complete' || !value.drawing) return null
   const palette = value.drawing.palette
@@ -123,12 +128,15 @@ export async function fetchDrawing(type: 'resident' | 'place', id: number, searc
   return value as Drawing
 }
 
-export function createDrawingLoader(search: string = browserSearch()): (id: number) => Promise<Drawing | null> {
+export function createDrawingLoader(
+  search: string = browserSearch(),
+  type: 'resident' | 'place' = 'resident',
+): (id: number) => Promise<Drawing | null> {
   const cache = new Map<number, Promise<Drawing | null>>()
   return (id: number) => {
     const cached = cache.get(id)
     if (cached) return cached
-    const pending = fetchDrawing('resident', id, search)
+    const pending = fetchDrawing(type, id, search)
     cache.set(id, pending)
     return pending
   }
