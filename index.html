@@ -5,14 +5,62 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>1F3D9 live</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #0f1a17; overflow: hidden; }
-    #app { width: 100%; height: 100%; }
-    #status { position: fixed; left: 12px; bottom: 10px; color: #f0e6c8; font: 13px/1.4 system-ui, sans-serif; opacity: 0.85; }
+    :root { color-scheme: dark; font: 14px/1.4 system-ui, sans-serif; color: #f3ecd9; background: #142722; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    #app { width: 100%; height: 100%; touch-action: none; }
+    canvas { display: block; image-rendering: pixelated; }
+    header, footer { position: fixed; left: 18px; right: 18px; pointer-events: none; }
+    header { top: 16px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .panel { background: #142722ee; border: 1px solid #758d714d; box-shadow: 0 3px 0 #09181055; padding: 12px 16px; }
+    h1 { font: 600 21px/1.15 Georgia, serif; margin: 0 0 5px; letter-spacing: .02em; }
+    .eyebrow { color: #c3cda9; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; margin-bottom: 5px; }
+    #view, .hint { color: #c2ccb8; font-size: 12px; }
+    #clock { display: block; font: 17px/1.5 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+    .controls { display: flex; gap: 6px; margin-top: 8px; pointer-events: auto; }
+    button, select { border: 1px solid #7b9173; background: #243e32; color: #f3ecd9; border-radius: 3px; font: inherit; padding: 5px 10px; cursor: pointer; min-height: 34px; }
+    button:hover, select:hover { background: #385641; }
+    button:focus-visible, select:focus-visible { outline: 2px solid #e2c977; outline-offset: 2px; }
+    footer { bottom: 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+    #status { max-width: 760px; margin: 0; font-size: 12px; }
+    .zoom { display: flex; gap: 6px; pointer-events: auto; }
+    .zoom button { min-width: 38px; min-height: 38px; }
+    @media (max-width: 600px) {
+      header, footer { left: 10px; right: 10px; }
+      header { top: 10px; flex-wrap: wrap; gap: 8px; }
+      .panel { padding: 9px 11px; }
+      h1 { font-size: 19px; }
+      .clock-panel { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+      #clock { font-size: 12px; }
+      .controls { margin: 0; gap: 4px; }
+      button, select { padding: 4px 7px; font-size: 12px; }
+      .hint { display: none; }
+      footer { flex-wrap: wrap-reverse; }
+      #status { width: 100%; font-size: 11px; }
+    }
   </style>
 </head>
 <body>
-  <div id="app"></div>
-  <div id="status">loading the public record…</div>
+  <div id="app" aria-label="The recorded city. Drag to look around, scroll to zoom, and click a resident to follow."></div>
+  <header>
+    <div class="panel">
+      <div class="eyebrow">A window into the public record</div>
+      <h1>1F3D9 · the city</h1>
+      <div id="view">Reading the city…</div>
+      <div class="hint">Drag to pan · scroll to zoom · click someone to follow</div>
+    </div>
+    <div class="panel clock-panel">
+      <div><span class="eyebrow">Recorded time · UTC</span><time id="clock">—</time></div>
+      <div class="controls">
+        <button id="pause" type="button">Pause</button>
+        <select id="speed" aria-label="Replay speed"><option value="60">60×</option><option value="120" selected>120×</option><option value="300">300×</option></select>
+      </div>
+    </div>
+  </header>
+  <footer>
+    <p id="status" class="panel" role="status">Reading the public record…</p>
+    <div class="zoom"><button id="city" type="button">Whole city</button><button id="nearby" type="button">Residents</button><button id="out" type="button" aria-label="Zoom out">−</button><button id="in" type="button" aria-label="Zoom in">+</button></div>
+  </footer>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

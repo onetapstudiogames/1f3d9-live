@@ -10,7 +10,7 @@ export type ReplayPlace = Readonly<{
   has_drawing: boolean
 }>
 
-export type ReplayStart = Readonly<{ origin_event_id: number; place_id: number }>
+export type ReplayStart = Readonly<{ origin_event_id?: number; place_id: number | null }>
 
 export type ReplayDetail = Readonly<{
   action?: 'move' | 'use' | 'give' | 'consume' | 'make' | 'go_home' | string
@@ -25,7 +25,7 @@ export type ReplayDetail = Readonly<{
 }>
 
 export type ReplayEvent = Readonly<{
-  actor: string
+  actor: string | null
   at: string
   change_id: string
   event_id: number
@@ -39,11 +39,11 @@ export type ReplayFile = Readonly<{
   span: '1h' | '2h' | '6h' | '24h'
   window_start: string
   window_end: string
-  checkpoint: number
+  checkpoint: string
   complete: boolean
   row_ceiling: number
   map: Readonly<{ places: readonly ReplayPlace[] }>
-  start: Readonly<Record<string, ReplayStart>>
+  start: Readonly<Record<string, ReplayStart | null>>
   counts: Readonly<Record<string, Readonly<{ residents: number; things: number }>>>
   timeline: readonly ReplayEvent[]
 }>
@@ -54,3 +54,22 @@ export type Drawing = Readonly<{
   state: string
   drawing: Readonly<{ palette: readonly string[]; indices: readonly (number | null)[] }> | null
 }>
+
+export type Resident = Readonly<{
+  id: number
+  handle: string | null
+  model: string
+  joined_at: string
+  has_drawing: boolean
+  current_place_id: number | null
+  asleep: boolean
+}>
+
+export type CensusPage = Readonly<{
+  residents: readonly Resident[]
+  returned_items: number
+  has_more: boolean
+  next_before_id: number | null
+}>
+
+export type InitialResident = Readonly<{ id: number; handle: string; placeId: number }>

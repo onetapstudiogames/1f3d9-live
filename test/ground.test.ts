@@ -1,123 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {
-  stageBuildCorridorGraph,
-  stageChildPlaces,
-  stageExpandedGroundLayout,
-  stageFindFreeSpots,
-  stageQuietRoom,
-  stageRoomLayout,
-  stageShortestPath,
-  stageStandingRoomHeight,
-} from '../src/ground/stage-ground.ts'
+import { readFile } from 'node:fs/promises'
+import { stageFindFreeSpots } from '../src/ground/stage-ground.ts'
+import { nestedLayout, type Place, type Room } from '../src/ground/nested.ts'
+import { pointAlongPath, walkPath } from '../src/ground/path.ts'
 
-// Ported from the city's test/window-live-client.test.ts on branch feat/live-stage-ground.
-// If a case below references a helper this file does not define, port it from that file.
+const overlaps = (a: Room, b: Room): boolean => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
-test('room ground is append-stable and a founded room takes fresh parent-edge ground', () => {
-  const places = Object.freeze([
-    Object.freeze({ id: 1, parent_id: null, name: 'the square' }),
-    Object.freeze({ id: 4, parent_id: 1, name: 'first room' }),
-    Object.freeze({ id: 9, parent_id: 1, name: 'second room' }),
-  ])
-  const founded = Object.freeze([...places,
-    Object.freeze({ id: 21, parent_id: 1, name: 'founded room' })])
-  const before = stageRoomLayout(places, 1)
-  const after = stageRoomLayout(founded, 1)
-
-  assert.deepEqual(stageChildPlaces(places, 1).map(place => place.id), [4, 9])
-  assert.deepEqual(after.rooms['4'], before.rooms['4'], 'room 4 rectangle must not move')
-  assert.deepEqual(after.rooms['9'], before.rooms['9'], 'room 9 rectangle must not move')
-  assert.ok(after.rooms['21'], 'founded room 21 must receive a rectangle')
-  assert.equal(after.rooms['21']?.door.side, 'left', 'founded room door faces its parent corridor')
-  assert.deepEqual(places.map(place => place.id), [1, 4, 9], 'layout must not mutate the map seed')
+test('free spots remain deterministic salvage', () => {
+  const entries = Object.freeze(Array.from({ length: 3 }, (_, index) => Object.freeze({ key: `resident:${String(index)}`, kind: 'resident' as const })))
+  const room = Object.freeze({ x: 0, y: 0, width: 240, height: 190 })
+  const first = stageFindFreeSpots(entries, room)
+  assert.deepEqual(stageFindFreeSpots(Object.freeze([...entries].reverse()), room), first)
+  assert.equal(Object.keys(first).length, entries.length)
 })
 
-test('room ground retains coordinates through removal, return, and lower-id founding', () => {
-  const parent = Object.freeze({ id: 1, parent_id: null, name: 'the square' })
-  const room4 = Object.freeze({ id: 4, parent_id: 1, name: 'first room' })
-  const room9 = Object.freeze({ id: 9, parent_id: 1, name: 'second room' })
-  const opening = stageRoomLayout(Object.freeze([parent, room4, room9]), 1)
-  assert.deepEqual(stageRoomLayout(Object.freeze([room9, parent, room4]), 1), opening,
-    'the first survey must be deterministic regardless of input order')
-  const afterRemoval = stageRoomLayout(
-    Object.freeze([parent, room9]), 1, Object.freeze([]), opening.rooms)
-
-  assert.deepEqual(afterRemoval.rooms['9'], opening.rooms['9'],
-    'removing an earlier room must not shift a surviving room')
-
-  const lateRoom = Object.freeze({ id: 2, parent_id: 1, name: 'late lower-id room' })
-  const afterFounding = stageRoomLayout(
-    Object.freeze([parent, lateRoom, room9]), 1, Object.freeze([]), opening.rooms)
-  assert.deepEqual(afterFounding.rooms['9'], opening.rooms['9'],
-    'a late lower id must not shift an existing room')
-  assert.notDeepEqual(afterFounding.rooms['2'], opening.rooms['4'],
-    'a new room must not reuse a missing room coordinate')
-
-  const roomHistory = Object.freeze({ ...opening.rooms, ...afterFounding.rooms })
-  const afterReturn = stageRoomLayout(
-    Object.freeze([parent, lateRoom, room4, room9]), 1, Object.freeze([]), roomHistory)
-  assert.deepEqual(afterReturn.rooms['4'], opening.rooms['4'],
-    'a returning room must reclaim its historical coordinate')
-  assert.deepEqual(afterReturn.rooms['9'], opening.rooms['9'])
-  assert.deepEqual(afterReturn.rooms['2'], afterFounding.rooms['2'])
-})
-
-test('a full room takes fresh parent-edge standing ground without moving room boxes', () => {
-  const places = Object.freeze([
-    Object.freeze({ id: 1, parent_id: null, name: 'the square' }),
-    Object.freeze({ id: 4, parent_id: 1, name: 'first room' }),
-    Object.freeze({ id: 9, parent_id: 1, name: 'second room' }),
-  ])
-  const layout = stageRoomLayout(places, 1)
-  const before = structuredClone(layout.rooms)
-  const expansions = Object.freeze([
-    Object.freeze({ id: 4, residentHeight: 896, thingHeight: 320 }),
-    Object.freeze({ id: 9, residentHeight: 0, thingHeight: 320 }),
-  ])
-  const expanded = stageExpandedGroundLayout(Object.values(layout.rooms), expansions)
-
-  assert.deepEqual(layout.rooms, before, 'allocating standing ground must not move a room box')
-  const fixed = Object.values(layout.rooms).map(room => ({
-    id: String(room.id), x: room.x, y: room.y, width: room.width, height: room.height + 64,
-  }))
-  const regions = Object.entries(expanded.grounds).flatMap(([id, ground]) =>
-    ground.regions.map((region, index) => ({ id: `${id}:${index}`, ...region })))
-  for (const region of regions) {
-    assert.ok(region.y + region.height <= expanded.height,
-      `${region.id} must fit inside height ${expanded.height}: ${JSON.stringify(region)}`)
-    for (const obstacle of [...fixed, ...regions.filter(other => other.id < region.id)]) {
-      const overlaps = region.x < obstacle.x + obstacle.width &&
-        region.x + region.width > obstacle.x &&
-        region.y < obstacle.y + obstacle.height &&
-        region.y + region.height > obstacle.y
-      assert.equal(overlaps, false,
-        `${region.id} ${JSON.stringify(region)} must clear ${obstacle.id} ${JSON.stringify(obstacle)}`)
-    }
-  }
-
-  const founded = stageRoomLayout(Object.freeze([
-    ...places,
-    Object.freeze({ id: 21, parent_id: 1, name: 'founded room' }),
-  ]), 1, Object.freeze(regions))
-  assert.deepEqual(founded.rooms['4'], layout.rooms['4'])
-  assert.deepEqual(founded.rooms['9'], layout.rooms['9'])
-  const foundedRoom = founded.rooms['21']!
-  for (const region of regions) {
-    const overlaps = foundedRoom.x < region.x + region.width &&
-      foundedRoom.x + foundedRoom.width > region.x &&
-      foundedRoom.y < region.y + region.height &&
-      foundedRoom.y + foundedRoom.height > region.y
-    assert.equal(overlaps, false,
-      `founded room ${JSON.stringify(foundedRoom)} must not move ${region.id} ${JSON.stringify(region)}`)
-  }
-  const retained = stageExpandedGroundLayout(
-    Object.values(founded.rooms), expansions, expanded.grounds)
-  assert.deepEqual(retained.grounds, expanded.grounds,
-    'founding must retain every allocated extension rectangle')
-})
-
-test('resident arrivals choose id-deterministic free standing spots without a cell assignment', () => {
+test('free positions stay continuous and retain a moved presentation spot', () => {
   const room = Object.freeze({ x: 0, y: 0, width: 220, height: 180 })
   const entries = Object.freeze([
     Object.freeze({ key: 'resident:19', kind: 'resident' as const }),
@@ -125,178 +23,168 @@ test('resident arrivals choose id-deterministic free standing spots without a ce
     Object.freeze({ key: 'resident:2', kind: 'resident' as const }),
   ])
   const opening = stageFindFreeSpots(entries, room)
-  const reloaded = stageFindFreeSpots(Object.freeze([...entries].reverse()), room)
-  const arrivedWithHistory = stageFindFreeSpots(Object.freeze([
-    ...entries,
-    Object.freeze({ key: 'resident:11', kind: 'resident' as const }),
-  ]), room, opening)
-  const otherIdWithSameFreeSpots = stageFindFreeSpots(Object.freeze([
-    ...entries,
-    Object.freeze({ key: 'resident:12', kind: 'resident' as const }),
-  ]), room, opening)
-  const movedPresentation = Object.freeze({
+  const moved = Object.freeze({
     ...opening,
     'resident:19': Object.freeze({ ...opening['resident:19']!, x: 90, y: 100 }),
   })
-  const retainedPresentation = stageFindFreeSpots(entries, room, movedPresentation)
-  const edgeSpot = Object.freeze({
-    key: 'resident:1', kind: 'resident' as const, x: 16, y: 16, width: 32, height: 32,
-  })
-  const retainedEdgeSpot = stageFindFreeSpots(Object.freeze([
-    Object.freeze({ key: 'resident:1', kind: 'resident' as const }),
-  ]), room, Object.freeze({ 'resident:1': edgeSpot }))
+  const retained = stageFindFreeSpots(entries, room, moved)
+  assert.deepEqual(retained['resident:19'], moved['resident:19'])
+  assert.ok(Object.values(opening).some(spot => spot.x % 48 !== 16 || spot.y % 48 !== 16),
+    'new arrivals choose continuous coordinates rather than assigned cells')
+  assert.ok(Object.values(retained).every(spot => !('row' in spot) && !('column' in spot)))
+})
 
-  assert.deepEqual(reloaded, opening, 'reload placement must depend on ids, not input order')
-  assert.notDeepEqual(arrivedWithHistory['resident:11'], otherIdWithSameFreeSpots['resident:12'],
-    'different arriving ids must choose from the same free spots differently')
-  assert.deepEqual(retainedPresentation['resident:19'], movedPresentation['resident:19'],
-    'a free presentation position must not snap back to a hidden cell')
-  assert.deepEqual(retainedEdgeSpot['resident:1'], edgeSpot,
-    'half a sprite of edge clearance is a valid occupied position')
-  for (const key of Object.keys(opening)) {
-    assert.deepEqual(arrivedWithHistory[key], opening[key],
-      `${key} must remain occupied while resident 11 arrives`)
-  }
-  assert.deepEqual(entries.map(entry => entry.key), ['resident:19', 'thing:7', 'resident:2'])
-  assert.ok(Object.values(arrivedWithHistory).every(spot =>
-    !('row' in spot) && !('column' in spot)), 'standing spots must not expose a cell grid')
-
-  const spots = Object.values(arrivedWithHistory)
-  for (const [index, left] of spots.entries()) {
-    assert.ok(left.x >= room.x && left.y >= room.y &&
-      left.x + left.width <= room.x + room.width &&
-      left.y + left.height <= room.y + room.height,
-    `${left.key} ${JSON.stringify(left)} must stay inside ${JSON.stringify(room)}`)
-    for (const right of spots.slice(index + 1)) {
-      const overlapsWithClearance = left.x < right.x + right.width + 16 &&
-        left.x + left.width + 16 > right.x &&
-        left.y < right.y + right.height + 16 &&
-        left.y + left.height + 16 > right.y
-      assert.equal(overlapsWithClearance, false,
-        `${left.key} ${JSON.stringify(left)} must clear ${right.key} ${JSON.stringify(right)}`)
+test('nested layout keeps children inside parents without sibling overlap', () => {
+  const places: readonly Place[] = Object.freeze([
+    { id: 1, parent_id: null, name: 'world', quiet: false }, { id: 2, parent_id: 1, name: 'north', quiet: false },
+    { id: 3, parent_id: 1, name: 'south', quiet: true }, { id: 4, parent_id: 2, name: 'deep', quiet: false },
+    { id: 5, parent_id: 2, name: 'deep two', quiet: false },
+  ])
+  const layout = nestedLayout(places, Object.freeze({ 2: 17 }))
+  assert.equal(layout.rootId, 1)
+  assert.deepEqual(layout.rooms[1]?.children, [2, 3])
+  assert.equal(layout.rooms[3]?.quiet, true)
+  assert.ok((layout.rooms[2]?.standing.height ?? 0) >= 90)
+  assert.deepEqual(places.map(place => place.id), [1, 2, 3, 4, 5])
+  for (const parent of Object.values(layout.rooms)) {
+    const children = parent.children.map(id => layout.rooms[id]!)
+    for (const [index, child] of children.entries()) {
+      assert.ok(child.x >= parent.x && child.y >= parent.y && child.x + child.width <= parent.x + parent.width && child.y + child.height <= parent.y + parent.height)
+      assert.equal(child.door.y, child.y + child.height)
+      for (const sibling of children.slice(index + 1)) assert.equal(overlaps(child, sibling), false)
     }
   }
 })
 
-test('thing spots stay fixed while residents leave and arrive', () => {
-  const room = Object.freeze({ x: 12, y: 20, width: 220, height: 180 })
-  const opening = stageFindFreeSpots(Object.freeze([
-    Object.freeze({ key: 'resident:2', kind: 'resident' as const }),
-    Object.freeze({ key: 'thing:7', kind: 'thing' as const }),
-    Object.freeze({ key: 'resident:19', kind: 'resident' as const }),
-  ]), room)
-  const changed = stageFindFreeSpots(Object.freeze([
-    Object.freeze({ key: 'thing:7', kind: 'thing' as const }),
-    Object.freeze({ key: 'resident:31', kind: 'resident' as const }),
-  ]), room, opening)
-
-  assert.deepEqual(changed['thing:7'], opening['thing:7'])
-  assert.ok(changed['resident:31'])
-  assert.equal(changed['resident:2'], undefined)
-  assert.equal(changed['resident:19'], undefined)
-
-  const extension = Object.freeze({ x: 12, y: 240, width: 220, height: 180 })
-  const extendedThing = Object.freeze({
-    key: 'thing:7', kind: 'thing' as const, x: 40, y: 268, width: 32, height: 32,
-  })
-  const extended = stageFindFreeSpots(Object.freeze([
-    Object.freeze({ key: 'thing:7', kind: 'thing' as const }),
-    Object.freeze({ key: 'resident:31', kind: 'resident' as const }),
-  ]), room, Object.freeze({ 'thing:7': extendedThing }), Object.freeze([extension]))
-  assert.deepEqual(extended['thing:7'], extendedThing,
-    'a thing on prior extension ground must not move when the room grows')
-})
-
-test('a genuinely full room grows enough for every free standing spot', () => {
-  const entries = Object.freeze(Array.from({ length: 167 }, (_, index) => Object.freeze({
-    key: `resident:${String(index + 1)}`,
-    kind: 'resident' as const,
-  })))
-  const width = 440
-  const height = stageStandingRoomHeight(width, entries.length, 280)
-  const movedResident = Object.freeze({
-    key: 'resident:1', kind: 'resident' as const, x: 50, y: 52, width: 32, height: 32,
-  })
-  const spots = stageFindFreeSpots(
-    entries,
-    Object.freeze({ x: 0, y: 0, width, height }),
-    Object.freeze({ 'resident:1': movedResident }),
-  )
-  const ordinaryEntries = Object.freeze(entries.slice(0, 25))
-  const ordinaryRoom = Object.freeze({ x: 0, y: 0, width, height: 280 })
-  const ordinarySpots = stageFindFreeSpots(ordinaryEntries, ordinaryRoom)
-  const crowdedEntries = Object.freeze(entries.slice(0, 30))
-  const crowdedBase = stageFindFreeSpots(crowdedEntries, ordinaryRoom)
-  const missingCount = crowdedEntries.length - Object.keys(crowdedBase).length
-  const extensionHeight = stageStandingRoomHeight(width, missingCount, 64) + 64
-  const grownSpots = stageFindFreeSpots(crowdedEntries, ordinaryRoom, Object.freeze({}),
-    Object.freeze([{ x: 0, y: 360, width, height: extensionHeight }]))
-
-  assert.equal(stageStandingRoomHeight(width, 15, 280), 280,
-    'eight residents and seven things must fit the ordinary room')
-  assert.equal(Object.keys(ordinarySpots).length, ordinaryEntries.length,
-    'a room with actual free coordinates must not grow from a conservative count estimate')
-  assert.ok(missingCount > 0, 'the crowded room must exhaust its actual free coordinates')
-  assert.equal(Object.keys(grownSpots).length, crowdedEntries.length,
-    'the missing occupants must fit the appended ground')
-  assert.ok(height > 280, `full room height stayed ${String(height)}`)
+test('standing floor fits every declared occupant with spare choices', () => {
+  const layout = nestedLayout([{ id: 1, parent_id: null, name: 'world', quiet: false }], { 1: 50 })
+  const entries = Object.freeze(Array.from({ length: 50 }, (_, index) => Object.freeze({ key: `resident:${String(index)}`, kind: 'resident' as const })))
+  const spots = stageFindFreeSpots(entries, layout.rooms[1]!.standing)
   assert.equal(Object.keys(spots).length, entries.length)
-  assert.deepEqual(spots['resident:1'], movedResident)
-  assert.ok(Object.values(spots).every(spot =>
-    spot.x >= 0 && spot.y >= 0 &&
-    spot.x + spot.width <= width && spot.y + spot.height <= height))
 })
 
-test('corridor shortest paths use door and corner nodes and avoid a third room', () => {
-  const layout = stageRoomLayout(Object.freeze([
-    Object.freeze({ id: 1, parent_id: null, name: 'parent' }),
-    Object.freeze({ id: 2, parent_id: 1, name: 'north' }),
-    Object.freeze({ id: 3, parent_id: 1, name: 'middle' }),
-    Object.freeze({ id: 4, parent_id: 1, name: 'founded south' }),
-  ]), 1)
-  const graph = stageBuildCorridorGraph(Object.values(layout.rooms))
-  const route = stageShortestPath(graph, '2', '4')
+test('real, wide, and depth-16 maps remain finite and compact', async () => {
+  const replay = JSON.parse(await readFile(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as { map: { places: readonly Place[] } }
+  const real = nestedLayout(replay.map.places)
+  assert.equal(Object.keys(real.rooms).length, replay.map.places.length)
+  assert.ok(real.width > 0 && real.height > 0 && real.width < 1_000_000 && real.height < 1_000_000)
+  const wide: Place[] = [{ id: 1, parent_id: null, name: 'root', quiet: false }]
+  for (let id = 2; id <= 226; id += 1) wide.push({ id, parent_id: 1, name: String(id), quiet: false })
+  const wideLayout = nestedLayout(wide)
+  assert.ok(wideLayout.width / wideLayout.height < 4 && wideLayout.height / wideLayout.width < 4)
+  const deep: Place[] = [{ id: 1, parent_id: null, name: 'root', quiet: false }]
+  for (let id = 2; id <= 16; id += 1) deep.push({ id, parent_id: id - 1, name: String(id), quiet: false })
+  const deepLayout = nestedLayout(deep)
+  assert.equal(deepLayout.rooms[16]?.depth, 15)
+  assert.ok(Number.isFinite(deepLayout.width + deepLayout.height))
+})
 
-  assert.equal(graph.roomDoors['4'], 'door:4', 'the founded room door must join the graph')
-  assert.equal(route[0]?.id, 'door:2', `route start was ${JSON.stringify(route[0])}`)
-  assert.equal(route.at(-1)?.id, 'door:4', `route end was ${JSON.stringify(route.at(-1))}`)
-  assert.ok(route.every(node => node.kind === 'door' || node.kind === 'corner'),
-    `route used only corridor nodes: ${JSON.stringify(route)}`)
-  const middle = layout.rooms['3']!
-  for (const [index, from] of route.entries()) {
-    const to = route[index + 1]
-    if (!to) continue
-    const verticalCrossing = from.x > middle.x && from.x < middle.x + middle.width &&
-      to.x > middle.x && to.x < middle.x + middle.width &&
-      Math.min(from.y, to.y) < middle.y + middle.height &&
-      Math.max(from.y, to.y) > middle.y
-    const horizontalCrossing = from.y > middle.y && from.y < middle.y + middle.height &&
-      to.y > middle.y && to.y < middle.y + middle.height &&
-      Math.min(from.x, to.x) < middle.x + middle.width &&
-      Math.max(from.x, to.x) > middle.x
-    assert.equal(verticalCrossing || horizontalCrossing, false,
-      `${from.id} ${JSON.stringify(from)} -> ${to.id} ${JSON.stringify(to)} crossed room 3 ${JSON.stringify(middle)}`)
+test('layout rejects maps that cannot form one tree', () => {
+  assert.throws(() => nestedLayout([]), /root/i)
+  assert.throws(() => nestedLayout([{ id: 1, parent_id: null, name: 'one', quiet: false }, { id: 2, parent_id: null, name: 'two', quiet: false }]), /one root/i)
+  assert.throws(() => nestedLayout([{ id: 1, parent_id: null, name: 'one', quiet: false }, { id: 2, parent_id: 99, name: 'lost', quiet: false }]), /parent/i)
+})
+
+const crosses = (a: { x: number; y: number }, b: { x: number; y: number }, room: Room): boolean => {
+  if (a.x === b.x) return a.x > room.x && a.x < room.x + room.width && Math.max(Math.min(a.y, b.y), room.y) < Math.min(Math.max(a.y, b.y), room.y + room.height)
+  if (a.y === b.y) return a.y > room.y && a.y < room.y + room.height && Math.max(Math.min(a.x, b.x), room.x) < Math.min(Math.max(a.x, b.x), room.x + room.width)
+  return true
+}
+
+test('walk paths cross each tree-edge door and avoid unrelated rooms', () => {
+  const layout = nestedLayout([
+    { id: 1, parent_id: null, name: 'world', quiet: false }, { id: 2, parent_id: 1, name: 'a', quiet: false },
+    { id: 3, parent_id: 1, name: 'b', quiet: false }, { id: 4, parent_id: 2, name: 'deep', quiet: false },
+    { id: 5, parent_id: 3, name: 'other deep', quiet: false }, { id: 6, parent_id: 1, name: 'obstacle', quiet: false },
+  ])
+  const start = { x: layout.rooms[4]!.standing.x + 8, y: layout.rooms[4]!.standing.y + 8 }
+  const end = { x: layout.rooms[5]!.standing.x + 8, y: layout.rooms[5]!.standing.y + 8 }
+  const path = walkPath(layout, 4, 5, start, end)
+  assert.deepEqual(path[0], start)
+  assert.deepEqual(path.at(-1), end)
+  for (const id of [4, 2, 3, 5]) assert.ok(path.some(point => point.x === layout.rooms[id]!.door.x && point.y === layout.rooms[id]!.door.y), `missing door ${String(id)}`)
+  for (let index = 1; index < path.length; index += 1) assert.equal(crosses(path[index - 1]!, path[index]!, layout.rooms[6]!), false)
+})
+
+test('every recorded applied move follows actual tree doors without entering sibling rooms', async () => {
+  const replay = JSON.parse(await readFile(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as {
+    map: { places: readonly Place[] }
+    timeline: readonly { actor: string; detail?: { action?: string; status?: string; from_place_id?: number; to_place_id?: number } }[]
+  }
+  const layout = nestedLayout(replay.map.places)
+  const ancestors = (id: number): number[] => {
+    const result: number[] = []
+    let room = layout.rooms[id]
+    while (room) {
+      result.push(room.id)
+      room = room.parentId === null ? undefined : layout.rooms[room.parentId]
+    }
+    return result
+  }
+  let routed = 0
+  let homes = 0
+  for (const event of replay.timeline) {
+    const detail = event.detail
+    if (detail?.status !== 'applied' || (detail.action !== 'move' && detail.action !== 'go_home') ||
+      detail.from_place_id === undefined || detail.to_place_id === undefined) continue
+    const from = layout.rooms[detail.from_place_id]!
+    const to = layout.rooms[detail.to_place_id]!
+    const fromAncestors = ancestors(from.id)
+    const toAncestors = ancestors(to.id)
+    const lca = fromAncestors.find(id => toAncestors.includes(id))!
+    const entered = new Set([...fromAncestors, ...toAncestors])
+    const crossedRooms = [
+      ...fromAncestors.slice(0, fromAncestors.indexOf(lca)),
+      ...toAncestors.slice(0, toAncestors.indexOf(lca)),
+    ]
+    const start = { x: from.standing.x + from.standing.width * 0.73, y: from.standing.y + from.standing.height * 0.61 }
+    const end = { x: to.standing.x + to.standing.width * 0.31, y: to.standing.y + to.standing.height * 0.42 }
+    const path = walkPath(layout, from.id, to.id, start, end)
+    for (const id of crossedRooms) assert.ok(path.some(point => point.x === layout.rooms[id]!.door.x && point.y === layout.rooms[id]!.door.y), `${detail.action} ${String(from.id)}→${String(to.id)} skipped door ${String(id)}`)
+    for (let index = 1; index < path.length; index += 1) {
+      for (const room of Object.values(layout.rooms)) {
+        if (!entered.has(room.id)) assert.equal(crosses(path[index - 1]!, path[index]!, room), false, `${detail.action} ${String(from.id)}→${String(to.id)} entered sibling ${String(room.id)}`)
+      }
+    }
+    routed += 1
+    if (detail.action === 'go_home') homes += 1
+  }
+  assert.ok(routed > 100)
+  assert.ok(homes > 0)
+})
+
+test('fixture visitor capacities place everyone without collision or omission', async () => {
+  const replay = JSON.parse(await readFile(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as {
+    map: { places: readonly Place[] }
+    start: Readonly<Record<string, { place_id: number }>>
+    timeline: readonly { actor: string; detail?: { action?: string; status?: string; to_place_id?: number } }[]
+  }
+  const visitors = new Map<number, Set<string>>()
+  const visit = (placeId: number, key: string): void => {
+    visitors.set(placeId, new Set([...(visitors.get(placeId) ?? []), key]))
+  }
+  for (const [key, state] of Object.entries(replay.start)) if (key.startsWith('resident:')) visit(state.place_id, key)
+  for (const event of replay.timeline) {
+    if (event.detail?.status === 'applied' && (event.detail.action === 'move' || event.detail.action === 'go_home') && event.detail.to_place_id !== undefined) visit(event.detail.to_place_id, `actor:${event.actor}`)
+  }
+  const capacities = Object.freeze(Object.fromEntries([...visitors].map(([id, keys]) => [id, keys.size])))
+  const layout = nestedLayout(replay.map.places, capacities)
+  for (const [id, keys] of visitors) {
+    const room = layout.rooms[id]
+    if (!room) continue
+    const entries = Object.freeze([...keys].map(key => Object.freeze({ key, kind: 'resident' as const })))
+    const spots = Object.values(stageFindFreeSpots(entries, room.standing))
+    assert.equal(spots.length, entries.length, `place ${String(id)} omitted a visitor`)
+    for (const [index, left] of spots.entries()) for (const right of spots.slice(index + 1)) {
+      assert.equal(left.x < right.x + right.width + 16 && left.x + left.width + 16 > right.x && left.y < right.y + right.height + 16 && left.y + left.height + 16 > right.y, false, `place ${String(id)} overlaps ${left.key} and ${right.key}`)
+    }
   }
 })
 
-// One salvaged case, 'expanded-room replay endpoints attach to the ordered corridor rail', depended on the
-// old DOM client (PART_24) and was left out; the corridor math it covered is exercised by the cases above.
-
-test('quiet room ground exposes identity and exact counts but no occupied spots', () => {
-  const box = Object.freeze({
-    id: '7', parentId: '1', x: 20, y: 30, width: 220, height: 180,
-    door: Object.freeze({ x: 20, y: 120, side: 'left' as const }),
-  })
-  const quiet = stageQuietRoom(Object.freeze({
-    id: 7, name: 'the library', owner: 'mira', quiet: true,
-    counts: Object.freeze({ residents: 12, things: 8 }),
-  }), box)
-
-  assert.deepEqual(quiet, Object.freeze({
-    box,
-    name: 'the library',
-    owner: 'mira',
-    counts: Object.freeze({ residents: 12, things: 8 }),
-    spots: Object.freeze([]),
-  }))
+test('pointAlongPath uses distance, direction, and boundaries', () => {
+  const path = Object.freeze([{ x: 0, y: 0 }, { x: 0, y: 10 }, { x: -10, y: 10 }])
+  assert.deepEqual(pointAlongPath(path, 0), { x: 0, y: 0, flipX: false, done: false })
+  assert.deepEqual(pointAlongPath(path, 0.75), { x: -5, y: 10, flipX: true, done: false })
+  assert.deepEqual(pointAlongPath(path, 1), { x: -10, y: 10, flipX: true, done: true })
+  assert.deepEqual(pointAlongPath([], 0.5), { x: 0, y: 0, flipX: false, done: true })
 })
