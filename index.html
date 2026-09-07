@@ -30,9 +30,12 @@
     #follow-menu select { margin-top: 6px; }
     #follow-state { color: #c2ccb8; font-size: 12px; white-space: nowrap; }
     footer { bottom: 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
-    #status { max-width: 760px; margin: 0; font-size: 12px; }
+    #status { max-width: 760px; max-height: 25vh; overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; margin: 0; font-size: 12px; }
     .zoom { display: flex; gap: 6px; pointer-events: auto; }
     .zoom button { min-width: 38px; min-height: 38px; }
+    #minimap { position: absolute; right: 0; top: calc(100% + 8px); padding: 7px; pointer-events: auto; }
+    #minimap[hidden] { display: none; }
+    #minimap-canvas { width: auto; max-width: 160px; height: auto; max-height: 100px; background: #0b1714; cursor: crosshair; }
     @media (max-width: 600px) {
       header, footer { left: 10px; right: 10px; }
       header { top: 10px; flex-wrap: wrap; gap: 8px; }
@@ -45,6 +48,7 @@
       .clock-panel { flex-wrap: wrap; }
       .clock-panel .controls { width: 100%; }
       #follow-menu { position: fixed; top: 126px; left: 10px; right: 10px; width: auto; }
+      #minimap-canvas { max-width: 130px; max-height: 90px; }
       .hint { display: none; }
       footer { flex-wrap: wrap-reverse; }
       #status { width: 100%; font-size: 11px; }
@@ -75,8 +79,10 @@
           </div>
         </div>
         <span id="follow-state"></span><button id="follow-stop" type="button" hidden>Stop</button>
+        <button id="minimap-toggle" type="button" aria-expanded="true">Hide map</button>
       </div>
     </div>
+    <aside id="minimap" class="panel" aria-label="City minimap"><canvas id="minimap-canvas" aria-label="Click the minimap to move the city view"></canvas></aside>
   </header>
   <footer>
     <p id="status" class="panel" role="status">Reading the public record…</p>

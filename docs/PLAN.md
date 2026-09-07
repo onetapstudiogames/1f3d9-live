@@ -92,6 +92,8 @@ Talking and society
 Watching
 
 13. Click any figure to follow; the camera glides. A minimap in the corner.
+    Implemented: the crisp minimap shows recorded room outlines, the followed figure and current view;
+    it navigates on click and can hide on a phone. Follow keeps an acquired figure inside the view.
 14. Director mode: the camera picks the busiest room on its own and drifts between scenes
     (the stream and screensaver mode).
 15. Sound, off by default: soft footsteps, a bubble pop, a chime when a place is founded.
