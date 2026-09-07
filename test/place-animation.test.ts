@@ -4,7 +4,7 @@ import { nestedLayout, type Room } from '../src/ground/nested.ts'
 import { createClock } from '../src/replay/index.ts'
 import {
   advanceToPlaceMoment, animationProgress, brickCount, contentHiddenRooms,
-  placeAnimation, signScale, stepPlaceAnimations, wallBricks,
+  placeAnimation, placeAnimationsByKind, signScale, stepPlaceAnimations, wallBricks,
 } from '../src/place-animation.ts'
 
 function room(door: Room['door'], quiet = false): Room {
@@ -57,6 +57,16 @@ test('active animations expire and incoming change ids are deduplicated', () => 
   assert.deepEqual(stepPlaceAnimations([old], [old, fresh], 100), [old, fresh])
   assert.deepEqual(stepPlaceAnimations([old], [old], 10_000), [old])
   assert.deepEqual(stepPlaceAnimations([old], [], 10_000), [])
+})
+
+test('a founding and renaming at the same moment are both kept for one place', () => {
+  const founding = placeAnimation('founding', 2, 'found', 0)
+  const renaming = placeAnimation('renaming', 2, 'rename', 0)
+  const stepped = stepPlaceAnimations([], [founding, renaming], 0)
+  const active = placeAnimationsByKind(stepped).get(2)
+  assert.equal(active?.founding, founding)
+  assert.equal(active?.renaming?.startedAt, founding.duration)
+  assert.equal(animationProgress(active!.renaming!, founding.duration), 0)
 })
 
 test('hidden content includes founding rooms and all descendants', () => {

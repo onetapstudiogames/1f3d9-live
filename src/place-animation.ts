@@ -9,6 +9,10 @@ export type PlaceAnimation = Readonly<{
   duration: number
   changeId: string
 }>
+export type PlaceAnimationsByKind = Readonly<{
+  founding?: PlaceAnimation
+  renaming?: PlaceAnimation
+}>
 
 const BRICK = 16
 const MORTAR = 1
@@ -85,7 +89,25 @@ export function stepPlaceAnimations(
   const result = [...kept]
   for (const animation of incoming) if (!seen.has(animation.changeId)) {
     seen.add(animation.changeId)
-    result.push(animation)
+    const founding = animation.kind === 'renaming'
+      ? [...result, ...incoming].find(candidate => candidate.placeId === animation.placeId && candidate.kind === 'founding')
+      : undefined
+    result.push(founding
+      ? { ...animation, startedAt: Math.max(animation.startedAt, founding.startedAt + founding.duration) }
+      : animation)
+  }
+  return result
+}
+
+export function placeAnimationsByKind(
+  active: readonly PlaceAnimation[],
+): ReadonlyMap<number, PlaceAnimationsByKind> {
+  const result = new Map<number, PlaceAnimationsByKind>()
+  for (const animation of active) {
+    const current = result.get(animation.placeId) ?? {}
+    result.set(animation.placeId, animation.kind === 'founding'
+      ? { ...current, founding: animation }
+      : { ...current, renaming: animation })
   }
   return result
 }

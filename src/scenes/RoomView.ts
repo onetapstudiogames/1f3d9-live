@@ -5,7 +5,9 @@ import type { Drawing } from '../city/types.ts'
 import { drawingCells } from '../city/drawing.ts'
 import { curtainCells, roomSignPlacement, roomsToDraw } from '../room-art.ts'
 import { recordedRoomName, type PlacePlan } from '../places.ts'
-import { animationProgress, brickCount, signScale, wallBricks, type PlaceAnimation } from '../place-animation.ts'
+import {
+  animationProgress, brickCount, placeAnimationsByKind, signScale, wallBricks, type PlaceAnimation,
+} from '../place-animation.ts'
 
 export class RoomView {
   private plates = new Map<number, {
@@ -121,12 +123,12 @@ export class RoomView {
       .setSize(camera.width / camera.zoom, camera.height / camera.zoom)
       .setFillStyle(mood.color, mood.alpha)
     const lit = windowsLit(recordedTime)
-    const active = new Map(animations.map(animation => [animation.placeId, animation]))
+    const active = placeAnimationsByKind(animations)
     for (const plate of this.plates.values()) {
       const id = plate.room.id
       const surface = this.surfaces.get(id)!
       const animation = active.get(id)
-      const founding = animation?.kind === 'founding' ? animation : null
+      const founding = animation?.founding ?? null
       const shown = !contentsHidden.has(id)
       surface.paint.setVisible(shown)
       surface.windows.setVisible(shown && lit)
@@ -141,7 +143,7 @@ export class RoomView {
       if (plate.text.text !== name) plate.text.setText(name)
       const scale = Math.min(2.5, Math.max(1, 0.85 / camera.zoom))
       plate.group.setScale(scale)
-      plate.text.setScale(animation?.kind === 'renaming' ? signScale(animationProgress(animation, now)) : 1, 1)
+      plate.text.setScale(animation?.renaming ? signScale(animationProgress(animation.renaming, now)) : 1, 1)
       plate.group.setVisible(shown && plate.room.width * camera.zoom > 105 && plate.room.standing.height * camera.zoom > 27)
       plate.text.setCrop(0, 0, Math.min(plate.text.width, (plate.room.width - 24) / scale - plate.nameOffset), plate.text.height)
     }
