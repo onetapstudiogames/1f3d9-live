@@ -5,6 +5,7 @@ import { pointAlongPath, walkPath } from '../ground/path.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
 import { appliedMove, bubbleFor, bubbleVisible, walkDuration, BASE_SPEED } from './index.ts'
 import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
+import { createdThing, movedThing, type ThingReservations } from '../things.ts'
 
 type QueuedEvent = Readonly<{ event: ReplayEvent }>
 
@@ -33,6 +34,7 @@ export type Simulation = Readonly<{
   actors: ReadonlyMap<string, number>
   pending: boolean
   issues: readonly string[]
+  reservations: ThingReservations
 }>
 
 export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): Readonly<Record<number, number>> {
@@ -50,7 +52,13 @@ export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): R
     occupants.set(placeId, held)
   }
   for (const resident of initialResidents(replay, census)) add(resident.placeId, `id:${String(resident.id)}`)
+  for (const [key, start] of Object.entries(replay.start)) {
+    const match = /^thing:(\d+)$/.exec(key)
+    if (match && validPlace(Number(match[1]))) add(start?.place_id, key)
+  }
   for (const event of replay.timeline) {
+    const thing = createdThing(event) ?? movedThing(event)
+    if (thing) add(thing.placeId, `thing:${String(thing.id)}`)
     const actorText = typeof event.actor === 'string' ? event.actor.trim() : ''
     const actor = actorText.length ? actorText : null
     const known = actor === null ? undefined : handles.get(actor)?.id ?? registrations.get(actor)
@@ -69,6 +77,7 @@ export function createResidents(
   replay: ReplayFile,
   census: readonly Resident[],
   layout: NestedLayout,
+  reservations: ThingReservations = {},
 ): Simulation {
   const initial = new Map(initialResidents(replay, census).map(item => [item.id, item]))
   const residents: Record<number, ResidentState> = {}
@@ -98,8 +107,8 @@ export function createResidents(
     actors.set(handle, id)
     residents[id] = { ...resident, handle }
   }
-  placeStationary(residents, layout)
-  return freezeSimulation(residents, actors, [], false)
+  placeStationary(residents, layout, reservations)
+  return freezeSimulation(residents, actors, [], false, reservations)
 }
 
 export function stepResidents(
@@ -138,10 +147,10 @@ export function stepResidents(
     if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
     if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
     if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
-    if (!resident.walking && !resident.bubble && !resident.sparkle) resident = startNext(resident, residents, nowMs, layout, issues, speed)
+    if (!resident.walking && !resident.bubble && !resident.sparkle) resident = startNext(resident, residents, nowMs, layout, issues, speed, state.reservations)
     residents[id] = resident
   }
-  return freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending))
+  return freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations)
 }
 
 function startNext(
@@ -151,6 +160,7 @@ function startNext(
   layout: NestedLayout,
   issues: string[],
   speed: number,
+  reservations: ThingReservations,
 ): ResidentState {
   let next = resident
   while (next.queue.length) {
@@ -159,7 +169,7 @@ function startNext(
     const queue = next.queue.slice(1)
     const detail = event.detail
     if (event.kind === 'register') {
-      next = arrive({ ...next, queue }, all, nowMs, layout, issues, speed)
+      next = arrive({ ...next, queue }, all, nowMs, layout, issues, speed, reservations)
       if (next.sparkle) return next
       continue
     }
@@ -167,7 +177,7 @@ function startNext(
     const isNoopAnchor = event.kind === 'action' && (detail.action === 'move' || detail.action === 'go_home') && detail.status === 'noop' &&
       validPlace(detail.from_place_id) && detail.from_place_id === detail.to_place_id
     if (isNoopAnchor && next.placeId !== detail.from_place_id && layout.rooms[detail.from_place_id]) {
-      const source = freeDestination(next.id, detail.from_place_id, all, layout)
+      const source = freeDestination(next.id, detail.from_place_id, all, layout, reservations)
       if (source) {
         // A first placement skips nothing; only a figure that already stood somewhere lost a route.
         if (next.placeId !== null) addIssue(issues, 'route-gap')
@@ -184,7 +194,7 @@ function startNext(
         continue
       }
       if (next.placeId === null) {
-        const source = freeDestination(next.id, fromId, all, layout)
+        const source = freeDestination(next.id, fromId, all, layout, reservations)
         if (!source) {
           addIssue(issues, 'placement')
           next = { ...next, queue }
@@ -193,7 +203,7 @@ function startNext(
         next = { ...next, placeId: fromId, x: source.x, y: source.y, visible: placeVisible(layout, fromId) }
       }
       if (next.placeId !== fromId) {
-        const source = freeDestination(next.id, fromId, all, layout)
+        const source = freeDestination(next.id, fromId, all, layout, reservations)
         if (!source) {
           addIssue(issues, 'placement')
           next = { ...next, queue }
@@ -208,7 +218,7 @@ function startNext(
         next = { ...next, queue }
         continue
       }
-      const destination = freeDestination(next.id, walk.toId, all, layout)
+      const destination = freeDestination(next.id, walk.toId, all, layout, reservations)
       if (!destination) {
         addIssue(issues, 'placement')
         next = { ...next, queue }
@@ -224,7 +234,7 @@ function startNext(
       return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), destinationId: walk.toId, destination, bubble: null }
     }
     if (event.kind === 'note') {
-      next = handleNote(next, event, queue, all, nowMs, layout, issues, speed)
+      next = handleNote(next, event, queue, all, nowMs, layout, issues, speed, reservations)
       if (next.bubble) return next
       continue
     }
@@ -240,6 +250,7 @@ function arrive(
   layout: NestedLayout,
   issues: string[],
   speed: number,
+  reservations: ThingReservations,
 ): ResidentState {
   if (resident.placeId !== null) return resident
   const root = layout.rooms[layout.rootId]
@@ -249,7 +260,8 @@ function arrive(
     ...(item.destinationId === root.id && item.destination ? [item.destination] : []),
     ...(!item.visible && !item.walking && item.placeId === root.id ? [{ x: item.x, y: item.y }] : []),
   ])
-  const point = newcomerSpot(resident.id, root, occupied)
+  const reserved = (reservations[root.id] ?? []).map(spot => ({ x: spot.x + 16, y: spot.y + 16 }))
+  const point = newcomerSpot(resident.id, root, [...occupied, ...reserved])
   if (!point) { addIssue(issues, 'placement'); return resident }
   // The registration plus the city's front-door rule places a new resident in the
   // ownerless world. Only this free edge spot is presentation; later moves win.
@@ -265,6 +277,7 @@ function handleNote(
   layout: NestedLayout,
   issues: string[],
   speed: number,
+  reservations: ThingReservations,
 ): ResidentState {
   const recordedPlace = event.detail.place_id
   if (validPlace(recordedPlace) && !layout.rooms[recordedPlace]) {
@@ -274,7 +287,7 @@ function handleNote(
   const placeId = validPlace(recordedPlace) ? recordedPlace : resident.placeId
   let next = resident
   if (placeId !== null && resident.placeId !== placeId) {
-    const destination = freeDestination(resident.id, placeId, all, layout)
+    const destination = freeDestination(resident.id, placeId, all, layout, reservations)
     if (!destination) {
       addIssue(issues, 'placement')
       return { ...resident, queue }
@@ -293,7 +306,7 @@ function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLay
   return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null }
 }
 
-function freeDestination(id: number, placeId: number, all: Readonly<Record<number, ResidentState>>, layout: NestedLayout): Point | null {
+function freeDestination(id: number, placeId: number, all: Readonly<Record<number, ResidentState>>, layout: NestedLayout, reservations: ThingReservations): Point | null {
   const room = layout.rooms[placeId]
   if (!room) return null
   // A figure that is walking away has left; it holds a spot only in the room it walks to,
@@ -301,21 +314,31 @@ function freeDestination(id: number, placeId: number, all: Readonly<Record<numbe
   const holds = (item: ResidentState): boolean => item.walking ? item.destinationId === placeId : item.placeId === placeId
   const eligible = Object.values(all).filter(item => item.id === id || holds(item))
   const previous: Record<string, StageStandingSpot> = {}
+  for (const spot of reservations[placeId] ?? []) previous[spot.key] = spot
   for (const item of eligible) {
     const point = item.id === id ? null : item.walking ? item.destination : { x: item.x, y: item.y }
     if (point) previous[`resident:${String(item.id)}`] = { key: `resident:${String(item.id)}`, kind: 'resident', x: point.x - 16, y: point.y - 16, width: 32, height: 32 }
   }
-  const spots = stageFindFreeSpots(eligible.map(item => ({ key: `resident:${String(item.id)}`, kind: 'resident' as const })), room.standing, previous)
+  const entries = [
+    ...(reservations[placeId] ?? []).map(spot => ({ key: spot.key, kind: 'thing' as const })),
+    ...eligible.map(item => ({ key: `resident:${String(item.id)}`, kind: 'resident' as const })),
+  ]
+  const spots = stageFindFreeSpots(entries, room.standing, previous)
   const spot = spots[`resident:${String(id)}`]
   return spot ? Object.freeze({ x: spot.x + 16, y: spot.y + 16 }) : null
 }
 
-function placeStationary(residents: Record<number, ResidentState>, layout: NestedLayout): void {
+function placeStationary(residents: Record<number, ResidentState>, layout: NestedLayout, reservations: ThingReservations): void {
   for (const placeId of new Set(Object.values(residents).map(item => item.placeId).filter((id): id is number => id !== null))) {
     const room = layout.rooms[placeId]
     if (!room) continue
-    const entries = Object.values(residents).filter(item => item.placeId === placeId).map(item => ({ key: `resident:${String(item.id)}`, kind: 'resident' as const }))
-    const spots = stageFindFreeSpots(entries, room.standing)
+    const thingSpots = reservations[placeId] ?? []
+    const entries = [
+      ...thingSpots.map(spot => ({ key: spot.key, kind: 'thing' as const })),
+      ...Object.values(residents).filter(item => item.placeId === placeId).map(item => ({ key: `resident:${String(item.id)}`, kind: 'resident' as const })),
+    ]
+    const previous = Object.fromEntries(thingSpots.map(spot => [spot.key, spot]))
+    const spots = stageFindFreeSpots(entries, room.standing, previous)
     for (const item of Object.values(residents).filter(value => value.placeId === placeId)) {
       const spot = spots[`resident:${String(item.id)}`]
       if (spot) residents[item.id] = { ...item, x: spot.x + 16, y: spot.y + 16, visible: placeVisible(layout, placeId) }
@@ -347,9 +370,9 @@ function isPending(resident: ResidentState): boolean {
   return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.queue.length > 0
 }
 
-function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean): Simulation {
+function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean, reservations: ThingReservations): Simulation {
   const frozen = Object.fromEntries(Object.entries(residents).map(([id, resident]) => [id, Object.freeze({ ...resident, queue: Object.freeze([...resident.queue]), path: Object.freeze([...resident.path]) })]))
-  return Object.freeze({ residents: Object.freeze(frozen), actors: new Map(actors), pending, issues: Object.freeze([...issues]) })
+  return Object.freeze({ residents: Object.freeze(frozen), actors: new Map(actors), pending, issues: Object.freeze([...issues]), reservations })
 }
 
 function validPlace(value: unknown): value is number {

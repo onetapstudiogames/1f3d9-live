@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { fetchReplay, fetchCensus, createDrawingLoader } from '../city/api.ts'
+import { fetchReplay, fetchCensus, createDrawingLoader, createThingLoader } from '../city/api.ts'
 import type { ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
 import { createClock, advanceClock, chosenSpeed, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
@@ -10,12 +10,21 @@ import { ResidentView, addDrawingTexture } from './ResidentView.ts'
 import { nearbyRooms } from '../camera.ts'
 import { sleepingResidents } from '../sleep.ts'
 import { placesWithDrawings } from '../room-art.ts'
+import { createThings, stepThings, type ThingSimulation } from '../things.ts'
+import { ThingView, addThingTexture } from './ThingView.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
   private timeline: readonly TimelineRow[] = []
   private layout?: NestedLayout
   private residents?: Simulation
+  private things?: ThingSimulation
+  private thingViews = new Map<number, ThingView>()
+  private thingNames = new Map<number, string>()
+  private thingReads = new Set<number>()
+  private readingThings = false
+  private readonly readThing = createThingLoader()
+  private readonly readThingDrawing = createDrawingLoader(undefined, 'thing')
   private clock?: Clock
   private rooms?: RoomView
   private figures = new Map<number, ResidentView>()
@@ -58,19 +67,23 @@ export class CityScene extends Phaser.Scene {
       const speed = chosenSpeed(document.querySelector<HTMLSelectElement>('#speed')?.value)
       this.clock = createClock(this.replay.window_start, this.replay.window_end, speed)
       this.sleepers = sleepingResidents(this.replay, census)
-      this.residents = createResidents(this.replay, census, this.layout)
+      this.things = createThings(this.replay, this.layout)
+      this.residents = createResidents(this.replay, census, this.layout, this.things.reservations)
       this.rooms = new RoomView(this, this.layout)
       this.rooms.update(this.cameras.main, this.clock.time)
       addDrawingTexture(this, 'resident-default', null)
+      addThingTexture(this, 'thing-default', null)
+      this.drawThings()
       this.drawResidents()
       this.focusResidents()
       this.readStatus = `Read ${this.replay.map.places.length} places and ${this.replay.timeline.length} recorded events. ${this.replay.complete ? 'Recorded window loaded.' : 'This is the saved part of the window; older events are not included.'}`
       if (this.sleepers.size) this.readStatus += " Sleep marks use today's census for residents with no recorded activity."
       this.updateHud()
       await this.loadDrawings(census)
-      await this.loadPlaceDrawings()
       document.body.dataset['liveReady'] = censusRead.status === 'fulfilled' ? 'true' : 'error'
       this.updateHud()
+      void this.loadPlaceDrawings()
+      void this.loadThingDetails()
     } catch (error) {
       // The reader's own words help nobody reading the page; the console keeps them.
       console.error(error)
@@ -126,14 +139,76 @@ export class CityScene extends Phaser.Scene {
       const elapsed = Math.min(100, Math.max(0, delta))
       this.elapsed += elapsed
       // Hold the recorded moment for its walks, words and arrivals, then resume the faster clock.
-      if (!this.residents.pending) this.clock = advanceClock(this.clock, elapsed)
+      if (!this.residents.pending && !this.things?.pending) this.clock = advanceClock(this.clock, elapsed)
       const due = dueEvents(this.timeline, this.cursor, this.clock.time)
       this.cursor = due.cursor
+      if (this.things) this.things = stepThings(this.things, due.events, this.elapsed, this.clock.speed)
       this.residents = stepResidents(this.residents, due.events, elapsed, this.elapsed, this.layout, this.clock.speed)
     }
+    this.drawThings()
     this.drawResidents()
     this.rooms?.update(this.cameras.main, this.clock.time)
     this.updateHud()
+  }
+
+  private drawThings(): void {
+    const state = this.things?.things ?? {}
+    for (const [id, view] of this.thingViews) {
+      if (!state[id]) { view.destroy(); this.thingViews.delete(id) }
+    }
+    for (const thing of Object.values(state)) {
+      let view = this.thingViews.get(thing.id)
+      if (!view) {
+        view = new ThingView(this)
+        if (this.textures.exists(`thing-${thing.id}`)) view.sprite.setTexture(`thing-${thing.id}`)
+        this.thingViews.set(thing.id, view)
+      }
+      view.update(thing, thing.name ?? this.thingNames.get(thing.id) ?? null, this.cameras.main.zoom, this.elapsed)
+    }
+    if (document.body.dataset['liveReady'] === 'true') void this.loadThingDetails()
+    if (this.fixtureMode) {
+      document.body.dataset['liveThings'] = JSON.stringify(Object.values(state).filter(thing => thing.visible).map(thing => ({
+        id: thing.id, name: thing.name ?? this.thingNames.get(thing.id) ?? null,
+      })))
+    }
+  }
+
+  private async loadThingDetails(): Promise<void> {
+    if (this.readingThings) return
+    this.readingThings = true
+    try {
+      for (;;) {
+        const batch = Object.values(this.things?.things ?? {}).filter(thing => thing.visible && !this.thingReads.has(thing.id)).slice(0, 4)
+        if (!batch.length) break
+        for (const thing of batch) this.thingReads.add(thing.id)
+        await Promise.all(batch.map(async thing => {
+          if (thing.name === null) {
+            try {
+              const detail = await this.readThing(thing.id)
+              if (detail) this.thingNames.set(thing.id, detail.name)
+              else this.thingReadIssue('Some thing names are missing; those name plates stay blank.')
+            } catch (error) {
+              console.error(error)
+              this.thingReadIssue('Some thing names could not be read; those name plates stay blank.')
+            }
+          }
+          try {
+            const art = await this.readThingDrawing(thing.id)
+            if (art) {
+              addThingTexture(this, `thing-${thing.id}`, art)
+              this.thingViews.get(thing.id)?.sprite.setTexture(`thing-${thing.id}`)
+            }
+          } catch (error) {
+            console.error(error)
+            this.thingReadIssue('Some thing drawings could not be read; their pixel icons are kept.')
+          }
+        }))
+      }
+    } finally { this.readingThings = false }
+  }
+
+  private thingReadIssue(message: string): void {
+    if (!this.readIssues.includes(message)) this.readIssues.push(message)
   }
 
   private drawResidents(): void {
@@ -244,13 +319,14 @@ export class CityScene extends Phaser.Scene {
         ? `Following ${followed ?? 'a figure the resident list does not name'} · click floor to stop`
         : this.viewName
     }
-    const ended = this.clock && this.clock.time >= this.clock.end && !this.residents?.pending
+    const pending = this.residents?.pending || this.things?.pending
+    const ended = this.clock && this.clock.time >= this.clock.end && !pending
     const failed = document.body.dataset['liveReady'] === 'error'
     const state = failed ? 'Playback is stopped; the last drawn state is kept.' : !this.clock ? ''
-      : document.body.dataset['liveReady'] === 'loading' ? 'Reading resident and place drawings.'
+      : document.body.dataset['liveReady'] === 'loading' ? 'Reading resident drawings.'
       : ended ? 'Replay finished. The live feed is not connected yet.'
-      : this.paused ? 'Paused.' : this.residents?.pending ? 'Watching a recorded moment.' : 'The clock runs faster between recorded moments.'
-    const issues = [...this.readIssues, ...(this.residents?.issues ?? [])]
+      : this.paused ? 'Paused.' : pending ? 'Watching a recorded moment.' : 'The clock runs faster between recorded moments.'
+    const issues = [...this.readIssues, ...(this.residents?.issues ?? []), ...(this.things?.issues ?? [])]
     const status = `${this.readStatus} ${state}${issues.length ? ` ${issues.join(' ')}` : ''}`.trim()
     if (status !== this.lastHud) {
       document.getElementById('status')!.textContent = status

@@ -20,7 +20,9 @@ export function initialResidents(replay: ReplayFile, census: readonly Resident[]
     result.push({ id, handle: resident?.handle || `resident ${id}`, placeId: start.place_id })
   }
 
-  const timelineActors = new Set(replay.timeline.map(event => event.actor))
+  const timelineActors = new Set(replay.timeline.flatMap(event =>
+    typeof event.actor === 'string' && event.actor.trim().length > 0 ? [event.actor.trim()] : [],
+  ))
   const windowStart = Date.parse(replay.window_start)
   for (const resident of census) {
     if (startedIds.has(resident.id) || !resident.handle || resident.current_place_id === null) continue
