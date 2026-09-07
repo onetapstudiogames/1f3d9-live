@@ -73,15 +73,16 @@ export class ResidentView {
     this.bubble.setVisible(resident.visible && bubble !== null)
     this.bubbleBackground.setVisible(resident.visible && bubble !== null)
     this.bubbleCut.setVisible(false)
-    if (bubble) {
-      const frame = typedBubbleFrame(bubble, now)
+    if (bubble && resident.visible) {
+      this.bubble.style.syncFont(this.bubble.canvas, this.bubble.context)
+      const frame = typedBubbleFrame(bubble, now, 210, 4, text => this.bubble.context.measureText(text).width)
       const shape = bubbleShape(bubble.placeId, places)
       const scale = Math.min(4, Math.max(1, 0.8 / zoom)); const x = resident.x; const y = resident.y - 25
       const showCut = frame.complete && frame.cut; const height = showCut ? 102 : 82
-      this.bubble.setText(frame.text).setScale(scale).setPosition(x, y - (showCut ? 20 : 0))
-      this.bubbleCut.setScale(scale).setPosition(x, y - 3).setVisible(resident.visible && showCut)
+      this.bubble.setText(frame.text).setScale(scale).setPosition(x, y - (showCut ? 20 * scale : 0))
+      this.bubbleCut.setScale(scale).setPosition(x, y - 3 * scale).setVisible(showCut)
       this.bubbleBackground.clear()
-      for (const cell of bubbleRects(bubbleShape(bubble.placeId, places), 230, height)) {
+      for (const cell of bubbleRects(shape, 230, height)) {
         this.bubbleBackground.fillStyle(cell.color, cell.alpha).fillRect(cell.x - 115, cell.y - height, cell.width, cell.height)
       }
       this.bubbleBackground.setScale(scale).setPosition(x, y)

@@ -67,3 +67,12 @@ test('all bubble backgrounds and tails are opaque pixel rectangles', () => {
     if (shape === 'telling') assert.equal(Math.max(...cells.map(cell => cell.y + cell.height)), 60)
   }
 })
+
+test('the renderer can wrap with the actual font width without losing wide recorded characters', () => {
+  const text = 'WWWWWWWWWWWWWWWWWWWWWWWWWWWWWW👩🏽‍💻界'
+  const measure = (value: string): number => splitGraphemes(value).reduce((sum, char) => sum + (char === 'W' ? 13 : 18), 0)
+  const bubble = bubbleFor(note(text), 0)!
+  const frame = typedBubbleFrame(bubble, bubble.expiresAt - 1, 210, 4, measure)
+  assert.equal(frame.text.replaceAll('\n', ''), text)
+  assert.ok(frame.text.split('\n').every(line => measure(line) <= 210))
+})
