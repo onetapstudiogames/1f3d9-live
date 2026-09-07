@@ -155,6 +155,59 @@ invented animation. A `thing_moved` row with a null or absent `place_id` is a pi
 thing is in someone's hands, so its icon hides until a later row puts it back on a floor.
 `thing_edited` is left alone for now.
 
+### Giving and carrying (checked 2026-09-07)
+
+The current [city door](https://1f3d9.com/llms.txt) says give emits a typed
+`transfer`, not a generic action notice. These are two real public shapes:
+
+```json
+{"change_id":"70406","kind":"transfer","actor":"mara","detail":{"mode":"gift","asset_id":2122,"place_id":456,"asset_type":"thing","resident_id":274,"transfer_id":86},"created_at":"2026-08-29T11:41:03.597Z"}
+{"change_id":"99719","kind":"transfer","actor":"solward","detail":{"id":2915,"mode":"effect","type":"thing","place_id":455,"resident_id":262},"created_at":"2026-09-07T09:49:44.841Z"}
+```
+
+`actor` identifies the acting giver, `resident_id` the partner, and `place_id`
+the committed interaction room. Only thing transfers get an icon. Older rows
+without partner or room references remain unlinked. A temporary copy floats
+between known, visible figures in that room with a pixel heart; missing or
+moving partners get no guessed meeting. Quiet rooms and their descendants
+remain hidden. The original thing keeps its recorded floor spot: ownership
+does not place, pick up, or move a thing.
+
+A carried move has two rows, matched by `action_id`, thing, actor, and endpoints.
+In the live sample the notice comes first:
+
+```json
+{"change_id":"99574","kind":"thing_moved","actor":"lucy","detail":{"mode":"carry","place_id":759,"thing_id":2727,"action_id":85816,"resident_id":262,"from_place_id":760},"created_at":"2026-09-07T08:30:42.902Z"}
+{"change_id":"99575","kind":"action","actor":"lucy","detail":{"mode":"carry","action":"move","status":"applied","thing_id":2727,"action_id":85816,"to_place_id":759,"from_place_id":760},"created_at":"2026-09-07T08:30:42.902Z"}
+```
+
+Only the successful paired move attaches the icon to that figure's walk. The
+paired floor placement waits until that walk ends. An unmatched `thing_moved`
+keeps the existing instant placement behavior; an ordinary walk carries nothing.
+
+No public market-sale marker was verified. The door describes the market bridge,
+but does not specify a sale label in the replay/change notice. All 141 transfers
+returned at checkpoint `99844` have `mode: "gift"` or `"effect"`; none has a sale
+reason or market listing reference. The `kind=sale` feed returns no rows.
+`asset_id` identifies property in ordinary gifts too, so it cannot identify a
+sale. All linkable transfers use the gift presentation. There is no coin arc,
+buyer departure, inferred price, or invented market door. To add those, the city
+must publish an explicit market-sale fact linked to the thing and buyer, plus
+recorded movement for the departure. No market read is needed or made here.
+
+Saved evidence under `test/fixtures/`:
+
+- `changes-transfers-live.json`: `/api/changes?since=0&kind=transfer&limit=200`.
+- `changes-carry-live.json`: `/api/changes?since=99572&limit=3`.
+- `changes-thing-moved-live.json`: `/api/changes?since=0&kind=thing_moved&limit=200`.
+- `changes-sales-live.json`: `/api/changes?since=0&kind=sale&limit=200`.
+
+These response texts were saved without reformatting from the public web reader
+on 2026-09-07. Direct HTTP reads in the build sandbox failed with `EACCES`;
+the original HTTP response bytes could not be independently compared there.
+The current door was read with `?giving=20260907` to avoid an older cached copy.
+Tests adapt feed `created_at` to replay `at`; the saved JSON stays unchanged.
+
 ## Facts about the city itself
 
 `GET https://1f3d9.com/api/official` → treasury, network, statement ("There is no 1F3D9 token..."),

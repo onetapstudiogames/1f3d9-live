@@ -20,16 +20,16 @@ export class ThingView {
     this.particles = scene.add.graphics().setDepth(92)
   }
 
-  update(thing: ThingState, label: string | null, zoom: number, now: number): void {
+  update(thing: ThingState, label: string | null, zoom: number, now: number, carried = false): void {
     const frame = thing.effect ? effectFrame(thing.effect, now) : null
-    const visible = thing.visible && !frame?.crumbs
+    const visible = thing.visible && !carried && !frame?.crumbs
     const lift = frame?.puff ? Math.round(12 * (1 - frame.progress)) : 0
     this.sprite.setPosition(thing.x, thing.y - lift).setVisible(visible)
     this.name.setText(label ?? '').setPosition(thing.x, thing.y + 17).setVisible(visible && label !== null && zoom >= 0.55)
     this.name.setCrop(0, 0, Math.min(this.name.width, 118), Math.min(this.name.height, 28))
     this.glow.setTexture(this.sprite.texture.key).setPosition(thing.x, thing.y)
-      .setVisible(thing.visible && Boolean(frame?.glow)).setAlpha(frame?.glow ? Math.sin(frame.progress * Math.PI) * 0.75 : 0)
-    this.particles.clear().setPosition(thing.x, thing.y).setVisible(thing.visible)
+      .setVisible(thing.visible && !carried && Boolean(frame?.glow)).setAlpha(frame?.glow ? Math.sin(frame.progress * Math.PI) * 0.75 : 0)
+    this.particles.clear().setPosition(thing.x, thing.y).setVisible(thing.visible && !carried)
     if (frame?.puff || frame?.crumbs) {
       for (const cell of thingParticles(frame.puff ? 'puff' : 'crumbs', frame.progress)) {
         this.particles.fillStyle(frame.puff ? 0xffefcd : 0xb78b50, cell.alpha).fillRect(cell.x, cell.y, cell.size, cell.size)

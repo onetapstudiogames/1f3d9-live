@@ -6,6 +6,10 @@ import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-grou
 import { appliedMove, bubbleFor, bubbleVisible, walkDuration, BASE_SPEED } from './index.ts'
 import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
 import { createdThing, movedThing, type ThingReservations } from '../things.ts'
+import { transferDuration, transferFor, transferPartners, type Transfer, type TransferPartners } from '../giving.ts'
+
+export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
+type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; giverId: number }>
 
 type QueuedEvent = Readonly<{ event: ReplayEvent }>
 
@@ -27,6 +31,8 @@ export type ResidentState = Readonly<{
   walkDuration: number
   destinationId: number | null
   destination: Point | null
+  walkEventId: string | null
+  transferUntil: number | null
 }>
 
 export type Simulation = Readonly<{
@@ -35,6 +41,7 @@ export type Simulation = Readonly<{
   pending: boolean
   issues: readonly string[]
   reservations: ThingReservations
+  startedTransfers: readonly StartedTransfer[]
 }>
 
 export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): Readonly<Record<number, number>> {
@@ -108,7 +115,7 @@ export function createResidents(
     residents[id] = { ...resident, handle }
   }
   placeStationary(residents, layout, reservations)
-  return freezeSimulation(residents, actors, [], false, reservations)
+  return freezeSimulation(residents, actors, [], false, reservations, [])
 }
 
 export function stepResidents(
@@ -123,6 +130,7 @@ export function stepResidents(
     Object.entries(state.residents).map(([id, resident]) => [id, { ...resident, queue: [...resident.queue], path: [...resident.path] }]),
   )
   const issues = [...state.issues]
+  const candidates: TransferCandidate[] = []
   for (const event of events) {
     if (event.kind === 'register') {
       const registration = registrationFor(event)
@@ -144,13 +152,23 @@ export function stepResidents(
   const elapsed = Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 0
   for (const id of Object.keys(residents).map(Number).sort((a, b) => a - b)) {
     let resident = residents[id]!
+    if (resident.transferUntil !== null && nowMs >= resident.transferUntil) resident = { ...resident, transferUntil: null }
     if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
     if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
     if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
-    if (!resident.walking && !resident.bubble && !resident.sparkle) resident = startNext(resident, residents, nowMs, layout, issues, speed, state.reservations)
+    if (!resident.walking && !resident.bubble && !resident.sparkle && resident.transferUntil === null) {
+      resident = startNext(resident, residents, nowMs, layout, issues, speed, state.reservations, candidates)
+    }
     residents[id] = resident
   }
-  return freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations)
+  const startedTransfers: StartedTransfer[] = []
+  for (const candidate of candidates) {
+    const partners = transferPartners(candidate.transfer, residents, layout)
+    if (!partners) { addIssue(issues, 'gift'); continue }
+    residents[candidate.giverId] = { ...residents[candidate.giverId]!, transferUntil: nowMs + transferDuration(speed) }
+    startedTransfers.push(Object.freeze({ transfer: candidate.transfer, changeId: candidate.changeId, partners, startedAt: nowMs, speed }))
+  }
+  return freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations, startedTransfers)
 }
 
 function startNext(
@@ -161,6 +179,7 @@ function startNext(
   issues: string[],
   speed: number,
   reservations: ThingReservations,
+  candidates: TransferCandidate[],
 ): ResidentState {
   let next = resident
   while (next.queue.length) {
@@ -168,6 +187,12 @@ function startNext(
     const event = queued.event
     const queue = next.queue.slice(1)
     const detail = event.detail
+    const transfer = transferFor(event)
+    if (transfer) {
+      next = { ...next, queue }
+      candidates.push(Object.freeze({ transfer, changeId: event.change_id, giverId: next.id }))
+      return next
+    }
     if (event.kind === 'register') {
       next = arrive({ ...next, queue }, all, nowMs, layout, issues, speed, reservations)
       if (next.sparkle) return next
@@ -231,7 +256,7 @@ function startNext(
         continue
       }
       const distance = path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
-      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), destinationId: walk.toId, destination, bubble: null }
+      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
     }
     if (event.kind === 'note') {
       next = handleNote(next, event, queue, all, nowMs, layout, issues, speed, reservations)
@@ -303,7 +328,7 @@ function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLay
   const sampled = pointAlongPath(resident.path, resident.walkDuration ? walkElapsed / resident.walkDuration : 1)
   if (!sampled.done) return { ...resident, walkElapsed, x: sampled.x, y: sampled.y, flipX: sampled.flipX, visible: visibleAt(sampled, layout) }
   const placeId = resident.destinationId
-  return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null }
+  return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null }
 }
 
 function freeDestination(id: number, placeId: number, all: Readonly<Record<number, ResidentState>>, layout: NestedLayout, reservations: ThingReservations): Point | null {
@@ -363,16 +388,16 @@ function placeVisible(layout: NestedLayout, placeId: number): boolean {
 }
 
 function baseResident(id: number, handle: string, placeId: number | null): ResidentState {
-  return { id, handle, joinedAt: null, sparkle: null, placeId, x: 0, y: 0, flipX: false, walking: false, visible: false, bubble: null, queue: [], path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null }
+  return { id, handle, joinedAt: null, sparkle: null, placeId, x: 0, y: 0, flipX: false, walking: false, visible: false, bubble: null, queue: [], path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null, transferUntil: null }
 }
 
 function isPending(resident: ResidentState): boolean {
-  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.queue.length > 0
+  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.transferUntil !== null || resident.queue.length > 0
 }
 
-function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean, reservations: ThingReservations): Simulation {
+function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean, reservations: ThingReservations, startedTransfers: readonly StartedTransfer[]): Simulation {
   const frozen = Object.fromEntries(Object.entries(residents).map(([id, resident]) => [id, Object.freeze({ ...resident, queue: Object.freeze([...resident.queue]), path: Object.freeze([...resident.path]) })]))
-  return Object.freeze({ residents: Object.freeze(frozen), actors: new Map(actors), pending, issues: Object.freeze([...issues]), reservations })
+  return Object.freeze({ residents: Object.freeze(frozen), actors: new Map(actors), pending, issues: Object.freeze([...issues]), reservations, startedTransfers: Object.freeze([...startedTransfers]) })
 }
 
 function validPlace(value: unknown): value is number {
@@ -388,6 +413,7 @@ const ISSUE_WORDS = {
   room: 'Some recorded events name a room the map does not show; those are not drawn.',
   placement: 'Some rooms had no free spot left, so those figures were not moved into them.',
   route: 'Some recorded walks have no path on the map; those figures stay where the record last placed them.',
+  gift: 'Some recorded gifts could not be shown because both residents were not visibly together.',
 } as const
 
 type IssueKind = keyof typeof ISSUE_WORDS
