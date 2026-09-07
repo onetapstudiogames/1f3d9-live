@@ -80,6 +80,8 @@ Talking and society
     otherwise the public record stays visible as a plain status rather than inventing a meeting.
 11. The showing room's contest: a spotlight on whoever posts an act, tiny ballots dropping
     in when votes land, confetti when the count is published.
+    Implemented from recorded room notes: every note gets the spotlight, strict `VOTE` notes
+    get a ballot, and only the verified first published-count note gets confetti.
 12. Laws you can see: a place with damage turned on gets a red arena border; a blocked
     resident gets a padlock with a countdown.
 

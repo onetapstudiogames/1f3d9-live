@@ -1,6 +1,6 @@
 import type { ReplayEvent, ReplayPlace } from './city/types.ts'
 
-export type SpeechBubble = Readonly<{ text: string; cut: boolean; placeId: number | null; startedAt: number;
+export type SpeechBubble = Readonly<{ text: string; cut: boolean; placeId: number | null; noteId?: number; startedAt: number;
   charInterval: number; expiresAt: number }>
 export type BubbleShape = 'plain' | 'asking' | 'telling'
 export type BubbleRect = Readonly<{ x: number; y: number; width: number; height: number; color: number; alpha: 1 }>
@@ -29,7 +29,9 @@ export function bubbleFor(event: ReplayEvent, shownAt: number, speed: number = B
   if (event.kind !== 'note' || typeof event.line !== 'string' || event.line.length === 0 || !Number.isFinite(shownAt)) return null
   const placeId = typeof event.detail.place_id === 'number' && Number.isSafeInteger(event.detail.place_id)
     && event.detail.place_id > 0 ? event.detail.place_id : null
-  return Object.freeze({ text: event.line, cut: event.line_cut === true, placeId, startedAt: shownAt,
+  const noteId = typeof event.detail.note_id === 'number' && Number.isSafeInteger(event.detail.note_id) && event.detail.note_id > 0
+    ? event.detail.note_id : undefined
+  return Object.freeze({ text: event.line, cut: event.line_cut === true, placeId, ...(noteId === undefined ? {} : { noteId }), startedAt: shownAt,
     charInterval: typingInterval(speed), expiresAt: shownAt + bubbleDuration(speed, splitGraphemes(event.line).length) })
 }
 

@@ -575,7 +575,7 @@ export class CityScene extends Phaser.Scene {
   private drawResidents(): void {
     const camera = this.cameras.main
     const state = this.residents?.residents ?? {}
-    let visibleSpeech: { residentId: number; text: string; shape: string } | null = null
+    let visibleSpeech: { residentId: number; text: string; shape: string; showing: string } | null = null
     for (const [id, figure] of this.figures) if (!state[id]) {
       figure.destroy()
       this.figures.delete(id)
@@ -600,6 +600,8 @@ export class CityScene extends Phaser.Scene {
     document.body.dataset['liveBubbleText'] = visibleSpeech?.text ?? ''
     document.body.dataset['liveBubbleShape'] = visibleSpeech?.shape ?? ''
     document.body.dataset['liveBubbleResident'] = visibleSpeech ? String(visibleSpeech.residentId) : ''
+    if (this.fixtureMode) document.body.dataset['liveShowing'] = visibleSpeech?.showing ?? ''
+    if (this.fixtureMode) document.body.dataset['liveShowingResident'] = visibleSpeech?.showing ? String(visibleSpeech.residentId) : ''
     this.agreementLayer.draw(this, this.figures, this.contentsHidden)
     if (this.fixtureMode) document.body.dataset['liveHandshakes'] = String(this.agreementLayer.count)
     const followed = this.following === null ? undefined : this.residents?.residents[this.following]
