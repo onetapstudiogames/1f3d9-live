@@ -189,6 +189,11 @@ post do not qualify. This does not decide acceptance, timing, duplicate votes,
 self-voting, totals, or winners. For example, farlight's note 13274 begins `VOTE`,
 while 13275 questions whether that vote was late; the page makes no ruling.
 
+If a note's words are unavailable or its first line is empty, its typed author,
+note ID, and room still support a short spotlight. That moment keeps its author's
+queue turn, draws no empty speech bubble, and supplies no ballot or confetti.
+Notes with readable excerpts use their existing bubble lifetime.
+
 There is a real published count: founder note 10059 begins exactly
 `THE FIRST COUNT. Question one is closed.`. Only that verified note ID, author,
 room, and heading trigger confetti. It marks publication, not correctness. Note
