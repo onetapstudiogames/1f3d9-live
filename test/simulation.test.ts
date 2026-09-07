@@ -5,6 +5,7 @@ import test from 'node:test'
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
 import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
+import type { ThingReservations } from '../src/things.ts'
 
 const rooms = {
   1: { id: 1, parentId: null, name: 'world', quiet: false, depth: 0, x: 0, y: 0, width: 320, height: 240, door: { x: 300, y: 120 }, standing: { x: 20, y: 20, width: 260, height: 180 }, children: [2, 3] },
@@ -44,6 +45,23 @@ test('initial residents receive deterministic non-overlapping centered spots wit
   assert.notDeepEqual([first.x, first.y], [second.x, second.y])
   assert.ok(first.x >= rooms[2].standing.x + 16)
   assert.equal(state.actors.get('walker'), 7)
+})
+
+test('room capacity makes space for recorded floor things and future creations, never checkpoint totals', () => {
+  const data = replay()
+  const made = event('thing_created', { thing_id: 46, place_id: 2, name: 'small parcel' })
+  const record = { ...data, start: { ...data.start, 'thing:44': { place_id: 2 }, 'thing:45': { place_id: null } },
+    counts: { 2: { residents: 100, things: 150 } }, timeline: [made, made] }
+  assert.deepEqual(roomCapacity(record, census), { 2: 4 })
+})
+
+test('fixed thing reservations keep residents off present and future thing spots', () => {
+  const reserved = { 2: [{ key: 'thing:44', kind: 'thing', x: 440, y: 40, width: 32, height: 32 }] } as const satisfies ThingReservations
+  const state = createResidents(replay(), census, layout, reserved)
+  assert.equal(state.reservations, reserved)
+  for (const resident of Object.values(state.residents)) {
+    assert.notDeepEqual([resident.x, resident.y], [456, 56])
+  }
 })
 
 test('a walk finishes before the following note is shown', () => {

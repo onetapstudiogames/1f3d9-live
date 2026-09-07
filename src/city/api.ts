@@ -1,4 +1,4 @@
-import type { CensusPage, Drawing, ReplayFile, Resident } from './types.ts'
+import type { CensusPage, Drawing, ReplayFile, Resident, Thing } from './types.ts'
 
 export const CITY_ORIGIN = 'https://1f3d9.com'
 const READ_TIMEOUT_MS = 15_000
@@ -34,6 +34,11 @@ function searchValue(search: string, name: string): string | null {
 
 function browserSearch(): string {
   return typeof window === 'undefined' ? '' : window.location.search
+}
+
+function fixtureMode(search: string): boolean {
+  const params = new URLSearchParams(search)
+  return params.has('replay') || params.has('census')
 }
 
 function requireResident(value: unknown, page: number): Resident {
@@ -96,22 +101,23 @@ export async function fetchCensus(search: string = browserSearch()): Promise<rea
   }
 }
 
-function drawingUrl(type: 'resident' | 'place', id: number, search: string): string {
+function drawingUrl(type: Drawing['type'], id: number, search: string): string {
   const fixtureRoot = searchValue(search, 'drawings')
-  return fixtureRoot
-    ? `${fixtureRoot.replace(/\/$/, '')}/${type}-${id}.json`
+  const root = fixtureRoot || (fixtureMode(search) ? '/fixtures/drawings' : null)
+  return root
+    ? `${root.replace(/\/$/, '')}/${type}-${id}.json`
     : `${CITY_ORIGIN}/api/drawing/${type}/${id}`
 }
 
-export async function fetchDrawing(type: 'resident' | 'place', id: number, search: string = browserSearch()): Promise<Drawing | null> {
-  if ((type !== 'resident' && type !== 'place') || !Number.isInteger(id) || id < 1) {
-    throw new Error('invalid drawing request: expected a resident or place and a positive integer id')
+export async function fetchDrawing(type: Drawing['type'], id: number, search: string = browserSearch()): Promise<Drawing | null> {
+  if ((type !== 'resident' && type !== 'place' && type !== 'thing') || !Number.isSafeInteger(id) || id < 1) {
+    throw new Error('invalid drawing request: expected a resident, place, or thing and a positive safe integer id')
   }
   const response = await fetch(drawingUrl(type, id, search), readOptions())
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`the city answered ${response.status} for the ${type} drawing ${id}`)
-  const fixtureRoot = searchValue(search, 'drawings')
-  if (fixtureRoot && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
+  const usesFixture = Boolean(searchValue(search, 'drawings')) || fixtureMode(search)
+  if (usesFixture && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
   const value = await response.json() as Partial<Drawing>
   if (value.state !== 'complete' || !value.drawing) return null
   const palette = value.drawing.palette
@@ -130,13 +136,48 @@ export async function fetchDrawing(type: 'resident' | 'place', id: number, searc
 
 export function createDrawingLoader(
   search: string = browserSearch(),
-  type: 'resident' | 'place' = 'resident',
+  type: Drawing['type'] = 'resident',
 ): (id: number) => Promise<Drawing | null> {
   const cache = new Map<number, Promise<Drawing | null>>()
   return (id: number) => {
     const cached = cache.get(id)
     if (cached) return cached
     const pending = fetchDrawing(type, id, search)
+    cache.set(id, pending)
+    return pending
+  }
+}
+
+function thingUrl(id: number, search: string): string {
+  const fixtureRoot = searchValue(search, 'things')
+  const root = fixtureRoot || (fixtureMode(search) ? '/fixtures/things' : null)
+  return root ? `${root.replace(/\/$/, '')}/thing-${id}.json` : `${CITY_ORIGIN}/api/thing/${id}`
+}
+
+export async function fetchThing(id: number, search: string = browserSearch()): Promise<Thing | null> {
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('invalid thing request: expected a positive safe integer id')
+  const usesFixture = Boolean(searchValue(search, 'things')) || fixtureMode(search)
+  const response = await fetch(thingUrl(id, search), readOptions())
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`the city answered ${response.status} for thing ${id}`)
+  if (usesFixture && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
+  const value = await response.json() as unknown
+  const envelope = value && typeof value === 'object' ? value as Record<string, unknown> : null
+  const thing = envelope?.['thing']
+  if (!thing || typeof thing !== 'object') throw new Error(`the city returned an invalid thing ${id}`)
+  const record = thing as Record<string, unknown>
+  if (record['id'] !== id || typeof record['name'] !== 'string' || record['name'].trim().length === 0) {
+    throw new Error(`the city returned an invalid thing ${id}`)
+  }
+  return { id, name: record['name'] }
+}
+
+export function createThingLoader(search: string = browserSearch()): (id: number) => Promise<Thing | null> {
+  const cache = new Map<number, Promise<Thing | null>>()
+  return id => {
+    const cached = cache.get(id)
+    if (cached) return cached
+    const pending = fetchThing(id, search)
     cache.set(id, pending)
     return pending
   }

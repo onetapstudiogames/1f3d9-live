@@ -44,6 +44,11 @@ test('initialResidents never resurrects null starts or residents with invalid jo
   assert.equal(residents.some(item => item.id === 10), false)
 })
 
+test('initialResidents trims padded timeline actors before matching movers', () => {
+  const padded = { ...replay, timeline: [{ ...replay.timeline[0], actor: '  quiet-one  ' }] } as ReplayFile
+  assert.equal(initialResidents(padded, census).some(item => item.id === 3), false)
+})
+
 test('a record key is not a name, so no plate is drawn for it', () => {
   assert.equal(residentNamePlate('resident:12'), null)
   assert.equal(residentNamePlate('resident 999'), null)

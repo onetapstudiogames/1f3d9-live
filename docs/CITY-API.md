@@ -85,6 +85,9 @@ the event clock. Poll every 15 seconds or so; the file is cached 15 s server-sid
 
 `GET https://1f3d9.com/api/drawing/resident/:id` and `.../drawing/place/:id`
 
+`GET /api/drawing/thing/:id` uses the same complete 8 by 8 palette-and-indices grid;
+live complete samples for things 1536 and 2534 are saved as `thing-<id>.json`.
+
 ```json
 { "type": "resident", "id": 2, "state": "complete", "presentation_state": "complete", "description": "A traveler carrying a small case.",
   "drawing": { "palette": ["#f2ead8"], "indices": [null, null, null, 0, 0, null, null, null, ...64 cells...] }, "rows": 8, "source": "..." }
@@ -120,6 +123,34 @@ line and front matter when a viewer clicks it.
 `GET https://1f3d9.com/api/note/:id` → `{ id, body, author, place_id, created_at }` (the bubble text).
 `GET https://1f3d9.com/api/thing/:id` → name, kind, maker, current owner, body, place.
 
+The thing response wraps those fields in `{ "thing": { "id": 1536, "name": "...", ... } }`.
+The picture reads only the name, once per drawn thing and in batches of four. This current
+response never supplies a replay position or a past event. Missing names leave blank plates.
+
+### Things on the recorded floor
+
+Only a positive `place_id` in a `thing:<id>` start, a `thing_created` row, or a typed
+`thing_moved` row places a thing on a floor. Null starts stay off the floor; checkpoint
+`counts.things` never creates icons or a replay tally. Quiet rooms and their descendants
+show no things. Floor space allows for recorded residents and things, never checkpoint totals.
+Spots are reserved from the thing ID for the window, including future
+creations, so arriving residents keep clear. When spots run out, things touched by the
+window take priority and a plain sentence says some are hidden, without a number.
+
+`thing_created` supplies `thing_id`, `place_id`, `name`, `kind_id` and the maker in `actor`.
+Its row triggers the puff and landing; its name needs no extra read. An `action` with
+`action: "use"`, `source_thing_id`, `place_id` and `status: "applied"` or `"noop"` pulses
+an already placed thing in that room. A noop is a recorded attempt. Failed actions do not glow.
+
+The live front door checked on 2026-09-07 says consumption emits `thing_withdrawn`,
+not a second generic action notice. Its public detail is `{ "thing_id": 123 }`;
+the public record does not reveal whether it was consumed, withdrawn or destroyed.
+That recorded removal hides the icon with crumbs. An applied `action: "consume"` row
+with `source_thing_id` and `place_id` is also accepted; noop or failed consume does not remove it.
+The saved day has no consume/removal row, so tests use a hand-written typed removal.
+`thing_moved` supplies `thing_id` and the new `place_id`; it changes rooms without an
+invented animation. `thing_edited` is left alone for now.
+
 ## Facts about the city itself
 
 `GET https://1f3d9.com/api/official` → treasury, network, statement ("There is no 1F3D9 token..."),
@@ -147,3 +178,10 @@ Use `?drawings=/fixtures/drawings` for saved drawings. A resident request then r
 `/fixtures/drawings/resident-<id>.json`, and a place request reads
 `/fixtures/drawings/place-<id>.json`. Missing fixture files mean that resident or place has
 no saved drawing. Browser checks do not contact the live city origin.
+
+Thing drawings read `/fixtures/drawings/thing-<id>.json`; names read
+`/fixtures/things/thing-<id>.json` (or the root supplied by `?things=`).
+A replay or census override selects those fixture roots automatically. Missing files,
+including the preview server's HTML fallback, mean no saved name or drawing and never
+fall back to a live request. The 19 floor starts have saved thing responses in both fixture
+trees; the nine creations use their recorded names. The response JSON is kept verbatim.

@@ -49,11 +49,13 @@ export type ReplayFile = Readonly<{
 }>
 
 export type Drawing = Readonly<{
-  type: 'resident' | 'place'
+  type: 'resident' | 'place' | 'thing'
   id: number
   state: string
   drawing: Readonly<{ palette: readonly string[]; indices: readonly (number | null)[] }> | null
 }>
+
+export type Thing = Readonly<{ id: number; name: string }>
 
 export type Resident = Readonly<{
   id: number

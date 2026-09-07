@@ -26,11 +26,18 @@ The clock runs at 120× between recorded moments and holds while their walks and
 finish. Pause and speed controls are above the picture. Room names hide at distant zoom.
 
 Open `/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings`
-for saved inputs. The saved census is the city's two real pages, kept as they were served: the
+for saved inputs. Thing names also read from `/fixtures/things/thing-<id>.json` in this mode.
+The saved census is the city's two real pages, kept as they were served: the
 reader follows `-page1.json` to `-page2.json` the way it follows the live cursor, so every
-resident the saved replay records has a name and a drawing to look for. Only one drawing is
-saved. The browser check returns 404 for unsaved art and blocks all external requests. Census
-pagination and missing art are also covered by plain-function tests.
+resident the saved replay records has a name and a drawing to look for. Saved art includes one
+resident, one place and two things. Names for the 19 floor starts are saved too; creations use
+their recorded names. An unsaved place or thing drawing may return the fixture server's HTML fallback, which the
+reader treats as absent. The browser check blocks all external requests. Census pagination and
+missing art are also covered by plain-function tests.
+
+Things appear only on recorded floors, with small names when zoomed in. Making gives a
+pixel puff, recorded use attempts (including noop) glow, and recorded removals leave crumbs.
+One default pixel parcel stands in for missing art. Crowded rooms hide overflow without a tally.
 
 The replay can have gaps even between its start block and its first move. At a gap, the
 picture resumes at the next recorded source room and says so; it draws no connecting walk.

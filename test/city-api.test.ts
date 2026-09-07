@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createDrawingLoader, fetchCensus, fetchDrawing, fetchReplay } from '../src/city/api.ts'
+import { createDrawingLoader, createThingLoader, fetchCensus, fetchDrawing, fetchReplay, fetchThing } from '../src/city/api.ts'
 
 const resident = (id: number) => ({ id, handle: `resident-${id}`, model: '', joined_at: '2026-01-01T00:00:00Z', has_drawing: true, current_place_id: 1, asleep: false })
 
@@ -162,7 +162,7 @@ test('drawing requests validate type and id before reading the city', async (t) 
 
   await assert.rejects(fetchDrawing('resident', 0), /invalid drawing request/)
   await assert.rejects(fetchDrawing('place', 1.5), /invalid drawing request/)
-  await assert.rejects(fetchDrawing('thing' as 'place', 1), /invalid drawing request/)
+  await assert.rejects(fetchDrawing('other' as 'place', 1), /invalid drawing request/)
   assert.equal(calls, 0)
 })
 
@@ -204,4 +204,65 @@ test('a place drawing server error stays in plain words and is not fetched again
   await assert.rejects(load(1), /the city answered 503 for the place drawing 1/)
   await assert.rejects(load(1), /the city answered 503 for the place drawing 1/)
   assert.deepEqual(urls, ['https://1f3d9.com/api/drawing/place/1'])
+})
+
+test('fixture mode defaults thing labels and thing drawings to saved files', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    const url = String(input)
+    urls.push(url)
+    if (url.includes('/things/')) return Response.json({ thing: { id: 7, name: 'small lantern', place_id: 999 } })
+    return Response.json({ type: 'thing', id: 7, state: 'complete', drawing: { palette: ['#ffffff'], indices: Array(64).fill(0) } })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  assert.deepEqual(await fetchThing(7, '?replay=/fixtures/replay-24h.json'), { id: 7, name: 'small lantern' })
+  assert.equal((await fetchDrawing('thing', 7, '?census=/fixtures/residents-presence-page1.json'))?.type, 'thing')
+  assert.deepEqual(urls, ['/fixtures/things/thing-7.json', '/fixtures/drawings/thing-7.json'])
+})
+
+test('thing loader caches success, absence, and failures and supports an override root', async (t) => {
+  const original = globalThis.fetch
+  const calls = new Map<string, number>()
+  globalThis.fetch = async input => {
+    const url = String(input)
+    calls.set(url, (calls.get(url) ?? 0) + 1)
+    if (url.endsWith('thing-2.json')) return new Response('', { status: 404 })
+    if (url.endsWith('thing-3.json')) throw new Error('offline')
+    return Response.json({ thing: { id: 1, name: 'cup', place_id: 55 } })
+  }
+  t.after(() => { globalThis.fetch = original })
+  const load = createThingLoader('?things=/saved/things')
+
+  assert.deepEqual(await load(1), { id: 1, name: 'cup' })
+  assert.equal(await load(2), null)
+  assert.equal(await load(2), null)
+  await assert.rejects(load(3), /offline/)
+  await assert.rejects(load(3), /offline/)
+  assert.deepEqual([...calls.values()], [1, 1, 1])
+})
+
+test('thing reads validate request and response identity and name', async (t) => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => { calls += 1; return Response.json({ thing: { id: 4, name: 'wrong' } }) }
+  t.after(() => { globalThis.fetch = original })
+
+  await assert.rejects(fetchThing(0, ''), /invalid thing request/)
+  await assert.rejects(fetchThing(Number.MAX_SAFE_INTEGER + 1, ''), /invalid thing request/)
+  assert.equal(calls, 0)
+  await assert.rejects(fetchThing(3, ''), /invalid thing 3/)
+})
+
+test('missing fixture HTML means no saved thing and never falls back live', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    return new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })
+  }
+  t.after(() => { globalThis.fetch = original })
+  assert.equal(await fetchThing(8, '?replay=/fixtures/replay.json'), null)
+  assert.deepEqual(urls, ['/fixtures/things/thing-8.json'])
 })
