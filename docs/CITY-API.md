@@ -266,6 +266,18 @@ the original HTTP response bytes could not be independently compared there.
 The current door was read with `?giving=20260907` to avoid an older cached copy.
 Tests adapt feed `created_at` to replay `at`; the saved JSON stays unchanged.
 
+## Current floor things
+
+When the camera comes near a room, `GET /api/place/<id>?view=outline` supplies that room's
+direct `things` rows and `things_page.total_items`. This is a present-state census beside the
+24-hour record: it adds only IDs the record never mentions, so recorded moves, carries,
+handovers, puffs, and removals keep their own timing and places. The reader prefers this direct
+outline to `window?within_place_id`, whose results include descendants and would put things on
+the wrong floor. It reads no quiet room, caches each room once, and limits concurrent reads.
+Only a direct thing row with `has_drawing: true` causes an art read; an absent flag keeps the
+default parcel. `test/fixtures/places/place-3.json` is the byte-exact public square outline
+saved on 2026-09-07, matched in the public fixture tree.
+
 ## Facts about the city itself
 
 `GET https://1f3d9.com/api/official` → treasury, network, statement ("There is no 1F3D9 token..."),

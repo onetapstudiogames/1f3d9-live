@@ -8,6 +8,7 @@ export function stageFindFreeSpots(
   room: StageGroundRect,
   previous: Readonly<Record<string, StageStandingSpot>> = {},
   extraGround: readonly StageGroundRect[] = [],
+  fixedObstacles: readonly StageStandingSpot[] = [],
 ): Readonly<Record<string, StageStandingSpot>> {
   if (![room.x, room.y, room.width, room.height].every(Number.isFinite) ||
       room.width <= 0 || room.height <= 0) return Object.freeze({})
@@ -50,6 +51,7 @@ export function stageFindFreeSpots(
     bucketColumn.set(y, [...(bucketColumn.get(y) || []), spot])
     occupiedByBucket.set(x, bucketColumn)
   }
+  for (const obstacle of fixedObstacles) addOccupied(obstacle)
   const collides = (area: StageGroundRect): boolean => {
     const centerX = bucketCoordinate(area.x)
     const centerY = bucketCoordinate(area.y)

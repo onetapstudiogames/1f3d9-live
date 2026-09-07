@@ -1,11 +1,11 @@
-import type { CensusPage, Drawing, ReplayFile, Resident, Thing } from './types.ts'
+import type { CensusPage, Drawing, PlaceOutline, ReplayFile, Resident, Thing } from './types.ts'
 import { parseNameHistory, type NameSpan } from '../places.ts'
 
 export const CITY_ORIGIN = 'https://1f3d9.com'
 const READ_TIMEOUT_MS = 15_000
 
 function readOptions(): RequestInit {
-  return { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(READ_TIMEOUT_MS) }
+  return { credentials: 'omit', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(READ_TIMEOUT_MS) }
 }
 
 // ?replay=<url> lets tests and the smoke check read a saved fixture instead of the live city.
@@ -226,4 +226,42 @@ export function createNameHistoryLoader(
     cache.set(id, pending)
     return pending
   }
+}
+
+export function createPlaceOutlineLoader(search: string = browserSearch()): (id: number) => Promise<PlaceOutline | null> {
+  const cache = new Map<number, Promise<PlaceOutline | null>>()
+  return id => {
+    const cached = cache.get(id)
+    if (cached) return cached
+    const pending = fetchPlaceOutline(id, search)
+    cache.set(id, pending)
+    return pending
+  }
+}
+
+async function fetchPlaceOutline(id: number, search: string): Promise<PlaceOutline | null> {
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('invalid place outline request: expected a positive safe integer id')
+  const root = searchValue(search, 'places') || (fixtureMode(search) ? '/fixtures/places' : null)
+  const fixture = Boolean(root)
+  const url = root ? `${root.replace(/\/$/, '')}/place-${id}.json` : `${CITY_ORIGIN}/api/place/${id}?view=outline`
+  const response = await fetch(url, readOptions())
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(`the city answered ${response.status} for place outline ${id}`)
+  if (fixture && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
+  const value = await response.json() as unknown
+  const envelope = value && typeof value === 'object' ? value as Record<string, unknown> : null
+  const place = envelope?.['place'] as Record<string, unknown> | undefined
+  const page = envelope?.['things_page'] as Record<string, unknown> | undefined
+  if (place?.['id'] !== id || typeof place['quiet'] !== 'boolean' || !Array.isArray(envelope?.['things']) || !page
+    || !Number.isSafeInteger(page['total_items']) || (page['total_items'] as number) < 0 || typeof page['has_more'] !== 'boolean') {
+    throw new Error(`the city returned an invalid place outline ${id}`)
+  }
+  const things = envelope.things.flatMap(item => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    const name = typeof row['name'] === 'string' ? row['name'].trim() : ''
+    return Number.isSafeInteger(row['id']) && (row['id'] as number) > 0 && row['place_id'] === id && name
+      ? [{ id: row['id'] as number, name, placeId: id, hasDrawing: row['has_drawing'] === true }] : []
+  })
+  return Object.freeze({ placeId: id, quiet: place['quiet'], things: Object.freeze(things), totalItems: page['total_items'] as number, hasMore: page['has_more'] as boolean })
 }

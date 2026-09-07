@@ -25,10 +25,11 @@ test('the fixture draws tiled floors, sleeper control, and both ways to follow',
     }
     await route.continue()
   })
-  await page.goto('/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings')
+  await page.goto('/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places')
   await expect.poll(() => page.evaluate(() => document.body.dataset['liveReady'] ?? ''), { timeout: 30_000 }).toBe('true')
   await expect.poll(() => page.evaluate(() => document.body.dataset['livePlaceDrawing'] ?? ''), { timeout: 30_000 }).toBe('true')
   await expect(page.locator('body')).toHaveAttribute('data-live-place-floor', 'true')
+  await expect.poll(() => page.evaluate(() => document.body.dataset['liveOutlineThing'] ?? ''), { timeout: 30_000 }).toBe('true')
   await expect.poll(() => page.evaluate(() => {
     const things = JSON.parse(document.body.dataset['liveThings'] ?? '[]') as { id: number; name: string | null }[]
     return things.find(thing => thing.id === 1536)?.name

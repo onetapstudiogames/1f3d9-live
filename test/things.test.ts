@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import type { ReplayEvent, ReplayFile } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
-import { consumedThing, createdThing, createThings, effectFrame, movedThing, planThingSpots, stepThings, usedThing } from '../src/things.ts'
+import { addPresentThings, consumedThing, createdThing, createThings, effectFrame, movedThing, planThingSpots, recordThingIds, stepThings, usedThing } from '../src/things.ts'
 
 const rooms = {
   1: { id: 1, parentId: null, name: 'world', quiet: false, depth: 0, x: 0, y: 0, width: 300, height: 220, door: { x: 150, y: 220 }, standing: { x: 20, y: 20, width: 240, height: 160 }, children: [2] },
@@ -33,6 +33,49 @@ test('planning reserves deterministic floor spots from starts and created rows o
 test('quiet rooms and their descendants do not get thing reservations', () => {
   const plan = planThingSpots(replay({ 'thing:1': { place_id: 2 }, 'thing:2': { place_id: 3 } }), layout)
   assert.deepEqual(plan.reservations, {})
+})
+
+test('outline census adds only unknown things without moving known spots or blockers', () => {
+  const input = replay({ 'thing:11': { place_id: 1 } }, [event('thing_created', { thing_id: 12, place_id: 1, name: 'record known' })])
+  const initial = createThings(input, layout)
+  const knownSpot = initial.reservations[1]!.find(spot => spot.key === 'thing:11')!
+  const blocked = [{ key: 'resident:5', kind: 'resident' as const, x: 110, y: 90, width: 32, height: 32 }]
+  const next = addPresentThings(initial, { placeId: 1, quiet: false, totalItems: 3, hasMore: false, things: [
+    { id: 11, name: 'do not revive', placeId: 1, hasDrawing: true },
+    { id: 12, name: 'do not add early', placeId: 1, hasDrawing: true },
+    { id: 13, name: 'current parcel', placeId: 1, hasDrawing: false },
+  ] }, layout, recordThingIds(input), blocked)
+  assert.deepEqual(next.reservations[1]!.find(spot => spot.key === 'thing:11'), knownSpot)
+  assert.equal(next.things[12], undefined)
+  assert.equal(next.things[13]!.name, 'current parcel')
+  assert.equal(next.things[13]!.effect, null)
+  assert.ok(next.reservations[1]!.every(spot => spot.key === 'thing:11' || Math.hypot(spot.x - 110, spot.y - 90) >= 48))
+  assert.equal(initial.things[13], undefined)
+})
+
+test('outline census reports endpoint totals and floor capacity honestly', () => {
+  const tinyRooms = { ...rooms, 1: { ...rooms[1], standing: { x: 20, y: 20, width: 64, height: 64 } } }
+  const tiny = { ...layout, rooms: tinyRooms } as unknown as NestedLayout
+  const next = addPresentThings(createThings(replay({}), tiny), {
+    placeId: 1, quiet: false, totalItems: 25, hasMore: true,
+    things: Array.from({ length: 10 }, (_, index) => ({ id: 100 + index, name: `thing ${index}`, placeId: 1, hasDrawing: false })),
+  }, tiny, new Set(), [])
+  assert.ok(Object.keys(next.things).length < 10)
+  assert.ok(next.issues.includes('Current read for room 1 lists 25 things; only the newest items that fit are shown.'))
+})
+
+test('outline placement treats off-inset figures as fixed obstacles and refuses quiet responses', () => {
+  const blocker = { key: 'resident:8', kind: 'resident' as const, x: 5, y: 5, width: 32, height: 32 }
+  const outline = { placeId: 1, quiet: false, totalItems: 1, hasMore: false,
+    things: [{ id: 90, name: 'parcel', placeId: 1, hasDrawing: false }] }
+  const placed = addPresentThings(createThings(replay({}), layout), outline, layout, new Set(), [blocker])
+  const spot = placed.reservations[1]!.find(item => item.key === 'thing:90')!
+  assert.ok(Math.hypot(spot.x - blocker.x, spot.y - blocker.y) >= 48)
+  assert.equal(addPresentThings(createThings(replay({}), layout), { ...outline, quiet: true }, layout, new Set(), []).things[90], undefined)
+})
+
+test('replay-known ids include thing transfer assets', () => {
+  assert.equal(recordThingIds(replay({}, [event('transfer', { asset_type: 'thing', asset_id: 88 })])).has(88), true)
 })
 
 test('starts are nameless and inert until recorded rows act on them', () => {
