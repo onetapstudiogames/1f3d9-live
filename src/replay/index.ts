@@ -1,4 +1,6 @@
 import type { ReplayEvent } from '../city/types.ts'
+export { bubbleDuration, bubbleFor } from '../speech.ts'
+import type { SpeechBubble } from '../speech.ts'
 
 export type Clock = Readonly<{
   time: number
@@ -12,18 +14,12 @@ export type AppliedMove = Readonly<{ fromId: number; toId: number }>
 
 export type TimelineRow = Readonly<{ event: ReplayEvent; time: number }>
 
-export type Bubble = Readonly<{
-  text: string
-  cut: boolean
-  expiresAt: number
-}>
+export type Bubble = SpeechBubble
 
 // The clock runs fast between recorded moments and stands still while a figure walks
 // or a word is up. Those holds are most of what the saved day costs, so they shrink with
 // the chosen speed and stop shrinking at a floor that keeps a walk visible and a line readable.
 export const BASE_SPEED = 120
-const BUBBLE_DURATION_MS = 5_000
-const BUBBLE_FLOOR_MS = 1_500
 const WALK_SHORTEST_MS = 2_800
 const WALK_LONGEST_MS = 4_000
 const WALK_FLOOR_MS = 1_200
@@ -91,9 +87,6 @@ export function walkProgress(distance: number, elapsedShare: number, slowCentres
   return 1
 }
 
-export function bubbleDuration(speed: number = BASE_SPEED): number {
-  return Math.max(BUBBLE_FLOOR_MS, BUBBLE_DURATION_MS * holdScale(speed))
-}
 
 export function createClock(start: string, end: string, speed: number = BASE_SPEED): Clock {
   const startTime = Date.parse(start)
@@ -156,17 +149,6 @@ export function appliedMove(event: ReplayEvent): AppliedMove | null {
   if (!isPlaceId(fromId) || !isPlaceId(toId) || fromId === toId) return null
 
   return { fromId, toId }
-}
-
-export function bubbleFor(event: ReplayEvent, shownAt: number, speed: number = BASE_SPEED): Bubble | null {
-  if (event.kind !== 'note' || typeof event.line !== 'string' || event.line.length === 0) return null
-  if (!Number.isFinite(shownAt)) return null
-
-  return {
-    text: event.line,
-    cut: event.line_cut === true,
-    expiresAt: shownAt + bubbleDuration(speed),
-  }
 }
 
 export function bubbleVisible(expiresAt: number, now: number): boolean {

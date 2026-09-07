@@ -105,7 +105,8 @@ test('inventions take their actor queue turn between walks and words, one at a t
   state = stepResidents(state, [], 0, 12_300, layout)
   assert.equal(state.startedInventions?.[0]?.invention.name, 'patient')
   state = stepResidents(state, [], 0, 14_500, layout)
-  assert.deepEqual(state.residents[7]!.bubble, { text: 'done', cut: false, expiresAt: 19_500 })
+  assert.deepEqual(state.residents[7]!.bubble, { text: 'done', cut: false, placeId: 1,
+    startedAt: 14_500, charInterval: 34, expiresAt: 19_500 })
 })
 
 test('a full destination reports no free spot rather than no path', () => {
