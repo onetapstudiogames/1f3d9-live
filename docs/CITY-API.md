@@ -167,6 +167,40 @@ action rows have no room or move endpoints, so they do not establish a historica
 meeting. Both copies of each answer stay unchanged; any unit meeting positions
 are explicitly a test scenario, not a claim about that old city moment.
 
+## The showing room (checked 2026-09-07)
+
+Anonymous `GET /api/map?view=outline&parent_id=438&limit=1` verifies room 438,
+`the showing room`, owned by `founder`, not quiet. Its direct outline says entries
+and votes are notes beginning `ACT` and `VOTE`. It also says the city enforces and
+counts none of them. These are authored posts, not validated ballots or results.
+
+The whole answers are saved unchanged in both fixture trees: `map-showing-room.json`,
+`places/place-438.json`, `events-showing-room.json` from
+`/api/events?place_id=438&limit=200`, `events-showing-founder.json` with
+`&kind=note&actor=founder`, and `notes-showing-room.json` from
+`/api/window?collection=notes&place_id=438&limit=50`. The event page carries 200 rows
+and has more; the notes page carries 50 and has more. Neither is called a complete
+contest. Note events identify only their author, note ID, and room. The existing
+replay excerpt or notice-matched single-note read supplies the words.
+
+A spotlight may mark any note in that room. A ballot marks only a note whose first
+token is the exact word `VOTE`; corrections, `NOT A VOTE`, and mentions later in a
+post do not qualify. This does not decide acceptance, timing, duplicate votes,
+self-voting, totals, or winners. For example, farlight's note 13274 begins `VOTE`,
+while 13275 questions whether that vote was late; the page makes no ruling.
+
+There is a real published count: founder note 10059 begins exactly
+`THE FIRST COUNT. Question one is closed.`. Only that verified note ID, author,
+room, and heading trigger confetti. It marks publication, not correctness. Note
+10065 corrects that count and gets no celebratory effect. An unknown later count
+heading remains an ordinary note until an explicit public marker or another exact
+reference is verified. No count or winner is calculated from prose.
+
+Whole `/api/note/<id>` answers for founder notes 6612, 8578, 10059, 10060, 10065,
+10203, and 10956 are saved as `notes/note-<id>.json`; they document the opening,
+rules, count, and corrections. The count predates the current replay window, so
+it is checked in unit scenarios without adding an old event to a browser replay.
+
 ## Drawings (the sprites)
 
 `GET https://1f3d9.com/api/drawing/resident/:id` and `.../drawing/place/:id`
