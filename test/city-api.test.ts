@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createDrawingLoader, createThingLoader, fetchCensus, fetchDrawing, fetchReplay, fetchThing } from '../src/city/api.ts'
+import { createDrawingLoader, createNameHistoryLoader, createThingLoader, fetchCensus, fetchDrawing, fetchReplay, fetchThing } from '../src/city/api.ts'
 
 const resident = (id: number) => ({ id, handle: `resident-${id}`, model: '', joined_at: '2026-01-01T00:00:00Z', has_drawing: true, current_place_id: 1, asleep: false })
 
@@ -277,4 +277,83 @@ test('missing fixture HTML means no saved thing and never falls back live', asyn
   t.after(() => { globalThis.fetch = original })
   assert.equal(await fetchThing(8, '?replay=/fixtures/replay.json'), null)
   assert.deepEqual(urls, ['/fixtures/things/thing-8.json'])
+})
+
+test('name history loader reads one anonymous live outline and caches it', async (t) => {
+  const original = globalThis.fetch
+  const calls: Array<{ url: string, init?: RequestInit }> = []
+  globalThis.fetch = async (input, init) => {
+    calls.push({ url: String(input), init })
+    return Response.json({ place: { id: 264, name_history: [
+      { name: 'old room', started_at: '2026-01-01T00:00:00Z', ended_at: '2026-02-01T00:00:00Z' },
+      { name: 'new room', started_at: '2026-02-01T00:00:00Z', ended_at: null },
+    ] } })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  const load = createNameHistoryLoader('')
+  assert.equal((await load(264))?.[0]?.name, 'old room')
+  assert.equal((await load(264))?.[1]?.name, 'new room')
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0]?.url, 'https://1f3d9.com/api/map?view=outline&parent_id=264&limit=1')
+  assert.deepEqual(calls[0]?.init?.headers, { accept: 'application/json' })
+  assert.ok(calls[0]?.init?.signal instanceof AbortSignal)
+})
+
+test('name history fixtures use their default or named root without a live fallback', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    return new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  assert.equal(await createNameHistoryLoader('?replay=/fixtures/replay.json')(9), null)
+  assert.equal(await createNameHistoryLoader('?census=/fixtures/census.json&places=/saved/outlines')(10), null)
+  assert.deepEqual(urls, ['/fixtures/places/place-9.json', '/saved/outlines/place-10.json'])
+})
+
+test('name history loader caches missing places and failed promises', async (t) => {
+  const original = globalThis.fetch
+  const calls = new Map<string, number>()
+  globalThis.fetch = async input => {
+    const url = String(input)
+    calls.set(url, (calls.get(url) ?? 0) + 1)
+    if (url.includes('parent_id=1')) return new Response('', { status: 404 })
+    throw new Error('outline offline')
+  }
+  t.after(() => { globalThis.fetch = original })
+  const load = createNameHistoryLoader('')
+
+  assert.equal(await load(1), null)
+  assert.equal(await load(1), null)
+  await assert.rejects(load(2), /outline offline/)
+  await assert.rejects(load(2), /outline offline/)
+  assert.deepEqual([...calls.values()], [1, 1])
+})
+
+test('name history loader validates requests, envelope identity, and history', async (t) => {
+  const original = globalThis.fetch
+  const bodies = [
+    { place: { id: 8, name_history: [] } },
+    { place: { id: 7 } },
+    { place: { id: 7, name_history: [{ name: '', started_at: 'bad', ended_at: null }] } },
+  ]
+  let calls = 0
+  globalThis.fetch = async () => { calls += 1; return Response.json(bodies.shift()) }
+  t.after(() => { globalThis.fetch = original })
+
+  await assert.rejects(createNameHistoryLoader('')(0), /invalid place history request/)
+  assert.equal(calls, 0)
+  await assert.rejects(createNameHistoryLoader('')(7), /invalid name history for place 7/)
+  await assert.rejects(createNameHistoryLoader('')(7), /invalid name history for place 7/)
+  await assert.rejects(createNameHistoryLoader('')(7), /invalid name history for place 7/)
+})
+
+test('name history server errors stay in plain words', async (t) => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => new Response('', { status: 503 })
+  t.after(() => { globalThis.fetch = original })
+  await assert.rejects(createNameHistoryLoader('')(264), /the city answered 503 for place history 264/)
 })

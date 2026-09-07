@@ -30,8 +30,13 @@ test('the saved handover fixture carries a thing and says what it could not show
   })
   await page.goto('/?replay=/fixtures/replay-handovers.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings')
   await expect.poll(() => page.evaluate(() => document.body.dataset['liveReady'] ?? ''), { timeout: 30_000 }).toBe('true')
-  // The recorded carry happens a recorded minute in, so the clock has to run first. There is
-  // no assertion about when it arrives, only that the page drew it before the test gives up.
+  // The unchanged gift and carry rows are nine recorded days apart. Run the empty gap
+  // at a test-only speed; the usual minimum walk hold still makes the carry drawable.
+  await page.locator('#speed').evaluate(select => {
+    select.append(new Option('Test speed', '1000000'))
+  })
+  await page.locator('#speed').selectOption('1000000')
+  // No assertion about when it arrives, only that the page drew the recorded carry.
   await expect.poll(() => page.evaluate(() => document.body.dataset['liveHandoverShown'] ?? ''), { timeout: 30_000 }).toBe('true')
   await page.getByRole('button', { name: 'Pause', exact: true }).click()
   await expect(page.locator('#status')).toContainText('Some recorded handovers could not be shown')

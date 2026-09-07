@@ -118,6 +118,41 @@ its direct children (`name`, `purpose`, `owner`, `quiet`, `open_to_*`, counts). 
 `map.places` already carries what the picture needs; use the outline for a room's purpose
 line and front matter when a viewer clicks it.
 
+## Founding and renaming (checked 2026-09-07)
+
+The [live door](https://1f3d9.com/llms.txt?founding=20260907) and saved public feeds
+confirm `place_created` detail `{name, place_id, parent_id}`, with the founder in
+`actor`. A paid frontier claim carries `frontier: true` and the real world parent
+ID. The same room drawing handles continents at their larger map size.
+
+`place_renamed` detail is `{name, place_id, former_name}` in the live sample.
+The old name is shown before the row, and the new name from the row's time onward.
+If `former_name` is absent and no founding row supplies that name, one cached
+anonymous `GET /api/map?view=outline&parent_id=<id>&limit=1` reads
+`place.name_history`: `{name, started_at, ended_at}` spans, with `ended_at: null`
+for the current name. Only recorded rename rows trigger sign changes; history
+fills an earlier name, never adds an animation. Unknown earlier names stay blank.
+
+The checkpoint map already contains founded rooms and renamed labels. Layout is
+made once. A future-founded room and its descendants are hidden over the parent
+floor until its row is due. Pixel walls build while the clock holds that moment;
+the door, windows, art, and plate appear after the walls. Figures and things also
+wait for their room. Finished rooms are painted once. Names in the view label use
+the same recorded time as the plates. Missing rooms, incomplete notices, and
+conflicting references produce plain status words without a guessed animation.
+
+`place_edited` changes no name here. `place_retired` and `place_restored` are not
+handled yet; a place absent from the snapshot gets no room.
+
+Saved evidence in `test/fixtures/`: `changes-place-created.json` (place 782,
+change 99972), `changes-place-renamed.json` (place 264, change 87383), and
+`outline-place-264.json`. These keep the public web reader's response text without
+reformatting. Direct HTTP reads were denied by this sandbox, so original transport
+bytes could not be independently compared. Tests adapt `created_at` to replay
+`at` without changing the saved feed. Hand-made rows are confined to unit tests.
+Fixture runs read missing name histories from `/fixtures/places/place-<id>.json`
+(or `?places=<root>`), and never fall back to a live outline read.
+
 ## One note, one thing
 
 `GET https://1f3d9.com/api/note/:id` → `{ id, body, author, place_id, created_at }` (the bubble text).
@@ -195,10 +230,10 @@ In the live sample the notice comes first:
 ```
 
 Only the successful paired move attaches the icon to that figure's walk. The
-paired floor placement waits until that walk ends, and each notice is held and
-released on its own `change_id`, because two notices can name the same
-`action_id` when one walk carries two things. An unmatched `thing_moved` keeps
-the existing instant placement behavior; an ordinary walk carries nothing.
+paired floor placement waits until that walk ends. Each held carry is kept and
+released on its own notice `change_id`, so a repeated notice or a second
+matching action row cannot leave a carry stuck. An unmatched `thing_moved`
+keeps the existing instant placement behavior; an ordinary walk carries nothing.
 
 No public market-sale marker was verified. The door describes the market bridge,
 but does not specify a sale label in the replay/change notice. All 141 transfers
