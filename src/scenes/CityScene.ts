@@ -31,6 +31,7 @@ import { createAgreementPairLoader, type AgreementPair } from '../city/agreement
 import { readAgreementPairs } from '../agreements.ts'
 import { AgreementLayer } from './AgreementLayer.ts'
 import { browserStorage, markFinishedPlaces, visibleFigureList } from './fixture-state.ts'
+import { currentLawStatus, invalidateCurrentLaws, rememberCurrentLaws } from '../laws.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -66,6 +67,8 @@ export class CityScene extends Phaser.Scene {
   private outlineActive = 0
   private outlinePending = new Map<number, PlaceOutline>()
   private outlineGeneration = 0
+  private currentLaws: ReadonlyMap<number, readonly string[] | null> = new Map()
+  private lawsChanged = false
   private recordThingIds: ReadonlySet<number> = new Set()
   private clock?: Clock
   private rooms?: RoomView
@@ -359,7 +362,6 @@ export class CityScene extends Phaser.Scene {
     }
     this.sleepers = wakeActiveSleepers(this.sleepers, this.residents.residents, events)
   }
-
   private replayDay(): void {
     if (!this.replay || !this.layout) return
     this.mode = 'replay'
@@ -383,11 +385,11 @@ export class CityScene extends Phaser.Scene {
     this.outlineReads.clear()
     this.outlinePending.clear()
     this.outlineGeneration += 1
+    this.currentLaws = new Map()
     this.sleepers = this.initialSleepers
     document.body.dataset['liveMode'] = 'replay'
     this.updateHud()
   }
-
   private enterLiveMode(): void {
     this.mode = 'live'
     if (this.clock) this.clock = { ...this.clock, time: Date.now() }
@@ -395,9 +397,11 @@ export class CityScene extends Phaser.Scene {
     document.body.dataset['liveMode'] = 'live'
     this.updateHud()
   }
-
   private applyEvents(events: readonly ReplayFile['timeline'][number][], elapsed: number): void {
     if (!this.layout || !this.residents || !this.things || !this.handovers || !this.clock) return
+    if (this.mode === 'live' && events.some(event => event.kind === 'laws_changed')) {
+      this.currentLaws = invalidateCurrentLaws(this.currentLaws); this.lawsChanged = true
+    }
     this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed, this.agreementPairs, row => this.isResidentDrawn(row))
     this.agreementLayer.add(this.residents.startedHandshakes ?? [])
     this.inventions = stepInventions(this.inventions, this.residents.startedInventions ?? [], this.residents,
@@ -406,7 +410,6 @@ export class CityScene extends Phaser.Scene {
     this.handovers = this.handoverFrame.state
     this.things = stepThings(this.things, this.handoverFrame.floorEvents, this.elapsed, this.clock.speed)
   }
-
   private updateRooms(): void {
     if (!this.clock || !this.layout || !this.placePlan) return
     this.hiddenPlaces = hiddenRooms(this.placePlan, this.layout, this.clock.time)
@@ -414,7 +417,6 @@ export class CityScene extends Phaser.Scene {
     this.rooms?.update(this.cameras.main, this.clock.time, this.elapsed,
       this.hiddenPlaces, this.contentsHidden, this.placeAnimations)
   }
-
   private drawThings(): void {
     const state = this.things?.things ?? {}
     for (const [id, view] of this.thingViews) {
@@ -439,7 +441,6 @@ export class CityScene extends Phaser.Scene {
       document.body.dataset['liveOutlineThing'] = String(Boolean(state[2627]?.visible))
     }
   }
-
   private updateOutlines(): void {
     if (this.mode !== 'live' || !this.liveCaughtUp || !this.layout || !this.residents || !this.things || document.body.dataset['liveReady'] !== 'true') return
     for (const [id, outline] of this.outlinePending) {
@@ -470,14 +471,13 @@ export class CityScene extends Phaser.Scene {
       }).finally(() => { this.outlineActive -= 1 })
     }
   }
-
   private roomHasMotion(placeId: number): boolean {
     return Object.values(this.residents?.residents ?? {}).some(resident => (resident.walking || resident.agreementUntil != null)
       && (resident.placeId === placeId || resident.destinationId === placeId))
   }
-
   private mergeOutline(outline: PlaceOutline): void {
     if (this.mode !== 'live' || !this.layout || !this.residents || !this.things || this.contentsHidden.has(outline.placeId)) return
+    this.currentLaws = rememberCurrentLaws(this.currentLaws, outline.placeId, outline.lawNames ?? null)
     const blockers: StageStandingSpot[] = Object.values(this.residents.residents).flatMap(resident => {
       const points = [resident.placeId === outline.placeId && resident.visible ? { key: `resident:${resident.id}`, x: resident.x, y: resident.y } : null,
         resident.destinationId === outline.placeId && resident.destination ? { key: `destination:${resident.id}`, ...resident.destination } : null]
@@ -493,7 +493,6 @@ export class CityScene extends Phaser.Scene {
       if (row.hasDrawing) void this.loadOutlineThingDrawing(row.id)
     }
   }
-
   private async loadOutlineThingDrawing(id: number): Promise<void> {
     try {
       const art = await this.readThingDrawing(id)
@@ -505,7 +504,6 @@ export class CityScene extends Phaser.Scene {
       this.thingReadIssue('Some thing drawings could not be read; their pixel icons are kept.')
     }
   }
-
   private drawHandovers(): void {
     const motions = this.handoverFrame?.motions ?? []
     const keys = new Set(motions.map(motion => motion.key))
@@ -788,7 +786,12 @@ export class CityScene extends Phaser.Scene {
       : `Live: keeping up with the city${this.liveState?.lastReadAt ? `, last read at ${new Date(this.liveState.lastReadAt).toISOString().slice(11, 16)} UTC.` : '.'}`
     const issues = [...this.readIssues, ...(this.residents?.issues ?? []), ...(this.things?.issues ?? []), ...this.inventions.issues]
     const sleep = this.sleepers.size ? (this.showSleepers ? 'Sleepers are shown.' : 'Sleepers are hidden.') : ''
-    const status = `${this.readStatus} ${sleep} ${this.followNotice} ${state}${issues.length ? ` ${issues.join(' ')}` : ''}`.trim()
+    const lawPlace = resident?.placeId ?? this.viewPlaceId
+    const lawRoom = lawPlace === null || !this.layout || !this.placePlan || !this.clock ? null
+      : recordedRoomName(this.placePlan, this.layout.rooms[lawPlace]!, this.clock.time)
+    const laws = currentLawStatus(this.currentLaws, lawPlace, lawRoom, this.mode === 'live')
+    const staleLaws = this.lawsChanged ? 'The laws changed; reload to read them again.' : ''
+    const status = `${this.readStatus} ${sleep} ${laws} ${staleLaws} ${this.followNotice} ${state}${issues.length ? ` ${issues.join(' ')}` : ''}`.trim()
     if (status !== this.lastHud) {
       document.getElementById('status')!.textContent = status
       this.lastHud = status

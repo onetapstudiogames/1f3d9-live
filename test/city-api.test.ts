@@ -53,7 +53,7 @@ test('place outline loader reads direct things once and keeps drawing flags stri
   assert.deepEqual(first, { placeId: 3, quiet: false, things: [
     { id: 9, name: 'parcel', placeId: 3, hasDrawing: false },
     { id: 8, name: 'painted', placeId: 3, hasDrawing: true },
-  ], totalItems: 100, hasMore: true })
+  ], totalItems: 100, hasMore: true, lawNames: null })
   assert.deepEqual(calls, ['/fixtures/places/place-3.json'])
 })
 
