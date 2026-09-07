@@ -24,9 +24,13 @@ export type Bubble = Readonly<{
 export const BASE_SPEED = 120
 const BUBBLE_DURATION_MS = 5_000
 const BUBBLE_FLOOR_MS = 1_500
-const WALK_SHORTEST_MS = 1_200
+const WALK_SHORTEST_MS = 2_800
 const WALK_LONGEST_MS = 4_000
-const WALK_FLOOR_MS = 400
+const WALK_FLOOR_MS = 1_200
+const WALK_BASE_DISTANCE = 1_000
+const WALK_LOG_STEP_MS = 150
+const WALK_NEAR_DISTANCE = 72
+const WALK_SLOW_TIME_SHARE = 0.72
 
 // The speed box is read as plain text, so a missing, empty or nonsense value never throws:
 // anything that is not a positive number falls back to the speed the page starts at.
@@ -42,9 +46,49 @@ export function holdScale(speed: number): number {
 }
 
 export function walkDuration(distance: number, speed: number = BASE_SPEED): number {
-  const paced = Number.isFinite(distance) && distance > 0 ? distance * 5 : 0
-  const base = Math.min(WALK_LONGEST_MS, Math.max(WALK_SHORTEST_MS, paced))
+  const safeDistance = Number.isFinite(distance) && distance > 0 ? distance : 0
+  const extra = Math.max(0, Math.log2(Math.max(1, safeDistance / WALK_BASE_DISTANCE))) * WALK_LOG_STEP_MS
+  const base = Math.min(WALK_LONGEST_MS, WALK_SHORTEST_MS + extra)
   return Math.max(WALK_FLOOR_MS, base * holdScale(speed))
+}
+
+// The first and last few pixels are the parts a viewer can read: leaving a spot,
+// using the doors, and settling. Long corridor middles consume the remaining time.
+export function walkProgress(distance: number, elapsedShare: number, slowCentres: readonly number[] = [0, distance]): number {
+  const total = Number.isFinite(distance) && distance > 0 ? distance : 0
+  const time = Number.isFinite(elapsedShare) ? Math.min(1, Math.max(0, elapsedShare)) : 0
+  if (total === 0 || time === 0 || time === 1) return time
+  const ranges = slowCentres
+    .filter(Number.isFinite)
+    .map(value => [Math.max(0, value - WALK_NEAR_DISTANCE), Math.min(total, value + WALK_NEAR_DISTANCE)] as const)
+    .filter(([from, to]) => to > from)
+    .sort((left, right) => left[0] - right[0])
+  const merged: Array<[number, number]> = []
+  for (const [from, to] of ranges) {
+    const previous = merged.at(-1)
+    if (previous && from <= previous[1]) previous[1] = Math.max(previous[1], to)
+    else merged.push([from, to])
+  }
+  const slowDistance = merged.reduce((sum, [from, to]) => sum + to - from, 0)
+  const fastDistance = total - slowDistance
+  if (slowDistance === 0 || fastDistance === 0) return time
+  const pieces: Array<{ from: number; to: number; slow: boolean }> = []
+  let cursor = 0
+  for (const [from, to] of merged) {
+    if (from > cursor) pieces.push({ from: cursor, to: from, slow: false })
+    pieces.push({ from, to, slow: true })
+    cursor = to
+  }
+  if (cursor < total) pieces.push({ from: cursor, to: total, slow: false })
+  let remainingTime = time
+  for (const piece of pieces) {
+    const categoryDistance = piece.slow ? slowDistance : fastDistance
+    const categoryTime = piece.slow ? WALK_SLOW_TIME_SHARE : 1 - WALK_SLOW_TIME_SHARE
+    const pieceTime = (piece.to - piece.from) / categoryDistance * categoryTime
+    if (remainingTime <= pieceTime) return (piece.from + (piece.to - piece.from) * remainingTime / pieceTime) / total
+    remainingTime -= pieceTime
+  }
+  return 1
 }
 
 export function bubbleDuration(speed: number = BASE_SPEED): number {
