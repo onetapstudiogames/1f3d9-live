@@ -8,9 +8,12 @@ import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newc
 import { createdThing, movedThing, type ThingReservations } from '../things.ts'
 import { transferDuration, transferFor, transferPartners, type Transfer, type TransferPartners } from '../giving.ts'
 import { inventionDuration, inventionFor, type StartedInvention } from '../inventions.ts'
+import { agreementSignature, handshakeDuration, planHandshake, type AgreementSignature, type HandshakeResident, type StartedHandshake } from '../agreements.ts'
+import type { AgreementPair } from '../city/agreements.ts'
 
 export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
+type AgreementCandidate = Readonly<{ signature: AgreementSignature; actorId: number }>
 
 type QueuedEvent = Readonly<{ event: ReplayEvent }>
 
@@ -35,6 +38,7 @@ export type ResidentState = Readonly<{
   walkEventId: string | null
   transferUntil: number | null
   inventionUntil?: number | null
+  agreementUntil?: number | null
 }>
 
 export type Simulation = Readonly<{
@@ -45,6 +49,7 @@ export type Simulation = Readonly<{
   reservations: ThingReservations
   startedTransfers: readonly StartedTransfer[]
   startedInventions?: readonly StartedInvention[]
+  startedHandshakes?: readonly StartedHandshake[]
 }>
 
 export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): Readonly<Record<number, number>> {
@@ -140,6 +145,8 @@ export function stepResidents(
   nowMs: number,
   layout: NestedLayout,
   speed: number = BASE_SPEED,
+  agreementPairs: ReadonlyMap<string, AgreementPair> = new Map(),
+  canDraw?: (resident: ResidentState) => boolean,
 ): Simulation {
   const residents: Record<number, ResidentState> = Object.fromEntries(
     Object.entries(state.residents).map(([id, resident]) => [id, { ...resident, queue: [...resident.queue], path: [...resident.path] }]),
@@ -147,6 +154,7 @@ export function stepResidents(
   const issues = [...state.issues]
   const candidates: TransferCandidate[] = []
   const startedInventions: StartedInvention[] = []
+  const agreementCandidates: AgreementCandidate[] = []
   for (const event of events) {
     if (event.kind === 'register') {
       const registration = registrationFor(event)
@@ -159,7 +167,7 @@ export function stepResidents(
     const actor = typeof event.actor === 'string' ? event.actor.trim() : ''
     const id = state.actors.get(actor)
     if (id === undefined || !residents[id]) {
-      addIssue(issues, inventionFor(event) ? 'invention' : 'actor')
+      addIssue(issues, event.kind === 'agreement_sign' ? 'agreement' : inventionFor(event) ? 'invention' : 'actor')
       continue
     }
     residents[id] = { ...residents[id]!, queue: [...residents[id]!.queue, { event }] }
@@ -170,11 +178,12 @@ export function stepResidents(
     let resident = residents[id]!
     if (resident.transferUntil !== null && nowMs >= resident.transferUntil) resident = { ...resident, transferUntil: null }
     if (resident.inventionUntil != null && nowMs >= resident.inventionUntil) resident = { ...resident, inventionUntil: null }
+    if (resident.agreementUntil != null && nowMs >= resident.agreementUntil) resident = { ...resident, agreementUntil: null }
     if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
     if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
     if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
-    if (!resident.walking && !resident.bubble && !resident.sparkle && resident.transferUntil === null && resident.inventionUntil == null) {
-      resident = startNext(resident, residents, nowMs, layout, issues, speed, state.reservations, candidates, startedInventions)
+    if (!resident.walking && !resident.bubble && !resident.sparkle && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null) {
+      resident = startNext(resident, residents, nowMs, layout, issues, speed, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs)
     }
     residents[id] = resident
   }
@@ -190,7 +199,19 @@ export function stepResidents(
     if (partner) residents[candidate.transfer.partnerId] = { ...partner, transferUntil: until }
     startedTransfers.push(Object.freeze({ transfer: candidate.transfer, changeId: candidate.changeId, partners, startedAt: nowMs, speed }))
   }
-  return Object.freeze({ ...freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations, startedTransfers), startedInventions: Object.freeze(startedInventions) })
+  const startedHandshakes: StartedHandshake[] = []
+  for (const candidate of agreementCandidates) {
+    if (Object.values(residents).some(row => row.agreementUntil != null && row.agreementUntil > nowMs)) { addIssue(issues, 'agreement'); continue }
+    const projected = Object.fromEntries(Object.values(residents).map(row => [row.id, handshakeResident(row, canDraw?.(row) ?? true)]))
+    const plan = planHandshake(candidate.signature, projected, layout, state.reservations, nowMs)
+    if (!plan) { addIssue(issues, 'agreement'); continue }
+    const until = nowMs + handshakeDuration(speed)
+    residents[plan.leftId] = { ...residents[plan.leftId]!, agreementUntil: until }
+    residents[plan.rightId] = { ...residents[plan.rightId]!, agreementUntil: until }
+    startedHandshakes.push(Object.freeze({ plan, speed }))
+  }
+  return Object.freeze({ ...freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations, startedTransfers),
+    startedInventions: Object.freeze(startedInventions), startedHandshakes: Object.freeze(startedHandshakes) })
 }
 
 function startNext(
@@ -203,13 +224,25 @@ function startNext(
   reservations: ThingReservations,
   candidates: TransferCandidate[],
   startedInventions: StartedInvention[],
+  agreementCandidates: AgreementCandidate[],
+  agreementPairs: ReadonlyMap<string, AgreementPair>,
 ): ResidentState {
   let next = resident
+  // Keep every new placement and queue turn clear of the projected meeting, including
+  // a note that anchors an otherwise unplaced figure. Existing words finish normally.
+  if (Object.values(all).some(row => row.agreementUntil != null && row.agreementUntil > nowMs)) return next
   while (next.queue.length) {
     const queued = next.queue[0]!
     const event = queued.event
     const queue = next.queue.slice(1)
     const detail = event.detail
+    if (event.kind === 'agreement_sign') {
+      const signature = agreementSignature(event, agreementPairs)
+      next = { ...next, queue }
+      if (!signature) { addIssue(issues, 'agreement'); continue }
+      agreementCandidates.push(Object.freeze({ signature, actorId: next.id }))
+      return next
+    }
     const invention = inventionFor(event)
     if (invention) {
       const expiresAt = nowMs + inventionDuration(speed)
@@ -449,7 +482,13 @@ function baseResident(id: number, handle: string, placeId: number | null): Resid
 }
 
 function isPending(resident: ResidentState): boolean {
-  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.transferUntil !== null || resident.inventionUntil != null || resident.queue.length > 0
+  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
+}
+
+function handshakeResident(row: ResidentState, drawn: boolean): HandshakeResident {
+  return Object.freeze({ id: row.id, handle: row.handle, placeId: row.placeId, x: row.x, y: row.y, visible: row.visible && drawn,
+    destinationId: row.destinationId, walking: row.walking,
+    busy: Boolean(row.bubble || row.sparkle || row.transferUntil || row.inventionUntil || row.agreementUntil) })
 }
 
 function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean, reservations: ThingReservations, startedTransfers: readonly StartedTransfer[]): Simulation {
@@ -471,6 +510,7 @@ const ISSUE_WORDS = {
   placement: 'Some rooms had no free spot left, so those figures were not moved into them.',
   route: 'Some recorded walks have no path on the map; those figures stay where the record last placed them.',
   handover: 'Some recorded handovers could not be shown because both residents were not visibly together.',
+  agreement: 'Some recorded signatures could not be shown because the two original parties were not visibly together with a clear place to meet.',
   invention: 'Some recorded inventions could not be shown because their inventor has no visible place in the map.',
 } as const
 

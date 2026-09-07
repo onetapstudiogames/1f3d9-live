@@ -27,6 +27,10 @@ import { prepareLiveResidents } from '../replay/simulation.ts'
 import { reserveLiveThingEvents, type ThingReservations } from '../things.ts'
 import { stepInventions, type InventionState } from '../inventions.ts'
 import { InventionLayer } from './InventionLayer.ts'
+import { createAgreementPairLoader, type AgreementPair } from '../city/agreements.ts'
+import { readAgreementPairs } from '../agreements.ts'
+import { AgreementLayer } from './AgreementLayer.ts'
+import { browserStorage, markFinishedPlaces, visibleFigureList } from './fixture-state.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -40,6 +44,9 @@ export class CityScene extends Phaser.Scene {
   private liveReadError = false
   private liveCaughtUp = false
   private readonly readNote = createNoteExcerptLoader()
+  private readonly readAgreement = createAgreementPairLoader()
+  private agreementPairs: ReadonlyMap<string, AgreementPair> = new Map()
+  private readonly agreementLayer = new AgreementLayer()
   private timeline: readonly TimelineRow[] = []
   private layout?: NestedLayout
   private residents?: Simulation
@@ -84,7 +91,6 @@ export class CityScene extends Phaser.Scene {
   private readIssues: string[] = []
   private lastHud = ''
   private lastFigures = ''
-  // The test-only figure list is written for the saved-fixture run the browser check drives.
   private readonly fixtureMode = new URLSearchParams(window.location.search).has('replay')
     || new URLSearchParams(window.location.search).has('census')
   constructor() { super('city') }
@@ -92,7 +98,7 @@ export class CityScene extends Phaser.Scene {
     document.body.dataset['liveReady'] = 'loading'
     document.body.dataset['liveFollowing'] = ''
     document.body.dataset['liveMode'] = 'live'
-    this.showSleepers = readShowSleepers(this.browserStorage())
+    this.showSleepers = readShowSleepers(browserStorage())
     document.body.dataset['liveShowSleepers'] = String(this.showSleepers)
     const sleeperControl = document.querySelector<HTMLInputElement>('#show-sleepers')
     if (sleeperControl) sleeperControl.checked = this.showSleepers
@@ -112,12 +118,13 @@ export class CityScene extends Phaser.Scene {
       this.replay = record.value
       this.timeline = prepareTimeline(this.replay.timeline)
       this.layout = nestedLayout(this.replay.map.places, roomCapacity(this.replay, census))
+      await this.loadAgreementPairs(this.replay.timeline)
       const speed = chosenSpeed(document.querySelector<HTMLSelectElement>('#speed')?.value)
       this.clock = { ...createClock(this.replay.window_start, this.replay.window_end, speed), time: Date.now() }
       await this.loadPlaceNames()
       this.sleepers = sleepingResidents(this.replay, census)
       this.initialSleepers = this.sleepers
-      const settled = settleAtNow(this.replay, census, this.layout, speed)
+      const settled = settleAtNow(this.replay, census, this.layout, speed, this.agreementPairs)
       this.things = settled.things
       this.recordThingIds = recordThingIds(this.replay)
       this.handovers = settled.handovers
@@ -245,7 +252,7 @@ export class CityScene extends Phaser.Scene {
       })
       const running = this.placeAnimations
       this.placeAnimations = stepPlaceAnimations(this.placeAnimations, incoming, this.elapsed)
-      if (this.fixtureMode) this.markFinishedPlaces(running)
+      if (this.fixtureMode) markFinishedPlaces(running, this.placeAnimations)
       this.applyEvents(due.events, elapsed)
       const finished = this.clock.time >= this.clock.end && !this.residents.pending && !this.things?.pending
         && !this.handoverFrame?.pending && !this.placeAnimations.length && this.cursor >= this.timeline.length
@@ -261,7 +268,6 @@ export class CityScene extends Phaser.Scene {
     if (this.fixtureMode) document.body.dataset['liveInventions'] = String(this.inventions.moments.length)
     this.updateHud()
   }
-
   private async pollLive(): Promise<void> {
     if (this.polling || !this.liveState) return
     this.polling = true
@@ -273,6 +279,7 @@ export class CityScene extends Phaser.Scene {
       }
       const fresh = newLiveEvents(this.liveState, page.events)
       const enriched = await this.enrichNotes(fresh)
+      await this.loadAgreementPairs(enriched)
       this.liveState = liveReadSucceeded(this.liveState, page.nextSince, enriched, Date.now())
       this.liveReadError = false
       if (enriched.length) {
@@ -299,7 +306,6 @@ export class CityScene extends Phaser.Scene {
       window.setTimeout(() => void this.pollLive(), delay)
     }
   }
-
   private async enrichNotes(events: readonly ReplayFile['timeline'][number][]): Promise<readonly ReplayFile['timeline'][number][]> {
     const result = [...events]
     const candidates = this.layout ? liveNoteReferences(events, this.layout) : []
@@ -320,7 +326,10 @@ export class CityScene extends Phaser.Scene {
     }
     return Object.freeze(result)
   }
-
+  private async loadAgreementPairs(events: readonly ReplayFile['timeline'][number][]): Promise<void> {
+    const result = await readAgreementPairs(events, this.readAgreement, this.agreementPairs)
+    this.agreementPairs = result.pairs; if (result.failed) this.thingReadIssue('Some agreement parties could not be read; those signatures could not be shown.')
+  }
   private prepareLiveEvents(events: readonly ReplayFile['timeline'][number][]): void {
     if (!this.layout || !this.residents || !this.things || !this.replay) return
     const blockers: Record<number, StageStandingSpot[]> = {}
@@ -369,6 +378,7 @@ export class CityScene extends Phaser.Scene {
     this.handovers = createHandovers(this.replay.timeline)
     this.handoverFrame = undefined
     this.inventions = Object.freeze({ moments: [], pending: false, issues: [] }); this.inventionLayer?.clear()
+    this.agreementLayer.clear()
     this.liveQueue = []
     this.outlineReads.clear()
     this.outlinePending.clear()
@@ -388,24 +398,13 @@ export class CityScene extends Phaser.Scene {
 
   private applyEvents(events: readonly ReplayFile['timeline'][number][], elapsed: number): void {
     if (!this.layout || !this.residents || !this.things || !this.handovers || !this.clock) return
-    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed)
+    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed, this.agreementPairs, row => this.isResidentDrawn(row))
+    this.agreementLayer.add(this.residents.startedHandshakes ?? [])
     this.inventions = stepInventions(this.inventions, this.residents.startedInventions ?? [], this.residents,
       this.contentsHidden, this.elapsed)
     this.handoverFrame = stepHandovers(this.handovers, events, this.residents, this.layout, this.elapsed, this.clock.speed)
     this.handovers = this.handoverFrame.state
     this.things = stepThings(this.things, this.handoverFrame.floorEvents, this.elapsed, this.clock.speed)
-  }
-
-  // Two plain facts for the saved-fixture run to wait on: a recorded founding finished
-  // laying its bricks, and a recorded renaming finished swapping its plate. An animation
-  // leaves the running list only when it is done. Neither flag says when, and neither clears.
-  private markFinishedPlaces(running: readonly PlaceAnimation[]): void {
-    const still = new Set(this.placeAnimations.map(animation => animation.changeId))
-    for (const animation of running) {
-      if (still.has(animation.changeId)) continue
-      if (animation.kind === 'founding') document.body.dataset['liveFoundingShown'] = 'true'
-      else document.body.dataset['liveRenameShown'] = 'true'
-    }
   }
 
   private updateRooms(): void {
@@ -444,7 +443,7 @@ export class CityScene extends Phaser.Scene {
   private updateOutlines(): void {
     if (this.mode !== 'live' || !this.liveCaughtUp || !this.layout || !this.residents || !this.things || document.body.dataset['liveReady'] !== 'true') return
     for (const [id, outline] of this.outlinePending) {
-      if (this.roomHasWalker(id)) continue
+      if (this.roomHasMotion(id)) continue
       this.outlinePending.delete(id)
       this.mergeOutline(outline)
     }
@@ -463,7 +462,7 @@ export class CityScene extends Phaser.Scene {
           return
         }
         if (this.contentsHidden.has(room.id)) return
-        if (this.roomHasWalker(room.id)) this.outlinePending.set(room.id, outline)
+        if (this.roomHasMotion(room.id)) this.outlinePending.set(room.id, outline)
         else this.mergeOutline(outline)
       }).catch(error => {
         console.error(error)
@@ -472,8 +471,8 @@ export class CityScene extends Phaser.Scene {
     }
   }
 
-  private roomHasWalker(placeId: number): boolean {
-    return Object.values(this.residents?.residents ?? {}).some(resident => resident.walking
+  private roomHasMotion(placeId: number): boolean {
+    return Object.values(this.residents?.residents ?? {}).some(resident => (resident.walking || resident.agreementUntil != null)
       && (resident.placeId === placeId || resident.destinationId === placeId))
   }
 
@@ -581,6 +580,7 @@ export class CityScene extends Phaser.Scene {
       figure.destroy()
       this.figures.delete(id)
     }
+    const projected = this.agreementLayer.project(this.elapsed)
     for (const resident of Object.values(state)) {
       let figure = this.figures.get(resident.id)
       if (!figure) {
@@ -591,13 +591,17 @@ export class CityScene extends Phaser.Scene {
       const hidden = (resident.placeId !== null && this.contentsHidden.has(resident.placeId))
         || (resident.destinationId !== null && this.contentsHidden.has(resident.destinationId))
       const sleeperHidden = this.sleepers.has(resident.id) && !this.showSleepers
-      const speech = figure.update(hidden || sleeperHidden ? { ...resident, visible: false } : resident, camera.zoom, this.elapsed,
+      const point = projected.get(resident.id)
+      const displayed = point ? { ...resident, x: point.x, y: point.y } : resident
+      const speech = figure.update(hidden || sleeperHidden ? { ...displayed, visible: false } : displayed, camera.zoom, this.elapsed,
         resident.id === this.following, this.sleepers.has(resident.id), this.clock?.time ?? Number.NaN, this.replay?.map.places)
       if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
     document.body.dataset['liveBubbleText'] = visibleSpeech?.text ?? ''
     document.body.dataset['liveBubbleShape'] = visibleSpeech?.shape ?? ''
     document.body.dataset['liveBubbleResident'] = visibleSpeech ? String(visibleSpeech.residentId) : ''
+    this.agreementLayer.draw(this, this.figures, this.contentsHidden)
+    if (this.fixtureMode) document.body.dataset['liveHandshakes'] = String(this.agreementLayer.count)
     const followed = this.following === null ? undefined : this.residents?.residents[this.following]
     if (followed && !this.isResidentDrawn(followed)) {
       const name = residentNamePlate(followed.handle) ?? 'That resident'
@@ -607,12 +611,7 @@ export class CityScene extends Phaser.Scene {
     }
     this.updateFollowChoices()
     if (!this.fixtureMode) return
-    const listed = JSON.stringify([...this.figures].flatMap(([id, figure]) => {
-      const x = (figure.sprite.x - camera.worldView.x) * camera.zoom
-      const y = (figure.sprite.y - camera.worldView.y) * camera.zoom
-      return figure.sprite.visible && x > 30 && x < this.scale.width - 30 && y > 190 && y < this.scale.height - 140
-        ? [{ id, x, y }] : []
-    }))
+    const listed = visibleFigureList(this.figures, camera, this.scale.width, this.scale.height)
     if (listed === this.lastFigures) return
     this.lastFigures = listed
     document.body.dataset['liveFigures'] = listed
@@ -650,7 +649,7 @@ export class CityScene extends Phaser.Scene {
     document.getElementById('nearby')?.addEventListener('click', () => this.focusResidents())
     document.getElementById('show-sleepers')?.addEventListener('change', event => {
       this.showSleepers = (event.target as HTMLInputElement).checked
-      saveShowSleepers(this.browserStorage(), this.showSleepers)
+      saveShowSleepers(browserStorage(), this.showSleepers)
       document.body.dataset['liveShowSleepers'] = String(this.showSleepers)
       if (!this.showSleepers && this.following !== null && this.sleepers.has(this.following)) {
         const name = residentNamePlate(this.residents?.residents[this.following]?.handle ?? '') ?? 'That resident'
@@ -734,10 +733,6 @@ export class CityScene extends Phaser.Scene {
     const prompt = new Option('Choose a resident…', '', true, true)
     prompt.disabled = true
     picker.replaceChildren(prompt, ...choices.map(choice => new Option(choice.name, String(choice.id))))
-  }
-
-  private browserStorage(): Storage | null {
-    try { return window.localStorage } catch { return null }
   }
 
   private focusResidents(): void {
