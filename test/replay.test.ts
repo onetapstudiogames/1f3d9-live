@@ -94,11 +94,12 @@ test('appliedMove accepts only real applied move and go_home endpoints', () => {
   assert.equal(appliedMove(event({ kind: 'note', detail: valid.detail })), null)
 })
 
-test('bubble keeps the recorded note line and cut flag for five replay seconds', () => {
+test('bubble keeps the recorded note line, cut flag, start, and room for its readable hold', () => {
   const note = event({ kind: 'note', line: 'first line\nsecond line', line_cut: true })
   const bubble = bubbleFor(note, 10_000)
 
-  assert.deepEqual(bubble, { text: 'first line\nsecond line', cut: true, expiresAt: 15_000 })
+  assert.deepEqual(bubble, { text: 'first line\nsecond line', cut: true, placeId: null,
+    startedAt: 10_000, charInterval: 34, expiresAt: 15_000 })
   assert.equal(bubbleVisible(15_000, 14_999), true)
   assert.equal(bubbleVisible(15_000, 15_000), false)
   assert.equal(bubbleFor(event({ kind: 'note', line: '' }), 0), null)

@@ -148,7 +148,6 @@ export class CityScene extends Phaser.Scene {
       this.updateHud()
     }
   }
-
   private async loadPlaceNames(): Promise<void> {
     if (!this.replay) return
     const initial = planPlaces(this.replay)
@@ -174,7 +173,6 @@ export class CityScene extends Phaser.Scene {
       .filter(event => event.time === this.clock?.start)
       .map(event => placeAnimation('founding', event.placeId, event.changeId, this.elapsed, this.clock!.speed))
   }
-
   private async loadDrawings(census: readonly Resident[]): Promise<void> {
     const drawing = createDrawingLoader()
     const ids = [...new Set([
@@ -195,7 +193,6 @@ export class CityScene extends Phaser.Scene {
       }))
     }
   }
-
   private async loadPlaceDrawings(): Promise<void> {
     if (!this.layout || !this.replay) return
     const drawing = createDrawingLoader(undefined, 'place')
@@ -217,7 +214,6 @@ export class CityScene extends Phaser.Scene {
       document.body.dataset['livePlaceFloor'] = String(this.textures.exists('place-1'))
     }
   }
-
   update(_time: number, delta: number): void {
     if (!this.clock || !this.residents || !this.layout || !this.replay) return
     if (document.body.dataset['liveReady'] === 'true' && !this.paused) {
@@ -580,6 +576,7 @@ export class CityScene extends Phaser.Scene {
   private drawResidents(): void {
     const camera = this.cameras.main
     const state = this.residents?.residents ?? {}
+    let visibleSpeech: { residentId: number; text: string; shape: string } | null = null
     for (const [id, figure] of this.figures) if (!state[id]) {
       figure.destroy()
       this.figures.delete(id)
@@ -594,9 +591,13 @@ export class CityScene extends Phaser.Scene {
       const hidden = (resident.placeId !== null && this.contentsHidden.has(resident.placeId))
         || (resident.destinationId !== null && this.contentsHidden.has(resident.destinationId))
       const sleeperHidden = this.sleepers.has(resident.id) && !this.showSleepers
-      figure.update(hidden || sleeperHidden ? { ...resident, visible: false } : resident, camera.zoom, this.elapsed,
-        resident.id === this.following, this.sleepers.has(resident.id), this.clock?.time ?? Number.NaN)
+      const speech = figure.update(hidden || sleeperHidden ? { ...resident, visible: false } : resident, camera.zoom, this.elapsed,
+        resident.id === this.following, this.sleepers.has(resident.id), this.clock?.time ?? Number.NaN, this.replay?.map.places)
+      if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
+    document.body.dataset['liveBubbleText'] = visibleSpeech?.text ?? ''
+    document.body.dataset['liveBubbleShape'] = visibleSpeech?.shape ?? ''
+    document.body.dataset['liveBubbleResident'] = visibleSpeech ? String(visibleSpeech.residentId) : ''
     const followed = this.following === null ? undefined : this.residents?.residents[this.following]
     if (followed && !this.isResidentDrawn(followed)) {
       const name = residentNamePlate(followed.handle) ?? 'That resident'
@@ -616,7 +617,6 @@ export class CityScene extends Phaser.Scene {
     this.lastFigures = listed
     document.body.dataset['liveFigures'] = listed
   }
-
   private connectControls(): void {
     const camera = this.cameras.main
     let dragged = false

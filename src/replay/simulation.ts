@@ -3,7 +3,7 @@ import { initialResidents, residentIndex } from '../city/residents.ts'
 import type { NestedLayout, Point } from '../ground/nested.ts'
 import { pointAlongPath, sidestepPath, walkPath } from '../ground/path.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
-import { appliedMove, bubbleFor, bubbleVisible, walkDuration, walkProgress, BASE_SPEED } from './index.ts'
+import { appliedMove, bubbleFor, bubbleVisible, walkDuration, walkProgress, BASE_SPEED, type Bubble } from './index.ts'
 import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
 import { createdThing, movedThing, type ThingReservations } from '../things.ts'
 import { transferDuration, transferFor, transferPartners, type Transfer, type TransferPartners } from '../giving.ts'
@@ -25,7 +25,7 @@ export type ResidentState = Readonly<{
   flipX: boolean
   walking: boolean
   visible: boolean
-  bubble: Readonly<{ text: string; cut: boolean; expiresAt: number }> | null
+  bubble: Bubble | null
   queue: readonly QueuedEvent[]
   path: readonly Point[]
   walkElapsed: number
@@ -353,7 +353,7 @@ function handleNote(
     if (resident.placeId !== null) addIssue(issues, 'route-gap')
     next = { ...resident, placeId, x: destination.x, y: destination.y, visible: placeVisible(layout, placeId) }
   }
-  return { ...next, queue, bubble: bubbleFor(event, nowMs, speed) }
+  return { ...next, queue, bubble: bubbleFor({ ...event, detail: { ...event.detail, place_id: placeId ?? undefined } }, nowMs, speed) }
 }
 
 function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLayout): ResidentState {

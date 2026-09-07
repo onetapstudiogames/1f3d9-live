@@ -1,15 +1,20 @@
 import Phaser from 'phaser'
-import type { Drawing } from '../city/types.ts'
+import type { Drawing, ReplayPlace } from '../city/types.ts'
 import { drawingCells } from '../city/drawing.ts'
 import { sleepingDrawingCells } from '../sleep.ts'
 import { residentNamePlate } from '../city/residents.ts'
 import type { ResidentState } from '../replay/simulation.ts'
 import { isNewResident, sparkleAlpha } from '../newcomers.ts'
+import { bubbleRects, bubbleShape, typedBubbleFrame } from '../speech.ts'
+
+export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string }>
 
 export class ResidentView {
   readonly sprite: Phaser.GameObjects.Image
   private readonly name: Phaser.GameObjects.Text
   private readonly bubble: Phaser.GameObjects.Text
+  private readonly bubbleBackground: Phaser.GameObjects.Graphics
+  private readonly bubbleCut: Phaser.GameObjects.Text
   private readonly zzz: Phaser.GameObjects.Graphics
   private readonly newTag: Phaser.GameObjects.Text
   private readonly sparkle: Phaser.GameObjects.Graphics
@@ -34,11 +39,13 @@ export class ResidentView {
     for (const [x, y] of [[-25, -10], [21, -19], [18, 13]] as const) {
       this.sparkle.fillRect(x, y - 3, 3, 9).fillRect(x - 3, y, 9, 3)
     }
+    this.bubbleBackground = scene.add.graphics().setDepth(199).setVisible(false)
     this.bubble = scene.add.text(0, 0, '', {
-      fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#21392e',
-      backgroundColor: '#fff3d6', padding: { x: 12, y: 9 },
-      wordWrap: { width: 230, useAdvancedWrap: true },
+      fontFamily: 'monospace', fontSize: '14px', color: '#21392e',
+      padding: { x: 10, y: 7 }, fixedWidth: 230, fixedHeight: 82,
     }).setOrigin(0.5, 1).setDepth(200).setVisible(false)
+    this.bubbleCut = scene.add.text(0, 0, '[recorded excerpt]', { fontFamily: 'monospace', fontSize: '11px',
+      color: '#6c5838' }).setOrigin(0.5, 1).setDepth(200).setVisible(false)
     this.zzz = scene.add.graphics().setDepth(102).setVisible(false)
     this.zzz.fillStyle(0xe9dfb9, 1)
     for (const [x, y] of [[0, 0], [6, -7], [12, -14]] as const) {
@@ -46,7 +53,8 @@ export class ResidentView {
     }
   }
 
-  update(resident: ResidentState, zoom: number, now: number, followed: boolean, asleep = false, recordedTime = Number.NaN): void {
+  update(resident: ResidentState, zoom: number, now: number, followed: boolean, asleep = false,
+    recordedTime = Number.NaN, places: readonly ReplayPlace[] = []): VisibleSpeech | null {
     const currentTexture = this.sprite.texture.key
     if (!currentTexture.endsWith('-asleep')) this.standingTexture = currentTexture
     const sleeping = asleep && !resident.walking && resident.bubble === null
@@ -63,16 +71,32 @@ export class ResidentView {
     this.zzz.setPosition(resident.x + 13, resident.y - 13).setVisible(sleeping && resident.visible)
     const bubble = resident.bubble
     this.bubble.setVisible(resident.visible && bubble !== null)
-    if (bubble) {
-      this.bubble.setText(`${bubble.text}${bubble.cut ? '\n[recorded excerpt]' : ''}`)
-      this.bubble.setScale(Math.min(4, Math.max(1, 0.8 / zoom))).setPosition(resident.x, resident.y - 25)
+    this.bubbleBackground.setVisible(resident.visible && bubble !== null)
+    this.bubbleCut.setVisible(false)
+    if (bubble && resident.visible) {
+      this.bubble.style.syncFont(this.bubble.canvas, this.bubble.context)
+      const frame = typedBubbleFrame(bubble, now, 210, 4, text => this.bubble.context.measureText(text).width)
+      const shape = bubbleShape(bubble.placeId, places)
+      const scale = Math.min(4, Math.max(1, 0.8 / zoom)); const x = resident.x; const y = resident.y - 25
+      const showCut = frame.complete && frame.cut; const height = showCut ? 102 : 82
+      this.bubble.setText(frame.text).setScale(scale).setPosition(x, y - (showCut ? 20 * scale : 0))
+      this.bubbleCut.setScale(scale).setPosition(x, y - 3 * scale).setVisible(showCut)
+      this.bubbleBackground.clear()
+      for (const cell of bubbleRects(shape, 230, height)) {
+        this.bubbleBackground.fillStyle(cell.color, cell.alpha).fillRect(cell.x - 115, cell.y - height, cell.width, cell.height)
+      }
+      this.bubbleBackground.setScale(scale).setPosition(x, y)
+      return Object.freeze({ residentId: resident.id, text: frame.revealed, shape })
     }
+    return null
   }
 
   destroy(): void {
     this.sprite.destroy()
     this.name.destroy()
     this.bubble.destroy()
+    this.bubbleBackground.destroy()
+    this.bubbleCut.destroy()
     this.zzz.destroy()
     this.newTag.destroy()
     this.sparkle.destroy()
