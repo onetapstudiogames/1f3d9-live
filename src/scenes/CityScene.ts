@@ -21,9 +21,23 @@ import {
 } from '../place-animation.ts'
 import { followChoices } from '../follow.ts'
 import { readShowSleepers, saveShowSleepers } from '../preferences.ts'
+import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
+import { liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
+import { prepareLiveResidents } from '../replay/simulation.ts'
+import { reserveLiveThingEvents, type ThingReservations } from '../things.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
+  private census: readonly Resident[] = []
+  private mode: 'live' | 'replay' = 'live'
+  private liveState?: LiveReadState
+  private liveHistory: ReplayFile['timeline'] = []
+  private liveCatchup: ReplayFile['timeline'] = []
+  private liveQueue: ReplayFile['timeline'] = []
+  private polling = false
+  private liveReadError = false
+  private liveCaughtUp = false
+  private readonly readNote = createNoteExcerptLoader()
   private timeline: readonly TimelineRow[] = []
   private layout?: NestedLayout
   private residents?: Simulation
@@ -41,6 +55,7 @@ export class CityScene extends Phaser.Scene {
   private outlineReads = new Set<number>()
   private outlineActive = 0
   private outlinePending = new Map<number, PlaceOutline>()
+  private outlineGeneration = 0
   private recordThingIds: ReadonlySet<number> = new Set()
   private clock?: Clock
   private rooms?: RoomView
@@ -51,6 +66,7 @@ export class CityScene extends Phaser.Scene {
   private contentsHidden: ReadonlySet<number> = new Set()
   private figures = new Map<number, ResidentView>()
   private sleepers: ReadonlySet<number> = new Set()
+  private initialSleepers: ReadonlySet<number> = new Set()
   private showSleepers = false
   private followNotice = ''
   private lastFollowChoices = ''
@@ -74,6 +90,7 @@ export class CityScene extends Phaser.Scene {
   create(): void {
     document.body.dataset['liveReady'] = 'loading'
     document.body.dataset['liveFollowing'] = ''
+    document.body.dataset['liveMode'] = 'live'
     this.showSleepers = readShowSleepers(this.browserStorage())
     document.body.dataset['liveShowSleepers'] = String(this.showSleepers)
     const sleeperControl = document.querySelector<HTMLInputElement>('#show-sleepers')
@@ -87,6 +104,7 @@ export class CityScene extends Phaser.Scene {
       const [record, censusRead] = await Promise.allSettled([fetchReplay(), fetchCensus()])
       if (record.status === 'rejected') throw record.reason
       const census = censusRead.status === 'fulfilled' ? censusRead.value : []
+      this.census = census
       if (censusRead.status === 'rejected') {
         console.error(censusRead.reason)
         this.readIssues.push('The resident list could not be read, so figures are shown without names.')
@@ -95,13 +113,17 @@ export class CityScene extends Phaser.Scene {
       this.timeline = prepareTimeline(this.replay.timeline)
       this.layout = nestedLayout(this.replay.map.places, roomCapacity(this.replay, census))
       const speed = chosenSpeed(document.querySelector<HTMLSelectElement>('#speed')?.value)
-      this.clock = createClock(this.replay.window_start, this.replay.window_end, speed)
+      this.clock = { ...createClock(this.replay.window_start, this.replay.window_end, speed), time: Date.now() }
       await this.loadPlaceNames()
       this.sleepers = sleepingResidents(this.replay, census)
-      this.things = createThings(this.replay, this.layout)
+      this.initialSleepers = this.sleepers
+      const settled = settleAtNow(this.replay, census, this.layout, speed)
+      this.things = settled.things
       this.recordThingIds = recordThingIds(this.replay)
-      this.handovers = createHandovers(this.replay.timeline)
-      this.residents = createResidents(this.replay, census, this.layout, this.things.reservations)
+      this.handovers = settled.handovers
+      this.residents = settled.residents
+      this.placeAnimations = []
+      this.liveState = Object.freeze({ marker: this.replay.checkpoint, seen: new Set<string>(), failures: 0, lastReadAt: null, retryMs: 0 })
       this.rooms = new RoomView(this, this.layout, this.placePlan!)
       this.updateRooms()
       addDrawingTexture(this, 'resident-default', null)
@@ -116,6 +138,7 @@ export class CityScene extends Phaser.Scene {
       this.updateHud()
       void this.loadPlaceDrawings()
       void this.loadThingDetails()
+      void this.pollLive()
     } catch (error) {
       // The reader's own words help nobody reading the page; the console keeps them.
       console.error(error)
@@ -199,6 +222,16 @@ export class CityScene extends Phaser.Scene {
     if (document.body.dataset['liveReady'] === 'true' && !this.paused) {
       const elapsed = Math.min(100, Math.max(0, delta))
       this.elapsed += elapsed
+      if (this.mode === 'live') {
+        this.clock = { ...this.clock, time: Date.now() }
+        this.placeAnimations = stepPlaceAnimations(this.placeAnimations, [], this.elapsed)
+        if (!this.residents.pending && !this.things?.pending && !this.handoverFrame?.pending && this.liveQueue.length) {
+          const incoming = this.liveQueue
+          this.liveQueue = []
+          this.prepareLiveEvents(incoming)
+          this.applyEvents(incoming, elapsed)
+        } else this.applyEvents([], elapsed)
+      } else {
       // Hold the recorded moment for its walks, words and arrivals, then resume the faster clock.
       if (!this.residents.pending && !this.things?.pending && !this.handoverFrame?.pending && !this.placeAnimations.length) {
         this.clock = advanceToPlaceMoment(this.clock, elapsed, this.placeMoments)
@@ -216,12 +249,11 @@ export class CityScene extends Phaser.Scene {
       const running = this.placeAnimations
       this.placeAnimations = stepPlaceAnimations(this.placeAnimations, incoming, this.elapsed)
       if (this.fixtureMode) this.markFinishedPlaces(running)
-      this.residents = stepResidents(this.residents, due.events, elapsed, this.elapsed, this.layout, this.clock.speed)
-      if (this.handovers) {
-        this.handoverFrame = stepHandovers(this.handovers, due.events, this.residents, this.layout, this.elapsed, this.clock.speed)
-        this.handovers = this.handoverFrame.state
+      this.applyEvents(due.events, elapsed)
+      const finished = this.clock.time >= this.clock.end && !this.residents.pending && !this.things?.pending
+        && !this.handoverFrame?.pending && !this.placeAnimations.length && this.cursor >= this.timeline.length
+      if (finished) this.enterLiveMode()
       }
-      if (this.things) this.things = stepThings(this.things, this.handoverFrame?.floorEvents ?? due.events, this.elapsed, this.clock.speed)
     }
     this.updateRooms()
     this.updateOutlines()
@@ -229,6 +261,142 @@ export class CityScene extends Phaser.Scene {
     this.drawResidents()
     this.drawHandovers()
     this.updateHud()
+  }
+
+  private async pollLive(): Promise<void> {
+    if (this.polling || !this.liveState) return
+    this.polling = true
+    let delay = 15_000
+    try {
+      const page = await fetchChanges(this.liveState.marker)
+      if (!validContinuation(this.liveState.marker, page.nextSince, page.hasMore)) {
+        throw new Error('The changes continuation did not advance.')
+      }
+      const fresh = newLiveEvents(this.liveState, page.events)
+      const enriched = await this.enrichNotes(fresh)
+      this.liveState = liveReadSucceeded(this.liveState, page.nextSince, enriched, Date.now())
+      this.liveReadError = false
+      if (enriched.length) {
+        this.liveCatchup = Object.freeze([...this.liveCatchup, ...enriched])
+      }
+      if (!page.hasMore) {
+        const known = new Set(this.liveHistory.map(row => row.change_id))
+        const completed = this.liveCatchup.filter(row => !known.has(row.change_id))
+        this.liveHistory = Object.freeze([...this.liveHistory, ...completed])
+        if (this.mode === 'live') this.liveQueue = Object.freeze([...this.liveQueue, ...completed])
+        this.liveCatchup = []
+        this.liveCaughtUp = true
+      }
+      delay = page.hasMore ? 0 : this.liveState.retryMs ?? 15_000
+      if (this.fixtureMode) document.body.dataset['livePoll'] = 'true'
+    } catch (error) {
+      console.error(error)
+      this.liveState = liveReadFailed(this.liveState)
+      this.liveReadError = true
+      delay = this.liveState.retryMs ?? 30_000
+    } finally {
+      this.polling = false
+      this.updateHud()
+      window.setTimeout(() => void this.pollLive(), delay)
+    }
+  }
+
+  private async enrichNotes(events: readonly ReplayFile['timeline'][number][]): Promise<readonly ReplayFile['timeline'][number][]> {
+    const result = [...events]
+    const candidates = events.map((event, index) => ({ event, index })).filter(({ event }) => {
+      const id = event.detail.note_id
+      return event.kind === 'note' && Number.isSafeInteger(id) && (id as number) > 0
+        && typeof event.detail.place_id === 'number'
+        && this.layout?.rooms[event.detail.place_id] !== undefined && !this.contentsHidden.has(event.detail.place_id)
+    })
+    for (let offset = 0; offset < candidates.length; offset += 4) {
+      await Promise.all(candidates.slice(offset, offset + 4).map(async ({ event, index }) => {
+        try {
+          const note = await this.readNote(event.detail.note_id as number)
+          if (!note || note.author.trim() !== event.actor?.trim() || note.placeId !== event.detail.place_id) {
+            this.thingReadIssue('Some live note words could not be verified, so their reference stays silent.')
+            return
+          }
+          result[index] = Object.freeze({ ...event, line: note.text, line_cut: note.cut })
+        } catch (error) {
+          console.error(error)
+          this.thingReadIssue('Some live note words could not be read, so their reference stays silent.')
+        }
+      }))
+    }
+    return Object.freeze(result)
+  }
+
+  private prepareLiveEvents(events: readonly ReplayFile['timeline'][number][]): void {
+    if (!this.layout || !this.residents || !this.things || !this.replay) return
+    const blockers: Record<number, StageStandingSpot[]> = {}
+    for (const resident of Object.values(this.residents.residents)) {
+      const points = [resident.placeId !== null && resident.visible ? { placeId: resident.placeId, key: `resident:${resident.id}`, x: resident.x, y: resident.y } : null,
+        resident.destinationId !== null && resident.destination ? { placeId: resident.destinationId, key: `destination:${resident.id}`, ...resident.destination } : null]
+      for (const point of points) if (point) (blockers[point.placeId] ??= []).push({ key: point.key, kind: 'resident', x: point.x - 16, y: point.y - 16, width: 32, height: 32 })
+    }
+    this.things = reserveLiveThingEvents(this.things, events, this.layout, blockers as ThingReservations)
+    this.residents = prepareLiveResidents(Object.freeze({ ...this.residents, reservations: this.things.reservations }), events)
+    this.handovers = createHandovers([...this.replay.timeline, ...this.liveHistory])
+    this.recordThingIds = recordThingIds({ ...this.replay, timeline: [...this.replay.timeline, ...this.liveHistory] })
+    const latest = Math.max(Date.now(), ...this.liveHistory.map(row => Date.parse(row.at)))
+    const extended = { ...this.replay, window_end: new Date(latest).toISOString(),
+      timeline: [...this.replay.timeline, ...this.liveHistory] }
+    this.placePlan = planPlaces(extended, this.placePlan?.names)
+    this.rooms?.setPlan(this.placePlan)
+    for (const issue of this.placePlan.issues) if (!this.readIssues.includes(issue)) this.readIssues.push(issue)
+    for (const event of events) {
+      const id = event.detail.place_id
+      if (typeof id !== 'number' || !this.layout.rooms[id]) continue
+      const founding = this.placePlan.foundings.get(id)
+      const rename = this.placePlan.renamings.get(id)?.find(row => row.changeId === event.change_id)
+      const kind = founding?.changeId === event.change_id ? 'founding' : rename ? 'renaming' : null
+      if (kind) this.placeAnimations = stepPlaceAnimations(this.placeAnimations,
+        [placeAnimation(kind, id, event.change_id, this.elapsed, this.clock?.speed)], this.elapsed)
+    }
+    this.sleepers = wakeActiveSleepers(this.sleepers, this.residents.residents, events)
+  }
+
+  private replayDay(): void {
+    if (!this.replay || !this.layout) return
+    this.mode = 'replay'
+    this.paused = false
+    document.getElementById('pause')!.textContent = 'Pause'
+    this.clock = createClock(this.replay.window_start, this.replay.window_end,
+      chosenSpeed(document.querySelector<HTMLSelectElement>('#speed')?.value))
+    this.timeline = prepareTimeline(this.replay.timeline)
+    this.cursor = 0
+    this.elapsed = 0
+    this.placeAnimations = [...(this.placePlan?.foundings.values() ?? [])]
+      .filter(event => event.time === this.clock!.start)
+      .map(event => placeAnimation('founding', event.placeId, event.changeId, 0, this.clock!.speed))
+    this.things = createThings(this.replay, this.layout)
+    this.residents = createResidents(this.replay, this.census, this.layout, this.things.reservations)
+    this.handovers = createHandovers(this.replay.timeline)
+    this.handoverFrame = undefined
+    this.liveQueue = []
+    this.outlineReads.clear()
+    this.outlinePending.clear()
+    this.outlineGeneration += 1
+    this.sleepers = this.initialSleepers
+    document.body.dataset['liveMode'] = 'replay'
+    this.updateHud()
+  }
+
+  private enterLiveMode(): void {
+    this.mode = 'live'
+    if (this.clock) this.clock = { ...this.clock, time: Date.now() }
+    this.liveQueue = Object.freeze([...this.liveHistory])
+    document.body.dataset['liveMode'] = 'live'
+    this.updateHud()
+  }
+
+  private applyEvents(events: readonly ReplayFile['timeline'][number][], elapsed: number): void {
+    if (!this.layout || !this.residents || !this.things || !this.handovers || !this.clock) return
+    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed)
+    this.handoverFrame = stepHandovers(this.handovers, events, this.residents, this.layout, this.elapsed, this.clock.speed)
+    this.handovers = this.handoverFrame.state
+    this.things = stepThings(this.things, this.handoverFrame.floorEvents, this.elapsed, this.clock.speed)
   }
 
   // Two plain facts for the saved-fixture run to wait on: a recorded founding finished
@@ -277,7 +445,7 @@ export class CityScene extends Phaser.Scene {
   }
 
   private updateOutlines(): void {
-    if (!this.layout || !this.residents || !this.things || document.body.dataset['liveReady'] !== 'true') return
+    if (this.mode !== 'live' || !this.liveCaughtUp || !this.layout || !this.residents || !this.things || document.body.dataset['liveReady'] !== 'true') return
     for (const [id, outline] of this.outlinePending) {
       if (this.roomHasWalker(id)) continue
       this.outlinePending.delete(id)
@@ -288,9 +456,11 @@ export class CityScene extends Phaser.Scene {
     const candidates = roomsInCamera(this.layout, this.cameras.main.worldView, this.cameras.main.zoom)
       .filter(room => !this.contentsHidden.has(room.id) && !this.outlineReads.has(room.id)).slice(0, slots)
     for (const room of candidates) {
+      const generation = this.outlineGeneration
       this.outlineReads.add(room.id)
       this.outlineActive += 1
       void this.readOutline(room.id).then(outline => {
+        if (generation !== this.outlineGeneration) return
         if (!outline) {
           if (!this.fixtureMode) this.thingReadIssue('A nearby room outline was missing; its floor is kept.')
           return
@@ -311,7 +481,7 @@ export class CityScene extends Phaser.Scene {
   }
 
   private mergeOutline(outline: PlaceOutline): void {
-    if (!this.layout || !this.residents || !this.things || this.contentsHidden.has(outline.placeId)) return
+    if (this.mode !== 'live' || !this.layout || !this.residents || !this.things || this.contentsHidden.has(outline.placeId)) return
     const blockers: StageStandingSpot[] = Object.values(this.residents.residents).flatMap(resident => {
       const points = [resident.placeId === outline.placeId && resident.visible ? { key: `resident:${resident.id}`, x: resident.x, y: resident.y } : null,
         resident.destinationId === outline.placeId && resident.destination ? { key: `destination:${resident.id}`, ...resident.destination } : null]
@@ -408,7 +578,12 @@ export class CityScene extends Phaser.Scene {
 
   private drawResidents(): void {
     const camera = this.cameras.main
-    for (const resident of Object.values(this.residents?.residents ?? {})) {
+    const state = this.residents?.residents ?? {}
+    for (const [id, figure] of this.figures) if (!state[id]) {
+      figure.destroy()
+      this.figures.delete(id)
+    }
+    for (const resident of Object.values(state)) {
       let figure = this.figures.get(resident.id)
       if (!figure) {
         figure = new ResidentView(this, resident)
@@ -462,7 +637,9 @@ export class CityScene extends Phaser.Scene {
     document.getElementById('pause')?.addEventListener('click', () => {
       this.paused = !this.paused
       document.getElementById('pause')!.textContent = this.paused ? 'Play' : 'Pause'
+      this.updateHud()
     })
+    document.getElementById('replay-day')?.addEventListener('click', () => this.replayDay())
     document.getElementById('speed')?.addEventListener('change', event => {
       if (this.clock) this.clock = { ...this.clock, speed: chosenSpeed((event.target as HTMLSelectElement).value) }
     })
@@ -604,13 +781,13 @@ export class CityScene extends Phaser.Scene {
     if (followState) followState.textContent = resident ? `Following ${followed ?? 'resident'} ·` : ''
     const stop = document.querySelector<HTMLButtonElement>('#follow-stop')
     if (stop) stop.hidden = !resident
-    const pending = this.residents?.pending || this.things?.pending || this.handoverFrame?.pending || this.placeAnimations.length > 0
-    const ended = this.clock && this.clock.time >= this.clock.end && !pending
     const failed = document.body.dataset['liveReady'] === 'error'
     const state = failed ? 'Playback is stopped; the last drawn state is kept.' : !this.clock ? ''
       : document.body.dataset['liveReady'] === 'loading' ? 'Reading resident drawings.'
-      : ended ? 'Replay finished. The live feed is not connected yet.'
-      : this.paused ? 'Paused.' : pending ? 'Watching a recorded moment.' : 'The clock runs faster between recorded moments.'
+      : this.mode === 'replay' ? (this.paused ? 'Replaying the recorded day · paused.' : 'Replaying the recorded day.')
+      : this.liveReadError ? 'Live read failed; the last drawn state is kept while the page waits to try again.'
+      : this.paused ? 'Live: paused; new records will wait here.'
+      : `Live: keeping up with the city${this.liveState?.lastReadAt ? `, last read at ${new Date(this.liveState.lastReadAt).toISOString().slice(11, 16)} UTC.` : '.'}`
     const issues = [...this.readIssues, ...(this.residents?.issues ?? []), ...(this.things?.issues ?? [])]
     const sleep = this.sleepers.size ? (this.showSleepers ? 'Sleepers are shown.' : 'Sleepers are hidden.') : ''
     const status = `${this.readStatus} ${sleep} ${this.followNotice} ${state}${issues.length ? ` ${issues.join(' ')}` : ''}`.trim()

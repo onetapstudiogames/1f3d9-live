@@ -68,6 +68,15 @@ export class ResidentView {
       this.bubble.setScale(Math.min(4, Math.max(1, 0.8 / zoom))).setPosition(resident.x, resident.y - 25)
     }
   }
+
+  destroy(): void {
+    this.sprite.destroy()
+    this.name.destroy()
+    this.bubble.destroy()
+    this.zzz.destroy()
+    this.newTag.destroy()
+    this.sparkle.destroy()
+  }
 }
 
 export function addDrawingTexture(scene: Phaser.Scene, key: string, drawing: Drawing | null): void {
