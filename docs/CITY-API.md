@@ -121,3 +121,15 @@ from memory.
   per revision and cache it; poll the feed, do not hammer it.
 - The picture never claims a count it did not read. Exact numbers stay in the city's tabs.
 - If a shape here disagrees with the live city, the live city wins: refetch, fix this file.
+
+## Offline fixture overrides
+
+Use `?census=/fixtures/residents-presence-sample.json` to run with the saved census sample.
+The sample contains the 200 factual residents from the saved first page only. It sets
+`has_more` to false so browser tests stay offline; it is not a complete census, and no
+second-page fixture was available from this environment.
+
+Use `?drawings=/fixtures/drawings` for saved drawings. A resident request then reads
+`/fixtures/drawings/resident-<id>.json`. Missing fixture files mean that resident has no
+saved drawing and should use the default pixel figure. Browser checks do not contact the
+live city origin.

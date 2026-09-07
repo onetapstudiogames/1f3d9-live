@@ -1,0 +1,187 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+
+import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
+import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
+import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
+
+const rooms = {
+  1: { id: 1, parentId: null, name: 'world', quiet: false, depth: 0, x: 0, y: 0, width: 320, height: 240, door: { x: 300, y: 120 }, standing: { x: 20, y: 20, width: 260, height: 180 }, children: [2, 3] },
+  2: { id: 2, parentId: 1, name: 'loud', quiet: false, depth: 1, x: 400, y: 0, width: 220, height: 180, door: { x: 400, y: 90 }, standing: { x: 420, y: 20, width: 160, height: 130 }, children: [] },
+  3: { id: 3, parentId: 1, name: 'quiet', quiet: true, depth: 1, x: 400, y: 260, width: 220, height: 180, door: { x: 400, y: 350 }, standing: { x: 420, y: 280, width: 160, height: 130 }, children: [] },
+} as const
+const layout = { rooms, roots: [1], width: 640, height: 460 } as unknown as NestedLayout
+
+const census: readonly Resident[] = [
+  { id: 7, handle: 'walker', current_place_id: 2, model: '', joined_at: '', has_drawing: false, asleep: false },
+  { id: 8, handle: 'still', current_place_id: 2, model: '', joined_at: '', has_drawing: false, asleep: false },
+]
+const replay = (start: ReplayFile['start'] = { 'resident:7': { origin_event_id: 1, place_id: 2 }, 'resident:8': { origin_event_id: 1, place_id: 2 } }): ReplayFile => ({
+  span: '1h', window_start: '2026-01-01T00:00:00Z', window_end: '2026-01-01T01:00:00Z', checkpoint: '1',
+  complete: true, row_ceiling: 10, map: { places: [] }, start, counts: {}, timeline: [],
+})
+const event = (kind: string, detail: ReplayEvent['detail'], line?: string): ReplayEvent => ({
+  actor: 'walker', at: '2026-01-01T00:00:01Z', change_id: '1', event_id: 1, kind, detail, line,
+})
+
+test('room capacity includes unique initial and applied destination residents', () => {
+  const data = replay()
+  const withEvents = { ...data, timeline: [
+    event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 }),
+    { ...event('note', { place_id: 3 }, 'hello'), actor: 'newcomer' },
+  ] }
+  assert.deepEqual(roomCapacity(withEvents, census), { 2: 2, 3: 2 })
+})
+
+test('initial residents receive deterministic non-overlapping centered spots without mutating inputs', () => {
+  const input = replay()
+  const before = JSON.stringify(input)
+  const state = createResidents(input, census, layout)
+  const first = state.residents[7]!
+  const second = state.residents[8]!
+  assert.equal(JSON.stringify(input), before)
+  assert.notDeepEqual([first.x, first.y], [second.x, second.y])
+  assert.ok(first.x >= rooms[2].standing.x + 16)
+  assert.equal(state.actors.get('walker'), 7)
+})
+
+test('a walk finishes before the following note is shown', () => {
+  let state = createResidents(replay(), census, layout)
+  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 })
+  const note = event('note', { place_id: 3 }, 'arrived')
+  state = stepResidents(state, [move, note], 100, 100, layout)
+  assert.equal(state.residents[7]!.walking, true)
+  assert.equal(state.residents[7]!.bubble, null)
+  assert.equal(state.pending, true)
+  const completed = stepResidents(state, [], 10_000, 10_100, layout)
+  assert.equal(completed.residents[7]!.placeId, 3)
+  assert.equal(completed.residents[7]!.walking, false)
+  const arrived = completed.residents[7]!.bubble
+  assert.equal(arrived && arrived.text, 'arrived')
+  assert.equal(completed.residents[7]!.visible, false)
+})
+
+test('same-room applied move establishes an absent resident without walking', () => {
+  const establishing = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 2 })
+  const absent = { ...replay({}), timeline: [establishing] }
+  const state = createResidents(absent, census, layout)
+  assert.equal(state.residents[7]!.placeId, null)
+  const moved = stepResidents(state, [establishing], 16, 16, layout)
+  assert.equal(moved.residents[7]!.placeId, 2)
+  assert.equal(moved.residents[7]!.walking, false)
+})
+
+test('replay-only resident starts survive a missing census', () => {
+  const state = createResidents(replay({ 'resident:99': { origin_event_id: 1, place_id: 2 } }), [], layout)
+  assert.equal(state.residents[99]!.placeId, 2)
+  assert.equal(state.residents[99]!.handle, 'resident:99')
+})
+
+test('an absent actor starts a real walk at its recorded source', () => {
+  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 })
+  const state = createResidents({ ...replay({}), timeline: [move] }, census, layout)
+  const next = stepResidents(state, [move], 0, 0, layout)
+  assert.equal(next.residents[7]!.walking, true)
+  assert.equal(next.residents[7]!.placeId, 2)
+})
+
+test('source mismatch resumes at the recorded source without connecting from the stale room', () => {
+  const state = createResidents(replay(), census, layout)
+  const mismatch = event('action', { action: 'move', status: 'applied', from_place_id: 1, to_place_id: 3 })
+  const next = stepResidents(state, [mismatch], 0, 100, layout)
+  assert.equal(next.residents[7]!.placeId, 1)
+  assert.equal(next.residents[7]!.walking, true)
+  assert.ok(next.residents[7]!.x >= rooms[1].standing.x && next.residents[7]!.x <= rooms[1].standing.x + rooms[1].standing.width)
+  assert.deepEqual(next.issues, ["The record skips part of walker's route; resumed at its next recorded room."])
+})
+
+test('error-bearing moves never walk', () => {
+  const state = createResidents(replay(), census, layout)
+  const failed = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3, error: 'denied' })
+  const next = stepResidents(state, [failed], 100, 100, layout)
+  assert.equal(next.residents[7]!.placeId, 2)
+  assert.equal(next.residents[7]!.walking, false)
+})
+
+test('same-room applied move retains an existing presentation spot', () => {
+  const state = createResidents(replay(), census, layout)
+  const before = state.residents[7]!
+  const next = stepResidents(state, [event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 2 })], 0, 0, layout)
+  assert.deepEqual([next.residents[7]!.x, next.residents[7]!.y], [before.x, before.y])
+})
+
+test('a note with a newer recorded room resumes there before speaking', () => {
+  const state = createResidents(replay(), census, layout)
+  const next = stepResidents(state, [event('note', { place_id: 3 }, 'from here')], 0, 100, layout)
+  assert.equal(next.residents[7]!.placeId, 3)
+  assert.equal(next.residents[7]!.bubble?.text, 'from here')
+  assert.equal(next.residents[7]!.visible, false)
+  assert.equal(next.issues.length, 1)
+})
+
+test('a nonquiet descendant of a quiet room remains hidden', () => {
+  const nestedQuiet = { ...layout, rooms: {
+    ...rooms,
+    3: { ...rooms[3], children: [4] },
+    4: { id: 4, parentId: 3, name: 'inner', quiet: false, depth: 2, x: 430, y: 300, width: 120, height: 90, door: { x: 490, y: 390 }, standing: { x: 440, y: 310, width: 90, height: 60 }, children: [] },
+  } } as unknown as NestedLayout
+  const state = createResidents(replay({ 'resident:7': { origin_event_id: 1, place_id: 4 } }), census, nestedQuiet)
+  assert.equal(state.residents[7]!.visible, false)
+})
+
+test('a note naming a missing room is suppressed and preserves the last position', () => {
+  const state = createResidents(replay(), census, layout)
+  const before = state.residents[7]!
+  const next = stepResidents(state, [event('note', { place_id: 999 }, 'wrong room')], 0, 100, layout)
+  assert.equal(next.residents[7]!.placeId, before.placeId)
+  assert.deepEqual([next.residents[7]!.x, next.residents[7]!.y], [before.x, before.y])
+  assert.equal(next.residents[7]!.bubble, null)
+  assert.ok(next.issues.some(issue => issue.includes('note room 999')))
+})
+
+test('noop, null endpoints, and unknown actors preserve positions and report mapping issues', () => {
+  const state = createResidents(replay(), census, layout)
+  const x = state.residents[7]!.x
+  const bad = { ...event('action', { action: 'move', status: 'noop', from_place_id: 2, to_place_id: 3 }), actor: 'missing' }
+  const next = stepResidents(state, [bad, event('action', { action: 'move', status: 'applied', from_place_id: 2 })], 100, 100, layout)
+  assert.equal(next.residents[7]!.x, x)
+  assert.ok(next.issues.some(issue => issue.includes('missing')))
+})
+
+test('expired bubble releases the next queued note and state remains immutable', () => {
+  const state = createResidents(replay(), census, layout)
+  const one = event('note', { place_id: 2 }, 'one')
+  const two = { ...event('note', { place_id: 2 }, 'two'), event_id: 2 }
+  const first = stepResidents(state, [one, two], 0, 1_000, layout)
+  const second = stepResidents(first, [], 0, 5_999, layout)
+  const third = stepResidents(second, [], 0, 6_000, layout)
+  assert.equal(first.residents[7]!.bubble?.text, 'one')
+  assert.equal(second.residents[7]!.bubble?.text, 'one')
+  assert.equal(third.residents[7]!.bubble?.text, 'two')
+  assert.equal(state.residents[7]!.bubble, null)
+})
+
+test('real replay finishes with every mapped resident in its last valid recorded room', () => {
+  const realReplay = JSON.parse(readFileSync(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
+  const page = JSON.parse(readFileSync(new URL('./fixtures/residents-presence-page1.json', import.meta.url), 'utf8')) as { residents: Resident[] }
+  const realLayout = nestedLayout(realReplay.map.places, roomCapacity(realReplay, page.residents))
+  let state = createResidents(realReplay, page.residents, realLayout)
+  const expected = new Map(Object.values(state.residents).map(resident => [resident.id, resident.placeId]))
+  let now = 0
+  for (const item of realReplay.timeline) {
+    const id = typeof item.actor === 'string' ? state.actors.get(item.actor) : undefined
+    const from = item.detail.from_place_id
+    const to = item.detail.to_place_id
+    if (id !== undefined && item.kind === 'action' && item.detail.status === 'applied' &&
+        (item.detail.action === 'move' || item.detail.action === 'go_home') &&
+        typeof from === 'number' && typeof to === 'number' && item.detail.error == null && realLayout.rooms[from] && realLayout.rooms[to]) expected.set(id, to)
+    if (id !== undefined && item.kind === 'note' && typeof item.detail.place_id === 'number' && realLayout.rooms[item.detail.place_id]) expected.set(id, item.detail.place_id)
+    state = stepResidents(state, [item], 0, now, realLayout)
+    for (let guard = 0; state.pending && guard < 12; guard += 1) {
+      now += 1_000
+      state = stepResidents(state, [], 1_000, now, realLayout)
+    }
+  }
+  for (const [id, placeId] of expected) assert.equal(state.residents[id]!.placeId, placeId, `resident ${String(id)}: ${state.issues.filter(issue => issue.includes(state.residents[id]!.handle)).join('; ')}`)
+})
