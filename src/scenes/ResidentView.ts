@@ -6,8 +6,9 @@ import { residentNamePlate } from '../city/residents.ts'
 import type { ResidentState } from '../replay/simulation.ts'
 import { isNewResident, sparkleAlpha } from '../newcomers.ts'
 import { bubbleRects, bubbleShape, typedBubbleFrame } from '../speech.ts'
+import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
 
-export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string }>
+export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
 
 export class ResidentView {
   readonly sprite: Phaser.GameObjects.Image
@@ -18,6 +19,8 @@ export class ResidentView {
   private readonly zzz: Phaser.GameObjects.Graphics
   private readonly newTag: Phaser.GameObjects.Text
   private readonly sparkle: Phaser.GameObjects.Graphics
+  private showing: Phaser.GameObjects.Graphics | null = null
+  private contest: Phaser.GameObjects.Graphics | null = null
   private readonly named: boolean
   private standingTexture = 'resident-default'
 
@@ -70,6 +73,24 @@ export class ResidentView {
     this.sparkle.setPosition(resident.x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
     this.zzz.setPosition(resident.x + 13, resident.y - 13).setVisible(sleeping && resident.visible)
     const bubble = resident.bubble
+    const moment = showingFor(bubble, resident.visible, places, resident.handle)
+      ?? (resident.visible ? resident.showingNotice ?? null : null)
+    const contest = moment ? showingFrame(moment, now) : null
+    if (contest) {
+      this.showing ??= this.sprite.scene.add.graphics().setDepth(99)
+      this.contest ??= this.sprite.scene.add.graphics().setDepth(204)
+      this.showing.clear(); this.contest.clear()
+      this.showing.setPosition(resident.x, resident.y)
+      for (const cell of spotlightCells()) this.showing.fillStyle(cell.color, cell.alpha * contest.alpha)
+        .fillRect(cell.x, cell.y, cell.width, cell.height)
+      this.contest.setPosition(resident.x, resident.y)
+      if (contest.ballotY !== null) for (const [index, cell] of ballotCells().entries()) this.contest.fillStyle(cell.color, cell.alpha)
+        .fillRect(cell.x, cell.y + (index < 2 ? contest.ballotY : 0), cell.width, cell.height)
+      if (contest.confetti) for (const cell of confettiCells()) this.contest.fillStyle(cell.color, contest.confetti)
+        .fillRect(cell.x, cell.y + Math.round(contest.confetti * 12), cell.width, cell.height)
+    } else if (this.showing || this.contest) {
+      this.showing?.destroy(); this.contest?.destroy(); this.showing = null; this.contest = null
+    }
     this.bubble.setVisible(resident.visible && bubble !== null)
     this.bubbleBackground.setVisible(resident.visible && bubble !== null)
     this.bubbleCut.setVisible(false)
@@ -86,7 +107,8 @@ export class ResidentView {
         this.bubbleBackground.fillStyle(cell.color, cell.alpha).fillRect(cell.x - 115, cell.y - height, cell.width, cell.height)
       }
       this.bubbleBackground.setScale(scale).setPosition(x, y)
-      return Object.freeze({ residentId: resident.id, text: frame.revealed, shape })
+      return Object.freeze({ residentId: resident.id, text: frame.revealed, shape,
+        showing: moment?.confetti ? 'confetti' : moment?.ballot ? 'ballot' : moment ? 'spotlight' : '' })
     }
     return null
   }
@@ -100,6 +122,8 @@ export class ResidentView {
     this.zzz.destroy()
     this.newTag.destroy()
     this.sparkle.destroy()
+    this.showing?.destroy()
+    this.contest?.destroy()
   }
 }
 
