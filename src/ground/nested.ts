@@ -20,6 +20,8 @@ export type Room = Readonly<{
   door: Point
   standing: Readonly<{ x: number; y: number; width: number; height: number }>
   children: readonly number[]
+  notch?: Readonly<{ width: number; height: number }> | null
+  shelf?: Readonly<{ row: number; top: number; bottom: number; laneAbove: number; laneBelow: number }> | null
 }>
 
 export type NestedLayout = Readonly<{
@@ -35,7 +37,8 @@ const MINIMUM_WIDTH = 240
 const MINIMUM_HEIGHT = 170
 const STANDING_PITCH = 48
 
-type PlannedChild = Readonly<{ id: number; x: number; y: number }>
+type PlannedChild = Readonly<{ id: number; x: number; y: number; row: number; top: number; bottom: number;
+  laneAbove: number; laneBelow: number }>
 type Plan = Readonly<{
   id: number
   width: number
@@ -45,6 +48,13 @@ type Plan = Readonly<{
 }>
 
 const compareIds = (left: number, right: number): number => left - right
+const variant = (id: number): number => Math.abs(Math.imul(id, 1103515245) + 12345) % 3
+const variedSize = (id: number, width: number, height: number): readonly [number, number] => {
+  const kind = variant(id)
+  if (kind === 0) return [width + Math.max(48, Math.round(width * 0.18 / 8) * 8), height]
+  if (kind === 1) return [width, height + Math.max(40, Math.round(height * 0.2 / 8) * 8)]
+  return [width, height]
+}
 
 export function nestedLayout(
   places: readonly Place[],
@@ -85,7 +95,8 @@ export function nestedLayout(
     // The free-spot helper keeps 16px at both edges around a 32px sprite.
     const standingOuterWidth = Math.max(MINIMUM_WIDTH, standingWidth + ROOM_PADDING + 16)
     if (!children.length) {
-      const plan = Object.freeze({ id, width: standingOuterWidth, height: Math.max(MINIMUM_HEIGHT, standingHeight + ROOM_PADDING + 32), standingHeight, children: Object.freeze([]) })
+      const [width, height] = variedSize(id, standingOuterWidth, Math.max(MINIMUM_HEIGHT, standingHeight + ROOM_PADDING + 32))
+      const plan = Object.freeze({ id, width, height, standingHeight, children: Object.freeze([]) })
       plans.set(id, plan)
       visiting.delete(id)
       return plan
@@ -106,23 +117,25 @@ export function nestedLayout(
       used = row.length === 1 ? child.width : used + ROOM_GAP + child.width
     }
     if (row.length) rows.push(row)
-    const placements: PlannedChild[] = []
-    let y = ROOM_PADDING + standingHeight + ROOM_GAP
+    const placements: PlannedChild[] = []; const gap = id === root.id ? ROOM_GAP + 24 : ROOM_GAP + 8
+    let y = ROOM_PADDING + standingHeight + gap
     let widest = 0
-    for (const shelf of rows) {
+    for (const [rowIndex, shelf] of rows.entries()) {
       const shelfHeight = Math.max(...shelf.map(child => child.height))
-      let x = ROOM_PADDING
+      let x = ROOM_PADDING + (rowIndex % 2) * 24
       for (const child of shelf) {
-        placements.push(Object.freeze({ id: child.id, x, y: y + shelfHeight - child.height }))
-        x += child.width + ROOM_GAP
+        const childY = y + shelfHeight - child.height
+        placements.push(Object.freeze({ id: child.id, x, y: childY, row: rowIndex, top: y,
+          bottom: y + shelfHeight, laneAbove: y - gap / 2, laneBelow: y + shelfHeight + gap / 2 }))
+        x += child.width + gap
       }
-      widest = Math.max(widest, x - ROOM_GAP + ROOM_PADDING)
-      y += shelfHeight + ROOM_GAP
+      widest = Math.max(widest, x - gap + ROOM_PADDING)
+      y += shelfHeight + gap
     }
+    const [width, height] = variedSize(id, Math.max(standingOuterWidth, widest), Math.max(MINIMUM_HEIGHT, y + ROOM_PADDING - gap))
     const plan = Object.freeze({
       id,
-      width: Math.max(standingOuterWidth, widest),
-      height: Math.max(MINIMUM_HEIGHT, y + ROOM_PADDING - ROOM_GAP),
+      width, height,
       standingHeight,
       children: Object.freeze(placements),
     })
@@ -134,7 +147,8 @@ export function nestedLayout(
   const rootPlan = makePlan(root.id)
   if (plans.size !== places.length) throw new Error('Every place must descend from the one root')
   const rooms: Record<number, Room> = {}
-  const placeRooms = (plan: Plan, x: number, y: number, depth: number, parentId: number | null, doorIndex = 1): void => {
+  const placeRooms = (plan: Plan, x: number, y: number, depth: number, parentId: number | null, doorIndex = 1,
+    shelf: PlannedChild | null = null): void => {
     const place = byId.get(plan.id)!
     // Children are sorted by id: successive siblings differ, and each four use all walls.
     const door = [
@@ -149,8 +163,11 @@ export function nestedLayout(
       door: Object.freeze(door),
       standing: Object.freeze({ x: x + ROOM_PADDING / 2, y: y + ROOM_PADDING / 2, width: plan.width - ROOM_PADDING, height: plan.standingHeight }),
       children: Object.freeze(plan.children.map(child => child.id)),
+      notch: depth > 0 && variant(plan.id) === 2 ? Object.freeze({ width: Math.min(40, plan.width / 3), height: Math.min(40, plan.height / 3) }) : null,
+      shelf: shelf ? Object.freeze({ row: shelf.row, top: y - shelf.y + shelf.top, bottom: y - shelf.y + shelf.bottom,
+        laneAbove: y - shelf.y + shelf.laneAbove, laneBelow: y - shelf.y + shelf.laneBelow }) : null,
     })
-    for (const [index, child] of plan.children.entries()) placeRooms(plans.get(child.id)!, x + child.x, y + child.y, depth + 1, plan.id, index)
+    for (const [index, child] of plan.children.entries()) placeRooms(plans.get(child.id)!, x + child.x, y + child.y, depth + 1, plan.id, index, child)
   }
   placeRooms(rootPlan, 0, 0, 0, null)
   return Object.freeze({ rooms: Object.freeze(rooms), rootId: root.id, width: rootPlan.width, height: rootPlan.height })

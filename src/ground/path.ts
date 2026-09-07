@@ -1,4 +1,5 @@
 import { ROOM_GAP, ROOM_PADDING, type NestedLayout, type Point, type Room } from './nested.ts'
+import { roomContains } from './room-shape.ts'
 
 const finitePoint = (point: Point): boolean => Number.isFinite(point.x) && Number.isFinite(point.y)
 
@@ -22,17 +23,14 @@ function doorToOwnAisle(room: Room): readonly Point[] {
   return [door, { x: door.x, y: laneY }, { x: left, y: laneY }]
 }
 
-function childDoorToParentAisle(layout: NestedLayout, parent: Room, child: Room): readonly Point[] {
+function childDoorToParentAisle(parent: Room, child: Room): readonly Point[] {
   const { door } = child
   const bottom = child.y + child.height
   if (door.y === child.y) {
-    // Shelves align at the bottom. A short room must clear its taller neighbours first.
-    const rowTop = Math.min(...parent.children.map(id => layout.rooms[id]!)
-      .filter(sibling => sibling.y + sibling.height === bottom).map(sibling => sibling.y))
-    const laneY = rowTop - ROOM_GAP / 2
+    const laneY = child.shelf?.laneAbove ?? child.y - ROOM_GAP / 2
     return [door, { x: door.x, y: laneY }, { x: leftAisle(parent), y: laneY }]
   }
-  const laneY = bottom + ROOM_GAP / 2
+  const laneY = child.shelf?.laneBelow ?? bottom + ROOM_GAP / 2
   if (door.y === bottom) return [door, { x: door.x, y: laneY }, { x: leftAisle(parent), y: laneY }]
   const outsideX = door.x + (door.x === child.x ? -ROOM_GAP / 2 : ROOM_GAP / 2)
   return [door, { x: outsideX, y: door.y }, { x: outsideX, y: laneY }, { x: leftAisle(parent), y: laneY }]
@@ -68,7 +66,7 @@ export function walkPath(layout: NestedLayout, fromId: number, toId: number, sta
     while (current.id !== lca.id) {
       for (const point of [...doorToOwnAisle(current)].reverse()) append(points, point)
       const parent = layout.rooms[current.parentId!]!
-      for (const point of childDoorToParentAisle(layout, parent, current)) append(points, point)
+      for (const point of childDoorToParentAisle(parent, current)) append(points, point)
       current = parent
     }
   }
@@ -76,7 +74,7 @@ export function walkPath(layout: NestedLayout, fromId: number, toId: number, sta
   const descent = toChain.slice(0, toChain.findIndex(room => room.id === lca.id)).reverse()
   let parent = lca
   for (const child of descent) {
-    for (const point of [...childDoorToParentAisle(layout, parent, child)].reverse()) append(points, point)
+    for (const point of [...childDoorToParentAisle(parent, child)].reverse()) append(points, point)
     for (const point of doorToOwnAisle(child)) append(points, point)
     parent = child
   }
@@ -196,6 +194,6 @@ function segmentStaysOnFloor(layout: NestedLayout, from: Point, to: Point, floor
 
 function deepestRoom(layout: NestedLayout, point: Point): number | null {
   return Object.values(layout.rooms)
-    .filter(room => point.x >= room.x && point.x <= room.x + room.width && point.y >= room.y && point.y <= room.y + room.height)
+    .filter(room => roomContains(room, point))
     .sort((left, right) => right.depth - left.depth)[0]?.id ?? null
 }
