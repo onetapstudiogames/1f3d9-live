@@ -235,14 +235,24 @@ test('a repeated carry notice sharing one action row shows and releases each not
   assert.deepEqual(frame.carryThingIds, [])
 })
 
-test('the browser fixture keeps the city rows unchanged and draws exactly what they support', () => {
+test('saved public gift and carry rows draw only what their references support', () => {
   const read = (name: string): Record<string, unknown> => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')) as Record<string, unknown>
-  const fixture = read('replay-handovers.json') as unknown as ReplayFile
   const day = read('replay-24h.json') as unknown as ReplayFile
   const served = new Map([
     ...(read('changes-transfers-live.json')['changes'] as Array<Record<string, unknown>>),
     ...(read('changes-carry-live.json')['changes'] as Array<Record<string, unknown>>),
   ].map(change => [String(change['change_id']), change]))
+
+  // Assemble a scenario only in this unit test; saved browser files stay complete city answers.
+  const timeline = ['70406', '99574', '99575'].map(id => {
+    const { created_at: at, ...row } = served.get(id)!
+    return { ...row, at, event_id: Number(id) } as ReplayEvent
+  })
+  const fixture: ReplayFile = {
+    ...day, window_start: timeline[0]!.at, window_end: timeline[2]!.at,
+    map: { places: [195, 1, 2, 456, 759, 760].map(id => day.map.places.find(place => place.id === id)!) },
+    start: {}, counts: {}, timeline,
+  }
 
   // Every row is the city's answer unchanged; only `created_at` becomes the replay's `at`.
   assert.deepEqual(fixture.timeline.map(event => event.change_id), ['70406', '99574', '99575'])

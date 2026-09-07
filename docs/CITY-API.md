@@ -146,10 +146,12 @@ handled yet; a place absent from the snapshot gets no room.
 
 Saved evidence in `test/fixtures/`: `changes-place-created.json` (place 782,
 change 99972), `changes-place-renamed.json` (place 264, change 87383), and
-`outline-place-264.json`. These keep the public web reader's response text without
-reformatting. Direct HTTP reads were denied by this sandbox, so original transport
-bytes could not be independently compared. Tests adapt `created_at` to replay
-`at` without changing the saved feed. Hand-made rows are confined to unit tests.
+`outline-place-264.json`. These were refreshed by anonymous HTTP GET and saved
+byte for byte during PR #10's review. `replay-places.json` is the complete answer
+from `GET /api/replay?span=24h`, checkpoint `100123`, with founding `99972` inside
+its recorded window. Its public copy is byte-identical. Tests adapt `created_at`
+to replay `at` without changing saved feeds. Scenario assembly stays in unit tests;
+the browser check reads the untouched saved day and never fast-forwards a homemade day.
 Fixture runs read missing name histories from `/fixtures/places/place-<id>.json`
 (or `?places=<root>`), and never fall back to a live outline read.
 
@@ -253,15 +255,10 @@ Saved evidence under `test/fixtures/`:
 - `changes-carry-live.json`: `/api/changes?since=99572&limit=3`.
 - `changes-thing-moved-live.json`: `/api/changes?since=0&kind=thing_moved&limit=200`.
 - `changes-sales-live.json`: `/api/changes?since=0&kind=sale&limit=200`.
-- `replay-handovers.json`: the browser check's saved replay. Its window and its
-  selection of rows are this repo's; every row inside it is the city's own text.
-  The three timeline rows are `70406` from the transfer feed and `99574`/`99575`
-  from the carry feed, and its six places are copied from `replay-24h.json`
-  (`195`, `1`, `2`, `456`, `759`, `760`). Its `start` block is empty, so the saved
-  census places the figures. The saved rows do not put the gift's two residents in
-  one room at any recorded moment, so that page draws no heart: it draws the
-  carried thing and says the handover could not be shown. `test/handovers.test.ts`
-  checks those rows against the saved feeds row for row.
+- `test/handovers.test.ts` assembles rows `70406`, `99574`, and `99575` from those
+  saved feeds in a unit-only scenario. It checks the unplaced gift is reported
+  and the recorded carry is drawn. The former homemade browser replay was removed
+  during PR #10 review; saved browser responses must be whole city answers.
 
 These response texts were saved without reformatting from the public web reader
 on 2026-09-07. Direct HTTP reads in the build sandbox failed with `EACCES`;

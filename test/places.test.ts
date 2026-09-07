@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import type { ReplayEvent, ReplayFile, ReplayPlace } from '../src/city/types.ts'
-import type { NestedLayout } from '../src/ground/nested.ts'
+import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
 import {
   hiddenRooms,
   nameAtTime,
@@ -55,6 +55,18 @@ test('saved live notices adapt to replay time without changing their detail', ()
   assert.equal(rename?.name, 'Federal Office of Unnecessary Inspections')
   const outline = JSON.parse(readFileSync(new URL('fixtures/outline-place-264.json', import.meta.url), 'utf8')) as { place: { name_history: unknown } }
   assert.equal(parseNameHistory(outline.place.name_history)?.length, 2)
+})
+
+test('the untouched live replay hides its later founding until the recorded time', () => {
+  const bytes = readFileSync(new URL('fixtures/replay-places.json', import.meta.url))
+  assert.deepEqual(bytes, readFileSync(new URL('../public/fixtures/replay-places.json', import.meta.url)))
+  const record = JSON.parse(bytes.toString()) as ReplayFile
+  const plan = planPlaces(record)
+  const layout = nestedLayout(record.map.places)
+  const founding = plan.foundings.get(782)!
+  assert.equal(founding.name, 'The Wrong Hat')
+  assert.equal(hiddenRooms(plan, layout, Date.parse(record.window_start)).has(782), true)
+  assert.equal(hiddenRooms(plan, layout, founding.time).has(782), false)
 })
 
 test('validates history and leaves gaps unnamed', () => {
@@ -192,7 +204,7 @@ test('contradictory rename order leaves every affected name blank', () => {
   const founding = event('place_created', '2026-09-07T10:10:00.000Z', '3', { name: 'old room', place_id: 10, parent_id: 2 })
   const plan = planPlaces(replay([rename, founding]))
   assert.equal(plan.renamings.has(10), false)
-  assert.equal(recordedRoomName(plan, places[2]!, Date.parse('2026-09-07T10:30:00.000Z')), 'old room')
+  assert.equal(recordedRoomName(plan, places[2]!, Date.parse('2026-09-07T10:30:00.000Z')), null)
   assert.ok(plan.issues.some(issue => issue.includes('contradictory renaming')))
 })
 
@@ -206,4 +218,12 @@ test('rename-only change id conflict blanks the sign without hiding the room', (
   assert.equal(plan.unresolvedFoundings.has(10), false)
   assert.deepEqual([...hiddenRooms(plan, layout, Date.parse('2026-09-07T10:30:00.000Z'))], [])
   assert.equal(recordedRoomName(plan, places[2]!, Date.parse('2026-09-07T10:30:00.000Z')), null)
+})
+
+test('an incomplete later rename never leaves a known earlier name on the sign', () => {
+  const valid = event('place_renamed', '2026-09-07T10:10:00.000Z', '3', { name: 'earlier', former_name: 'old', place_id: 10 })
+  const incomplete = event('place_renamed', '2026-09-07T10:20:00.000Z', '4', { place_id: 10 })
+  const plan = planPlaces(replay([valid, incomplete]))
+  assert.equal(recordedRoomName(plan, places[2]!, Date.parse('2026-09-07T10:30:00.000Z')), null)
+  assert.ok(plan.issues.some(issue => issue.includes('incomplete')))
 })

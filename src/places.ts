@@ -26,6 +26,7 @@ export type PlacePlan = Readonly<{
   names: ReadonlyMap<number, readonly NameSpan[]>
   guardedPlaceIds: ReadonlySet<number>
   unresolvedFoundings: ReadonlySet<number>
+  unresolvedRenamings: ReadonlySet<number>
 }>
 
 const positiveId = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0
@@ -112,6 +113,7 @@ export function planPlaces(
       if (positiveId(rawPlaceId)) {
         guarded.add(rawPlaceId)
         if (event.kind === 'place_created') invalidFoundings.add(rawPlaceId)
+        else invalidRenamings.add(rawPlaceId)
       }
       note(`A recorded ${event.kind === 'place_created' ? 'founding' : 'renaming'} could not be shown because its notice is incomplete.`)
       continue
@@ -196,11 +198,13 @@ export function planPlaces(
     foundings, renamings, historyPlaceIds: Object.freeze([...needed].sort((a, b) => a - b)), issues: Object.freeze(issues),
     names: histories, guardedPlaceIds: guarded,
     unresolvedFoundings: invalidFoundings,
+    unresolvedRenamings: invalidRenamings,
   })
 }
 
 export function recordedRoomName(plan: PlacePlan, place: Pick<ReplayPlace, 'id' | 'name'>, time: number): string | null {
   if (!Number.isFinite(time)) return null
+  if (plan.unresolvedRenamings.has(place.id)) return null
   const founding = plan.foundings.get(place.id)
   if (founding && time < founding.time) return null
   const rows = plan.renamings.get(place.id)
