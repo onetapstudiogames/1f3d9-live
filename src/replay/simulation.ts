@@ -51,7 +51,8 @@ export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): R
   }
   for (const resident of initialResidents(replay, census)) add(resident.placeId, `id:${String(resident.id)}`)
   for (const event of replay.timeline) {
-    const actor = typeof event.actor === 'string' && event.actor.length ? event.actor : null
+    const actorText = typeof event.actor === 'string' ? event.actor.trim() : ''
+    const actor = actorText.length ? actorText : null
     const known = actor === null ? undefined : handles.get(actor)?.id ?? registrations.get(actor)
     const key = known !== undefined
       ? `id:${String(known)}`
@@ -122,7 +123,7 @@ export function stepResidents(
       }
     }
     if (event.actor === null) continue
-    const actor = typeof event.actor === 'string' ? event.actor : ''
+    const actor = typeof event.actor === 'string' ? event.actor.trim() : ''
     const id = state.actors.get(actor)
     if (id === undefined || !residents[id]) {
       addIssue(issues, 'actor')

@@ -25,6 +25,17 @@ test('a register-only visitor reserves world capacity, once per resident even wi
   assert.equal(roomCapacity({ ...replay, timeline: [register, register, move(195, 1)] }, [])[195], 1)
 })
 
+test('a padded registration actor still arrives and reserves world capacity once', () => {
+  const padded = { ...register, actor: '  newcomer  ' }
+  const data = { ...replay, timeline: [padded] }
+  const ground = nestedLayout(places, roomCapacity(data, census))
+  const arrival = stepResidents(createResidents(data, census, ground), [padded], 0, 100, ground)
+  assert.equal(roomCapacity(data, census)[195], 1)
+  assert.equal(arrival.residents[7]!.placeId, 195)
+  assert.ok(arrival.residents[7]!.sparkle)
+  assert.deepEqual(arrival.issues, [])
+})
+
 test('the figure appears only when the registration is due, then holds a fading sparkle before walking', () => {
   const state = createResidents(replay, census, layout)
   const timeline = prepareTimeline(replay.timeline)

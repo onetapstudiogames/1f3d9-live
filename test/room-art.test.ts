@@ -1,0 +1,77 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { curtainCells, placesWithDrawings, roomSignPlacement, roomsToDraw } from '../src/room-art.ts'
+import { nestedLayout } from '../src/ground/nested.ts'
+import type { ReplayFile } from '../src/city/types.ts'
+
+test('only recorded drawing flags select places, once per valid id', () => {
+  const places = Object.freeze([
+    { id: 1, has_drawing: true }, { id: 2, has_drawing: false },
+    { id: 1, has_drawing: true }, { id: 3, has_drawing: true },
+    { id: Number.NaN, has_drawing: true }, { id: 1.5, has_drawing: true },
+    { id: 0, has_drawing: true }, { id: -1, has_drawing: true },
+  ])
+  const layout = nestedLayout([
+    { id: 1, parent_id: null }, { id: 2, parent_id: 1 }, { id: 3, parent_id: 1 },
+    { id: 0, parent_id: 1 }, { id: -1, parent_id: 1 },
+  ])
+  assert.deepEqual(placesWithDrawings(places, layout), [1, 3])
+  assert.deepEqual(placesWithDrawings([], layout), [])
+})
+
+test('the sign and name share a clear header inside every saved room', async () => {
+  const replay = JSON.parse(await readFile(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
+  for (const room of Object.values(nestedLayout(replay.map.places).rooms)) {
+    const sign = roomSignPlacement(room)
+    assert.deepEqual(roomSignPlacement(room), sign)
+    assert.equal(sign.size, 24, 'each recorded pixel has three whole pixels')
+    assert.ok(Number.isInteger(sign.x) && Number.isInteger(sign.y))
+    assert.ok(sign.x >= room.x + 8 && sign.y >= room.y + 8)
+    assert.ok(sign.y + sign.size <= room.y + 40, 'sign stays in the header')
+    assert.ok(sign.nameX >= sign.x + sign.size + 6)
+    assert.equal(sign.nameY, sign.y)
+    assert.ok(sign.nameWidth > 100)
+    assert.ok(sign.nameX + sign.nameWidth <= room.x + room.width - 12)
+  }
+})
+
+test('quiet curtains cover the inner floor in bounded, repeatable pixel cells', () => {
+  const base = nestedLayout([{ id: 1, parent_id: null, quiet: true }]).rooms[1]!
+  for (const room of [base, { ...base, width: 25001, height: 17003 }]) {
+    const cells = curtainCells(room, 0x557354)
+    assert.equal(cells.length, 64, 'even a large room needs only 64 curtain rectangles')
+    assert.deepEqual(curtainCells(room, 0x557354), cells)
+    assert.ok(new Set(cells.map(cell => cell.color)).has(0x557354), 'uses the room colour')
+    assert.ok(new Set(cells.map(cell => cell.color)).size > 1, 'folds remain visible')
+    assert.equal(cells.reduce((area, cell) => area + cell.width * cell.height, 0), (room.width - 8) * (room.height - 8))
+    for (const cell of cells) {
+      assert.ok([cell.x, cell.y, cell.width, cell.height].every(Number.isInteger))
+      assert.ok(cell.width > 0 && cell.height > 0)
+      assert.ok(cell.x >= room.x + 4 && cell.y >= room.y + 4)
+      assert.ok(cell.x + cell.width <= room.x + room.width - 4)
+      assert.ok(cell.y + cell.height <= room.y + room.height - 4)
+      assert.equal(Object.isFrozen(cell), true)
+    }
+    for (let index = 0; index < cells.length; index += 1) {
+      const a = cells[index]!
+      for (const b of cells.slice(index + 1)) {
+        assert.ok(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y)
+      }
+    }
+  }
+  assert.deepEqual(curtainCells({ ...base, quiet: false }, 0x557354), [])
+})
+
+test('a quiet room keeps its own name and covers the rooms inside it', () => {
+  const layout = nestedLayout([
+    { id: 1, parent_id: null }, { id: 2, parent_id: 1, name: 'closed', quiet: true },
+    { id: 3, parent_id: 2 }, { id: 4, parent_id: 3 }, { id: 5, parent_id: 1 },
+  ])
+  assert.deepEqual(roomsToDraw(layout).map(room => room.id), [1, 2, 5])
+  assert.equal(roomsToDraw(layout)[1]?.name, 'closed')
+  const marked = [1, 2, 3, 4, 5].map(id => ({ id, has_drawing: true }))
+  assert.deepEqual(placesWithDrawings(marked, layout), [1, 5], 'quiet rooms show just the name; covered drawings need no reads')
+  const quietWorld = nestedLayout([{ id: 1, parent_id: null, quiet: true }, { id: 2, parent_id: 1 }])
+  assert.deepEqual(roomsToDraw(quietWorld).map(room => room.id), [1])
+})
