@@ -2,7 +2,8 @@ import type { ReplayEvent } from './city/types.ts'
 import type { NestedLayout, Point } from './ground/nested.ts'
 import { BASE_SPEED, holdScale } from './replay/index.ts'
 
-export type Transfer = Readonly<{ thingId: number; actor: string; partnerId: number; placeId: number }>
+export type TransferMode = 'gift' | 'effect'
+export type Transfer = Readonly<{ thingId: number; actor: string; mode: TransferMode; partnerId: number; placeId: number }>
 export type CarriedMove = Readonly<{
   thingId: number
   actor: string
@@ -23,6 +24,8 @@ export type TransferResident = Readonly<{
 }>
 export type TransferPartners = Readonly<{ from: Point; to: Point }>
 
+// The heart belongs to a gift and to nothing else; an effect-mode transfer draws the plain
+// icon glide with no heart, because the record says a thing's effect moved the ownership.
 export const HEART_CELLS: readonly (readonly [number, number])[] = Object.freeze([
   [0, 0], [2, 0], [-1, 1], [0, 1], [1, 1], [2, 1], [3, 1], [0, 2], [1, 2], [2, 2], [1, 3],
 ].map(cell => Object.freeze(cell) as readonly [number, number]))
@@ -33,22 +36,23 @@ export const HEART_PIXELS: readonly Readonly<{ x: number; y: number }>[] = Objec
 const FLOAT_DURATION_MS = 1_200
 const FLOAT_FLOOR_MS = 400
 
+// The city publishes only two transfer modes, and no sale marker at all: a thing sold on
+// the market arrives here as an ordinary transfer row, so nothing below may call one a sale.
+// City issue onetapstudiogames/1f3d9#281 asks for a public sale fact.
+// `gift` is one resident handing a thing to another; `effect` is a thing's own effect moving
+// ownership, and its actor is the resident whose use set that effect off, not a giver.
 export function transferFor(row: ReplayEvent): Transfer | null {
   if (row.kind !== 'transfer') return null
   const actor = cleanActor(row.actor)
   if (!actor) return null
   const detail = row.detail
-  const thingId = detail.mode === 'gift' && detail.asset_type === 'thing'
+  const mode: TransferMode | null = detail.mode === 'gift' ? 'gift' : detail.mode === 'effect' ? 'effect' : null
+  if (mode === null) return null
+  const thingId = mode === 'gift' && detail.asset_type === 'thing'
     ? detail.asset_id
-    : detail.mode === 'effect' && detail.type === 'thing' ? detail.id : null
+    : mode === 'effect' && detail.type === 'thing' ? detail.id : null
   if (!positiveId(thingId) || !positiveId(detail.resident_id) || !positiveId(detail.place_id)) return null
-  return { thingId, actor, partnerId: detail.resident_id, placeId: detail.place_id }
-}
-
-// The verified public transfer rows contain only gift and effect modes. Price, names,
-// and asset ids do not establish a sale, so sale presentation stays unavailable.
-export function saleFor(_row: ReplayEvent): null {
-  return null
+  return { thingId, actor, mode, partnerId: detail.resident_id, placeId: detail.place_id }
 }
 
 export function carriedMove(action: ReplayEvent, notice: ReplayEvent): CarriedMove | null {
@@ -93,10 +97,11 @@ export function transferPartners(
   layout: NestedLayout,
 ): TransferPartners | null {
   if (!placeIsVisible(layout, transfer.placeId)) return null
-  const giver = Object.values(residents).find(resident => resident.handle.trim() === transfer.actor)
-  const receiver = residents[transfer.partnerId]
-  if (!eligible(giver, transfer.placeId) || !eligible(receiver, transfer.placeId)) return null
-  return { from: { x: giver.x, y: giver.y }, to: { x: receiver.x, y: receiver.y } }
+  // `actor` is the resident the thing leaves, whether it was handed over or an effect took it.
+  const leaves = Object.values(residents).find(resident => resident.handle.trim() === transfer.actor)
+  const receives = residents[transfer.partnerId]
+  if (!eligible(leaves, transfer.placeId) || !eligible(receives, transfer.placeId)) return null
+  return { from: { x: leaves.x, y: leaves.y }, to: { x: receives.x, y: receives.y } }
 }
 
 function eligible(resident: TransferResident | undefined, placeId: number): resident is TransferResident {

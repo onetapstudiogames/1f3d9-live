@@ -9,7 +9,7 @@ import { createdThing, movedThing, type ThingReservations } from '../things.ts'
 import { transferDuration, transferFor, transferPartners, type Transfer, type TransferPartners } from '../giving.ts'
 
 export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
-type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; giverId: number }>
+type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
 
 type QueuedEvent = Readonly<{ event: ReplayEvent }>
 
@@ -164,8 +164,13 @@ export function stepResidents(
   const startedTransfers: StartedTransfer[] = []
   for (const candidate of candidates) {
     const partners = transferPartners(candidate.transfer, residents, layout)
-    if (!partners) { addIssue(issues, 'gift'); continue }
-    residents[candidate.giverId] = { ...residents[candidate.giverId]!, transferUntil: nowMs + transferDuration(speed) }
+    if (!partners) { addIssue(issues, 'handover'); continue }
+    // Both ends stand still for the float. The copy is drawn between the two figures the record
+    // named, so a partner who walked off mid-float would leave the icon landing on empty floor.
+    const until = nowMs + transferDuration(speed)
+    residents[candidate.actorId] = { ...residents[candidate.actorId]!, transferUntil: until }
+    const partner = residents[candidate.transfer.partnerId]
+    if (partner) residents[candidate.transfer.partnerId] = { ...partner, transferUntil: until }
     startedTransfers.push(Object.freeze({ transfer: candidate.transfer, changeId: candidate.changeId, partners, startedAt: nowMs, speed }))
   }
   return freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations, startedTransfers)
@@ -190,7 +195,7 @@ function startNext(
     const transfer = transferFor(event)
     if (transfer) {
       next = { ...next, queue }
-      candidates.push(Object.freeze({ transfer, changeId: event.change_id, giverId: next.id }))
+      candidates.push(Object.freeze({ transfer, changeId: event.change_id, actorId: next.id }))
       return next
     }
     if (event.kind === 'register') {
@@ -413,7 +418,7 @@ const ISSUE_WORDS = {
   room: 'Some recorded events name a room the map does not show; those are not drawn.',
   placement: 'Some rooms had no free spot left, so those figures were not moved into them.',
   route: 'Some recorded walks have no path on the map; those figures stay where the record last placed them.',
-  gift: 'Some recorded gifts could not be shown because both residents were not visibly together.',
+  handover: 'Some recorded handovers could not be shown because both residents were not visibly together.',
 } as const
 
 type IssueKind = keyof typeof ISSUE_WORDS

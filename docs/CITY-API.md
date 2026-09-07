@@ -165,13 +165,26 @@ The current [city door](https://1f3d9.com/llms.txt) says give emits a typed
 {"change_id":"99719","kind":"transfer","actor":"solward","detail":{"id":2915,"mode":"effect","type":"thing","place_id":455,"resident_id":262},"created_at":"2026-09-07T09:49:44.841Z"}
 ```
 
-`actor` identifies the acting giver, `resident_id` the partner, and `place_id`
-the committed interaction room. Only thing transfers get an icon. Older rows
-without partner or room references remain unlinked. A temporary copy floats
-between known, visible figures in that room with a pixel heart; missing or
-moving partners get no guessed meeting. Quiet rooms and their descendants
-remain hidden. The original thing keeps its recorded floor spot: ownership
-does not place, pick up, or move a thing.
+The two modes are not the same event. `mode: "gift"` is one resident handing a
+thing to another. `mode: "effect"` is the door's effect brick: ownership changed
+because a thing's own effect said so, and its `actor` is the resident whose use
+set that effect off, not a giver. So `actor` is the resident the thing leaves in
+either mode, `resident_id` is the resident it reaches, and `place_id` is the
+committed interaction room. Of the 141 saved rows, 39 carry every reference the
+page needs, and 34 of those 39 are effect rows: one actor sends twenty things to
+one resident inside 36 seconds. Calling all of that giving would be a claim the
+record does not make.
+
+So the pixel heart is drawn for `mode: "gift"` and for nothing else. An
+effect-mode transfer draws the same temporary copy of the thing's icon gliding
+from one figure to the other, with no heart and nothing else added. Only thing
+transfers get an icon. Older rows without partner or room references remain
+unlinked. Both figures must be known, visible and standing still in that room,
+and both hold still for the length of the float; missing or moving partners get
+no guessed meeting, and the page says in plain words that some recorded
+handovers could not be shown. Quiet rooms and their descendants remain hidden.
+The original thing keeps its recorded floor spot: ownership does not place, pick
+up, or move a thing.
 
 A carried move has two rows, matched by `action_id`, thing, actor, and endpoints.
 In the live sample the notice comes first:
@@ -182,18 +195,22 @@ In the live sample the notice comes first:
 ```
 
 Only the successful paired move attaches the icon to that figure's walk. The
-paired floor placement waits until that walk ends. An unmatched `thing_moved`
-keeps the existing instant placement behavior; an ordinary walk carries nothing.
+paired floor placement waits until that walk ends, and each notice is held and
+released on its own `change_id`, because two notices can name the same
+`action_id` when one walk carries two things. An unmatched `thing_moved` keeps
+the existing instant placement behavior; an ordinary walk carries nothing.
 
 No public market-sale marker was verified. The door describes the market bridge,
 but does not specify a sale label in the replay/change notice. All 141 transfers
 returned at checkpoint `99844` have `mode: "gift"` or `"effect"`; none has a sale
 reason or market listing reference. The `kind=sale` feed returns no rows.
 `asset_id` identifies property in ordinary gifts too, so it cannot identify a
-sale. All linkable transfers use the gift presentation. There is no coin arc,
-buyer departure, inferred price, or invented market door. To add those, the city
-must publish an explicit market-sale fact linked to the thing and buyer, plus
-recorded movement for the departure. No market read is needed or made here.
+sale. Every linkable transfer is drawn by the mode the record gives it, gift or
+effect, and neither is called a sale. There is no coin arc, buyer departure,
+inferred price, or invented market door. To add those, the city must publish an
+explicit market-sale fact linked to the thing and buyer, plus recorded movement
+for the departure; city issue onetapstudiogames/1f3d9#281 asks for it. No market
+read is needed or made here.
 
 Saved evidence under `test/fixtures/`:
 
@@ -201,6 +218,15 @@ Saved evidence under `test/fixtures/`:
 - `changes-carry-live.json`: `/api/changes?since=99572&limit=3`.
 - `changes-thing-moved-live.json`: `/api/changes?since=0&kind=thing_moved&limit=200`.
 - `changes-sales-live.json`: `/api/changes?since=0&kind=sale&limit=200`.
+- `replay-handovers.json`: the browser check's saved replay. Its window and its
+  selection of rows are this repo's; every row inside it is the city's own text.
+  The three timeline rows are `70406` from the transfer feed and `99574`/`99575`
+  from the carry feed, and its six places are copied from `replay-24h.json`
+  (`195`, `1`, `2`, `456`, `759`, `760`). Its `start` block is empty, so the saved
+  census places the figures. The saved rows do not put the gift's two residents in
+  one room at any recorded moment, so that page draws no heart: it draws the
+  carried thing and says the handover could not be shown. `test/handovers.test.ts`
+  checks those rows against the saved feeds row for row.
 
 These response texts were saved without reformatting from the public web reader
 on 2026-09-07. Direct HTTP reads in the build sandbox failed with `EACCES`;

@@ -4,8 +4,9 @@ import test from 'node:test'
 
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
+import { nestedLayout } from '../src/ground/nested.ts'
 import { createHandovers, stepHandovers } from '../src/handovers.ts'
-import { createResidents, stepResidents } from '../src/replay/simulation.ts'
+import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
 import { createThings, stepThings } from '../src/things.ts'
 
 const rooms = {
@@ -142,4 +143,137 @@ test('an action arriving before its paired notice does not deadlock', () => {
   residents = stepResidents(residents, [], 10_000, 10_100, layout)
   frame = stepHandovers(frame.state, [], residents, layout, 10_100)
   assert.deepEqual(frame.floorEvents.map(event => event.change_id), ['80'])
+})
+
+const HANDOVERS_APART = 'Some recorded handovers could not be shown because both residents were not visibly together.'
+
+// The two saved rows below are the city's own answers, copied from the live transfer feed.
+// One is a gift; the other is an effect, where a thing's own effect moved the ownership.
+const liveTransfers = JSON.parse(readFileSync(new URL('./fixtures/changes-transfers-live.json', import.meta.url), 'utf8')) as { changes: Array<Record<string, unknown>> }
+const liveTransfer = (changeId: string): ReplayEvent => {
+  const change = liveTransfers.changes.find(item => item['change_id'] === changeId)
+  if (!change) throw new Error(`the saved transfer feed has no change ${changeId}`)
+  return { ...change, at: change['created_at'], event_id: Number(changeId) } as unknown as ReplayEvent
+}
+
+// Room 456 is the room both saved rows name, so one small map serves both modes.
+const liveLayout = nestedLayout([
+  { id: 195, parent_id: null }, { id: 456, parent_id: 195 },
+] as unknown as Parameters<typeof nestedLayout>[0])
+const liveCensus = (partnerId: number): readonly Resident[] => [
+  { id: 156, handle: 'mara', current_place_id: 456, model: '', joined_at: '', has_drawing: false, asleep: false },
+  { id: partnerId, handle: `partner-${String(partnerId)}`, current_place_id: 456, model: '', joined_at: '', has_drawing: false, asleep: false },
+]
+const liveReplay = (row: ReplayEvent, partnerId: number): ReplayFile => ({
+  span: '1h', window_start: '2026-01-01T00:00:00Z', window_end: '2026-01-01T01:00:00Z', checkpoint: '1', complete: true, row_ceiling: 20,
+  map: { places: [] }, start: { 'resident:156': { place_id: 456 }, [`resident:${String(partnerId)}`]: { place_id: 456 } }, counts: {}, timeline: [row],
+})
+
+test('a saved gift row draws a heart and a saved effect row draws the same float without one', () => {
+  for (const [changeId, partnerId, wantsHeart] of [['70406', 274, true], ['73321', 262, false]] as const) {
+    const row = liveTransfer(changeId)
+    let state = createResidents(liveReplay(row, partnerId), liveCensus(partnerId), liveLayout)
+    state = stepResidents(state, [row], 0, 100, liveLayout)
+    assert.equal(state.startedTransfers.length, 1, changeId)
+    assert.equal(state.startedTransfers[0]?.transfer.mode, wantsHeart ? 'gift' : 'effect')
+    const frame = stepHandovers(createHandovers([]), [], state, liveLayout, 100)
+    assert.equal(frame.motions.length, 1, changeId)
+    assert.equal(frame.motions[0]?.heart !== undefined, wantsHeart, changeId)
+    // Either way the thing's own copy glides between the two figures the record named.
+    assert.equal(frame.motions[0]?.thingId, changeId === '70406' ? 2122 : 2189)
+    assert.deepEqual(state.issues, [])
+  }
+})
+
+test('a handover whose partners are apart says so in plain words for either mode', () => {
+  for (const [changeId, partnerId] of [['70406', 274], ['73321', 262]] as const) {
+    const row = liveTransfer(changeId)
+    const apart = liveCensus(partnerId).map(person => person.id === partnerId ? { ...person, current_place_id: 195 } : person)
+    const replayApart = { ...liveReplay(row, partnerId), start: { 'resident:156': { place_id: 456 }, [`resident:${String(partnerId)}`]: { place_id: 195 } } }
+    const state = stepResidents(createResidents(replayApart, apart, liveLayout), [row], 0, 100, liveLayout)
+    assert.deepEqual(state.startedTransfers, [])
+    assert.deepEqual(state.issues, [HANDOVERS_APART], changeId)
+    assert.equal(state.residents[156]?.transferUntil, null)
+  }
+})
+
+test('both partners hold still for the whole float, so a later walk cannot leave the icon behind', () => {
+  const gift = row('90', 'transfer', { mode: 'gift', transfer_id: 90, asset_id: 55, asset_type: 'thing', resident_id: 8, place_id: 2 })
+  const receiverWalk = row('91', 'action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 }, 'receiver')
+  let state = createResidents(replay([gift, receiverWalk]), census, layout)
+  state = stepResidents(state, [gift], 0, 100, layout)
+  assert.equal(state.startedTransfers.length, 1)
+  const until = state.residents[8]?.transferUntil
+  assert.equal(until, state.residents[7]?.transferUntil)
+  assert.ok((until ?? 0) > 100)
+  // The receiver's recorded walk arrives while the float is still crossing the room.
+  state = stepResidents(state, [receiverWalk], 16, 116, layout)
+  assert.equal(state.residents[8]?.walking, false)
+  assert.equal(state.residents[8]?.queue.length, 1)
+  // Once the float is over the recorded walk starts as usual; nothing was dropped.
+  state = stepResidents(state, [], 16, (until ?? 0) + 1, layout)
+  assert.equal(state.residents[8]?.transferUntil, null)
+  assert.equal(state.residents[8]?.walking, true)
+})
+
+test('two carry notices sharing one action row both show and both release', () => {
+  const first = row('100', 'thing_moved', { mode: 'carry', thing_id: 56, action_id: 100, resident_id: 7, from_place_id: 2, place_id: 1 })
+  const second = row('101', 'thing_moved', { mode: 'carry', thing_id: 56, action_id: 100, resident_id: 7, from_place_id: 2, place_id: 1 })
+  const action = row('102', 'action', { mode: 'carry', action: 'move', status: 'applied', thing_id: 56, action_id: 100, from_place_id: 2, to_place_id: 1 })
+  const all = [first, second, action]
+  assert.equal(createHandovers(all).carries.length, 2)
+  let residents = stepResidents(createResidents(replay(all), census, layout), [action], 0, 100, layout)
+  let frame = stepHandovers(createHandovers(all), all, residents, layout, 100)
+  assert.equal(frame.motions.length, 2)
+  assert.equal(new Set(frame.motions.map(motion => motion.key)).size, 2)
+  assert.deepEqual(frame.floorEvents, [])
+  residents = stepResidents(residents, [], 10_000, 10_100, layout)
+  frame = stepHandovers(frame.state, [], residents, layout, 10_100)
+  assert.deepEqual(frame.floorEvents.map(event => event.change_id), ['100', '101'])
+  assert.deepEqual(frame.state.held, [])
+  assert.deepEqual(frame.carryThingIds, [])
+})
+
+test('the browser fixture keeps the city rows unchanged and draws exactly what they support', () => {
+  const read = (name: string): Record<string, unknown> => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')) as Record<string, unknown>
+  const fixture = read('replay-handovers.json') as unknown as ReplayFile
+  const day = read('replay-24h.json') as unknown as ReplayFile
+  const served = new Map([
+    ...(read('changes-transfers-live.json')['changes'] as Array<Record<string, unknown>>),
+    ...(read('changes-carry-live.json')['changes'] as Array<Record<string, unknown>>),
+  ].map(change => [String(change['change_id']), change]))
+
+  // Every row is the city's answer unchanged; only `created_at` becomes the replay's `at`.
+  assert.deepEqual(fixture.timeline.map(event => event.change_id), ['70406', '99574', '99575'])
+  for (const event of fixture.timeline) {
+    const { created_at: createdAt, ...rest } = served.get(event.change_id) as Record<string, unknown>
+    const { at, event_id: eventId, ...mine } = event as unknown as Record<string, unknown>
+    assert.deepEqual(mine, rest, event.change_id)
+    assert.equal(at, createdAt)
+    assert.equal(eventId, Number(event.change_id))
+  }
+  // The map is the saved day's own places, trimmed to the rooms those rows name.
+  assert.deepEqual(fixture.map.places.map(place => place.id), [195, 1, 2, 456, 759, 760])
+  for (const place of fixture.map.places) assert.deepEqual(place, day.map.places.find(item => item.id === place.id))
+
+  const census = [
+    ...(read('residents-presence-page1.json')['residents'] as readonly Resident[]),
+    ...(read('residents-presence-page2.json')['residents'] as readonly Resident[]),
+  ]
+  const map = nestedLayout(fixture.map.places, roomCapacity(fixture, census))
+  const [gift, notice, action] = fixture.timeline as readonly ReplayEvent[]
+  let state = createResidents(fixture, census, map)
+  let handovers = createHandovers(fixture.timeline)
+  // The gift names two residents the record never puts in one room, so it is said, not drawn.
+  state = stepResidents(state, [gift!], 0, 100, map)
+  assert.deepEqual(state.startedTransfers, [])
+  assert.deepEqual(state.issues, [HANDOVERS_APART])
+  // The carry has both of its rows and a placed carrier, so the thing walks with her.
+  state = stepResidents(state, [notice!, action!], 16, 116, map)
+  const frame = stepHandovers(handovers, [notice!, action!], state, map, 116)
+  handovers = frame.state
+  assert.deepEqual(frame.carryThingIds, [2727])
+  assert.equal(frame.motions[0]?.key, 'carry:99574')
+  assert.equal(frame.motions[0]?.visible, true)
+  assert.equal(state.residents[262]?.walking, true)
 })

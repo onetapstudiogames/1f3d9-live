@@ -78,7 +78,9 @@ export function stepHandovers(
   const seenActions = new Set(state.seenActions)
   const floorEvents: ReplayEvent[] = []
   const noticePlans = new Map(state.carries.map(plan => [plan.noticeChangeId, plan]))
-  const actionPlans = new Map(state.carries.map(plan => [plan.actionChangeId, plan]))
+  // Two notices can share one action row when a figure carries two things on one walk, so the
+  // held carry is kept and released by its own notice; the action row only says the walk began.
+  const actionIds = new Set(state.carries.map(plan => plan.actionChangeId))
 
   for (const event of due) {
     const noticePlan = noticePlans.get(event.change_id)
@@ -88,10 +90,9 @@ export function stepHandovers(
       }
       continue
     }
-    const actionPlan = actionPlans.get(event.change_id)
-    if (actionPlan) {
+    if (actionIds.has(event.change_id)) {
       seenActions.add(event.change_id)
-      held = held.map(item => item.plan.noticeChangeId === actionPlan.noticeChangeId ? { ...item, actionSeen: true } : item)
+      held = held.map(item => item.plan.actionChangeId === event.change_id ? { ...item, actionSeen: true } : item)
       continue
     }
     const thingId = affectedThingId(event)
@@ -115,7 +116,7 @@ export function stepHandovers(
     if (active && resident) {
       carryPending = true
       carryThingIds.push(item.plan.thingId)
-      motions.push(Object.freeze({ key: `carry:${item.plan.actionChangeId}`, thingId: item.plan.thingId, x: resident.x, y: resident.y - 12, visible: resident.visible, alpha: 1 }))
+      motions.push(Object.freeze({ key: `carry:${item.plan.noticeChangeId}`, thingId: item.plan.thingId, x: resident.x, y: resident.y - 12, visible: resident.visible, alpha: 1 }))
       remaining.push(item)
     } else if (queued) {
       carryPending = true
@@ -134,15 +135,12 @@ export function stepHandovers(
     const frame = floatFrame(active.partners.from, active.partners.to, active.startedAt, nowMs, active.speed)
     if (!frame) continue
     activeFloats.push(active)
-    motions.push(Object.freeze({
-      key: `gift:${active.changeId}`,
-      thingId: active.transfer.thingId,
-      x: frame.x,
-      y: frame.y,
-      visible: true,
-      heart: Object.freeze({ x: frame.heartX, y: frame.heartY }),
-      alpha: frame.alpha,
-    }))
+    // A heart only when the record says gift. An effect-mode transfer is the thing's own
+    // effect changing hands, so its copy glides across plainly with nothing added to it.
+    const float = { key: `transfer:${active.changeId}`, thingId: active.transfer.thingId, x: frame.x, y: frame.y, visible: true, alpha: frame.alpha }
+    motions.push(Object.freeze(active.transfer.mode === 'gift'
+      ? { ...float, heart: Object.freeze({ x: frame.heartX, y: frame.heartY }) }
+      : float))
   }
 
   const next = freezeState(state.carries, remaining, activeFloats, [...seenActions])

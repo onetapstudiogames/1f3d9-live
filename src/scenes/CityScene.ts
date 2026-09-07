@@ -196,6 +196,9 @@ export class CityScene extends Phaser.Scene {
       if (!view) { view = new HandoverView(this); this.handoverViews.set(motion.key, view) }
       view.update(motion)
     }
+    // One plain fact for the saved-fixture run to wait on: a floating copy or a carried
+    // thing has been drawn at least once. It says nothing about when, and never clears.
+    if (this.fixtureMode && motions.length > 0) document.body.dataset['liveHandoverShown'] = 'true'
   }
 
   private async loadThingDetails(): Promise<void> {
