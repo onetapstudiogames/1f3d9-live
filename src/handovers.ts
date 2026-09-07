@@ -78,8 +78,8 @@ export function stepHandovers(
   const seenActions = new Set(state.seenActions)
   const floorEvents: ReplayEvent[] = []
   const noticePlans = new Map(state.carries.map(plan => [plan.noticeChangeId, plan]))
-  // Two notices can share one action row when a figure carries two things on one walk, so the
-  // held carry is kept and released by its own notice; the action row only says the walk began.
+  // Each held carry is kept and released by its own notice change id, so a repeated notice or
+  // a second matching action row cannot leave a carry stuck.
   const actionIds = new Set(state.carries.map(plan => plan.actionChangeId))
 
   for (const event of due) {

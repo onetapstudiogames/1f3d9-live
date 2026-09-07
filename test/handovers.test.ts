@@ -73,7 +73,7 @@ test('a notice may arrive before its action without holding the replay clock', (
   assert.deepEqual(first.floorEvents, [])
 })
 
-test('gift starts when its queue turn arrives, keeps floor state fixed, and blocks only its giver', () => {
+test('gift starts when its queue turn arrives, keeps floor state fixed, and holds both partners', () => {
   const note = { ...row('40', 'note', { place_id: 2 }), line: 'first' }
   const gift = row('41', 'transfer', { mode: 'gift', transfer_id: 41, asset_id: 50, asset_type: 'thing', resident_id: 8, place_id: 2 })
   let state = createResidents(replay([note, gift]), census, layout)
@@ -82,6 +82,7 @@ test('gift starts when its queue turn arrives, keeps floor state fixed, and bloc
   state = stepResidents(state, [], 0, 10_000, layout)
   assert.equal(state.startedTransfers[0]?.transfer.thingId, 50, JSON.stringify(state))
   assert.ok((state.residents[7]?.transferUntil ?? 0) > 10_000)
+  assert.equal(state.residents[8]?.transferUntil, state.residents[7]?.transferUntil)
   const motion = stepHandovers(createHandovers([]), [], state, layout, 10_000)
   assert.equal(motion.motions[0]?.heart !== undefined, true)
   assert.deepEqual(motion.floorEvents, [])
@@ -216,7 +217,7 @@ test('both partners hold still for the whole float, so a later walk cannot leave
   assert.equal(state.residents[8]?.walking, true)
 })
 
-test('two carry notices sharing one action row both show and both release', () => {
+test('a repeated carry notice sharing one action row shows and releases each notice', () => {
   const first = row('100', 'thing_moved', { mode: 'carry', thing_id: 56, action_id: 100, resident_id: 7, from_place_id: 2, place_id: 1 })
   const second = row('101', 'thing_moved', { mode: 'carry', thing_id: 56, action_id: 100, resident_id: 7, from_place_id: 2, place_id: 1 })
   const action = row('102', 'action', { mode: 'carry', action: 'move', status: 'applied', thing_id: 56, action_id: 100, from_place_id: 2, to_place_id: 1 })
@@ -234,18 +235,32 @@ test('two carry notices sharing one action row both show and both release', () =
   assert.deepEqual(frame.carryThingIds, [])
 })
 
-test('the browser fixture keeps the city rows unchanged and draws exactly what they support', () => {
+test('saved public gift and carry rows draw only what their references support', () => {
   const read = (name: string): Record<string, unknown> => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')) as Record<string, unknown>
-  const fixture = read('replay-handovers.json') as unknown as ReplayFile
   const day = read('replay-24h.json') as unknown as ReplayFile
   const served = new Map([
     ...(read('changes-transfers-live.json')['changes'] as Array<Record<string, unknown>>),
     ...(read('changes-carry-live.json')['changes'] as Array<Record<string, unknown>>),
   ].map(change => [String(change['change_id']), change]))
 
+  // Assemble a scenario only in this unit test; saved browser files stay complete city answers.
+  const timeline = ['70406', '99574', '99575'].map(id => {
+    const { created_at: at, ...row } = served.get(id)!
+    return { ...row, at, event_id: Number(id) } as ReplayEvent
+  })
+  const fixture: ReplayFile = {
+    ...day, window_start: timeline[0]!.at, window_end: timeline[2]!.at,
+    map: { places: [195, 1, 2, 456, 759, 760].map(id => day.map.places.find(place => place.id === id)!) },
+    start: {}, counts: {}, timeline,
+  }
+
   // Every row is the city's answer unchanged; only `created_at` becomes the replay's `at`.
   assert.deepEqual(fixture.timeline.map(event => event.change_id), ['70406', '99574', '99575'])
+  const windowStart = Date.parse(fixture.window_start)
+  const windowEnd = Date.parse(fixture.window_end)
   for (const event of fixture.timeline) {
+    const eventAt = Date.parse(event.at)
+    assert.ok(eventAt >= windowStart && eventAt <= windowEnd, event.change_id)
     const { created_at: createdAt, ...rest } = served.get(event.change_id) as Record<string, unknown>
     const { at, event_id: eventId, ...mine } = event as unknown as Record<string, unknown>
     assert.deepEqual(mine, rest, event.change_id)

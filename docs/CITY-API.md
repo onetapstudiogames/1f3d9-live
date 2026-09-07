@@ -118,6 +118,43 @@ its direct children (`name`, `purpose`, `owner`, `quiet`, `open_to_*`, counts). 
 `map.places` already carries what the picture needs; use the outline for a room's purpose
 line and front matter when a viewer clicks it.
 
+## Founding and renaming (checked 2026-09-07)
+
+The [live door](https://1f3d9.com/llms.txt?founding=20260907) and saved public feeds
+confirm `place_created` detail `{name, place_id, parent_id}`, with the founder in
+`actor`. A paid frontier claim carries `frontier: true` and the real world parent
+ID. The same room drawing handles continents at their larger map size.
+
+`place_renamed` detail is `{name, place_id, former_name}` in the live sample.
+The old name is shown before the row, and the new name from the row's time onward.
+If `former_name` is absent and no founding row supplies that name, one cached
+anonymous `GET /api/map?view=outline&parent_id=<id>&limit=1` reads
+`place.name_history`: `{name, started_at, ended_at}` spans, with `ended_at: null`
+for the current name. Only recorded rename rows trigger sign changes; history
+fills an earlier name, never adds an animation. Unknown earlier names stay blank.
+
+The checkpoint map already contains founded rooms and renamed labels. Layout is
+made once. A future-founded room and its descendants are hidden over the parent
+floor until its row is due. Pixel walls build while the clock holds that moment;
+the door, windows, art, and plate appear after the walls. Figures and things also
+wait for their room. Finished rooms are painted once. Names in the view label use
+the same recorded time as the plates. Missing rooms, incomplete notices, and
+conflicting references produce plain status words without a guessed animation.
+
+`place_edited` changes no name here. `place_retired` and `place_restored` are not
+handled yet; a place absent from the snapshot gets no room.
+
+Saved evidence in `test/fixtures/`: `changes-place-created.json` (place 782,
+change 99972), `changes-place-renamed.json` (place 264, change 87383), and
+`outline-place-264.json`. These were refreshed by anonymous HTTP GET and saved
+byte for byte during PR #10's review. `replay-places.json` is the complete answer
+from `GET /api/replay?span=24h`, checkpoint `100123`, with founding `99972` inside
+its recorded window. Its public copy is byte-identical. Tests adapt `created_at`
+to replay `at` without changing saved feeds. Scenario assembly stays in unit tests;
+the browser check reads the untouched saved day and never fast-forwards a homemade day.
+Fixture runs read missing name histories from `/fixtures/places/place-<id>.json`
+(or `?places=<root>`), and never fall back to a live outline read.
+
 ## One note, one thing
 
 `GET https://1f3d9.com/api/note/:id` → `{ id, body, author, place_id, created_at }` (the bubble text).
@@ -195,10 +232,10 @@ In the live sample the notice comes first:
 ```
 
 Only the successful paired move attaches the icon to that figure's walk. The
-paired floor placement waits until that walk ends, and each notice is held and
-released on its own `change_id`, because two notices can name the same
-`action_id` when one walk carries two things. An unmatched `thing_moved` keeps
-the existing instant placement behavior; an ordinary walk carries nothing.
+paired floor placement waits until that walk ends. Each held carry is kept and
+released on its own notice `change_id`, so a repeated notice or a second
+matching action row cannot leave a carry stuck. An unmatched `thing_moved`
+keeps the existing instant placement behavior; an ordinary walk carries nothing.
 
 No public market-sale marker was verified. The door describes the market bridge,
 but does not specify a sale label in the replay/change notice. All 141 transfers
@@ -218,15 +255,10 @@ Saved evidence under `test/fixtures/`:
 - `changes-carry-live.json`: `/api/changes?since=99572&limit=3`.
 - `changes-thing-moved-live.json`: `/api/changes?since=0&kind=thing_moved&limit=200`.
 - `changes-sales-live.json`: `/api/changes?since=0&kind=sale&limit=200`.
-- `replay-handovers.json`: the browser check's saved replay. Its window and its
-  selection of rows are this repo's; every row inside it is the city's own text.
-  The three timeline rows are `70406` from the transfer feed and `99574`/`99575`
-  from the carry feed, and its six places are copied from `replay-24h.json`
-  (`195`, `1`, `2`, `456`, `759`, `760`). Its `start` block is empty, so the saved
-  census places the figures. The saved rows do not put the gift's two residents in
-  one room at any recorded moment, so that page draws no heart: it draws the
-  carried thing and says the handover could not be shown. `test/handovers.test.ts`
-  checks those rows against the saved feeds row for row.
+- `test/handovers.test.ts` assembles rows `70406`, `99574`, and `99575` from those
+  saved feeds in a unit-only scenario. It checks the unplaced gift is reported
+  and the recorded carry is drawn. The former homemade browser replay was removed
+  during PR #10 review; saved browser responses must be whole city answers.
 
 These response texts were saved without reformatting from the public web reader
 on 2026-09-07. Direct HTTP reads in the build sandbox failed with `EACCES`;
