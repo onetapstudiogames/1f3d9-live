@@ -146,6 +146,7 @@ export function stepResidents(
   layout: NestedLayout,
   speed: number = BASE_SPEED,
   agreementPairs: ReadonlyMap<string, AgreementPair> = new Map(),
+  canDraw?: (resident: ResidentState) => boolean,
 ): Simulation {
   const residents: Record<number, ResidentState> = Object.fromEntries(
     Object.entries(state.residents).map(([id, resident]) => [id, { ...resident, queue: [...resident.queue], path: [...resident.path] }]),
@@ -200,7 +201,8 @@ export function stepResidents(
   }
   const startedHandshakes: StartedHandshake[] = []
   for (const candidate of agreementCandidates) {
-    const projected = Object.fromEntries(Object.values(residents).map(row => [row.id, handshakeResident(row)]))
+    if (Object.values(residents).some(row => row.agreementUntil != null && row.agreementUntil > nowMs)) { addIssue(issues, 'agreement'); continue }
+    const projected = Object.fromEntries(Object.values(residents).map(row => [row.id, handshakeResident(row, canDraw?.(row) ?? true)]))
     const plan = planHandshake(candidate.signature, projected, layout, state.reservations, nowMs)
     if (!plan) { addIssue(issues, 'agreement'); continue }
     const until = nowMs + handshakeDuration(speed)
@@ -226,6 +228,9 @@ function startNext(
   agreementPairs: ReadonlyMap<string, AgreementPair>,
 ): ResidentState {
   let next = resident
+  // Keep every new placement and queue turn clear of the projected meeting, including
+  // a note that anchors an otherwise unplaced figure. Existing words finish normally.
+  if (Object.values(all).some(row => row.agreementUntil != null && row.agreementUntil > nowMs)) return next
   while (next.queue.length) {
     const queued = next.queue[0]!
     const event = queued.event
@@ -246,7 +251,6 @@ function startNext(
     }
     const transfer = transferFor(event)
     if (transfer) {
-      if (all[transfer.partnerId]?.agreementUntil != null) return next
       next = { ...next, queue }
       candidates.push(Object.freeze({ transfer, changeId: event.change_id, actorId: next.id }))
       return next
@@ -269,7 +273,6 @@ function startNext(
       }
     }
     if (isApplied && validPlace(detail.from_place_id) && validPlace(detail.to_place_id)) {
-      if (Object.values(all).some(row => row.agreementUntil != null)) return next
       const fromId = detail.from_place_id
       const toId = detail.to_place_id
       if (!layout.rooms[fromId] || !layout.rooms[toId]) {
@@ -482,8 +485,8 @@ function isPending(resident: ResidentState): boolean {
   return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
 }
 
-function handshakeResident(row: ResidentState): HandshakeResident {
-  return Object.freeze({ id: row.id, handle: row.handle, placeId: row.placeId, x: row.x, y: row.y, visible: row.visible,
+function handshakeResident(row: ResidentState, drawn: boolean): HandshakeResident {
+  return Object.freeze({ id: row.id, handle: row.handle, placeId: row.placeId, x: row.x, y: row.y, visible: row.visible && drawn,
     destinationId: row.destinationId, walking: row.walking,
     busy: Boolean(row.bubble || row.sparkle || row.transferUntil || row.inventionUntil || row.agreementUntil) })
 }

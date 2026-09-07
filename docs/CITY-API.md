@@ -159,6 +159,14 @@ Five complete public answers are saved byte for byte in both fixture trees:
 feeds falls in the current 24-hour replay; the last was recorded on September 5.
 The real older rows are used only in unit scenarios, never staged in the live city.
 
+`events-agreement-sign.json` saves `/api/events?kind=agreement_sign&limit=200`.
+It identifies ledger event 11289 as astrolabe's signature on agreement 14.
+`events-chronicle-before-sign.json` and `events-astrolabe-before-sign.json` save
+`/api/events?kind=action&actor=<handle>&before_id=11289&limit=20`. Those older
+action rows have no room or move endpoints, so they do not establish a historical
+meeting. Both copies of each answer stay unchanged; any unit meeting positions
+are explicitly a test scenario, not a claim about that old city moment.
+
 ## Drawings (the sprites)
 
 `GET https://1f3d9.com/api/drawing/resident/:id` and `.../drawing/place/:id`

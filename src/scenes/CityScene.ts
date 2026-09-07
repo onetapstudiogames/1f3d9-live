@@ -279,7 +279,7 @@ export class CityScene extends Phaser.Scene {
       }
       const fresh = newLiveEvents(this.liveState, page.events)
       const enriched = await this.enrichNotes(fresh)
-      await this.loadAgreementPairs(enriched, true)
+      await this.loadAgreementPairs(enriched)
       this.liveState = liveReadSucceeded(this.liveState, page.nextSince, enriched, Date.now())
       this.liveReadError = false
       if (enriched.length) {
@@ -326,14 +326,9 @@ export class CityScene extends Phaser.Scene {
     }
     return Object.freeze(result)
   }
-  private async loadAgreementPairs(events: readonly ReplayFile['timeline'][number][], visibleOnly = false): Promise<void> {
-    const readable = visibleOnly ? events.filter(event => {
-      const id = typeof event.actor === 'string' ? this.residents?.actors.get(event.actor.trim()) : undefined
-      const resident = id === undefined ? undefined : this.residents?.residents[id]
-      return event.kind === 'agreement_sign' && resident !== undefined && this.isResidentDrawn(resident)
-    }) : events
-    const result = await readAgreementPairs(readable, this.readAgreement, this.agreementPairs)
-    this.agreementPairs = result.pairs; if (result.failed) this.thingReadIssue('Some agreement parties could not be read; those signatures stay unstaged.')
+  private async loadAgreementPairs(events: readonly ReplayFile['timeline'][number][]): Promise<void> {
+    const result = await readAgreementPairs(events, this.readAgreement, this.agreementPairs)
+    this.agreementPairs = result.pairs; if (result.failed) this.thingReadIssue('Some agreement parties could not be read; those signatures could not be shown.')
   }
   private prepareLiveEvents(events: readonly ReplayFile['timeline'][number][]): void {
     if (!this.layout || !this.residents || !this.things || !this.replay) return
@@ -403,7 +398,7 @@ export class CityScene extends Phaser.Scene {
 
   private applyEvents(events: readonly ReplayFile['timeline'][number][], elapsed: number): void {
     if (!this.layout || !this.residents || !this.things || !this.handovers || !this.clock) return
-    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed, this.agreementPairs)
+    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed, this.agreementPairs, row => this.isResidentDrawn(row))
     this.agreementLayer.add(this.residents.startedHandshakes ?? [])
     this.inventions = stepInventions(this.inventions, this.residents.startedInventions ?? [], this.residents,
       this.contentsHidden, this.elapsed)
@@ -448,7 +443,7 @@ export class CityScene extends Phaser.Scene {
   private updateOutlines(): void {
     if (this.mode !== 'live' || !this.liveCaughtUp || !this.layout || !this.residents || !this.things || document.body.dataset['liveReady'] !== 'true') return
     for (const [id, outline] of this.outlinePending) {
-      if (this.roomHasWalker(id)) continue
+      if (this.roomHasMotion(id)) continue
       this.outlinePending.delete(id)
       this.mergeOutline(outline)
     }
@@ -467,7 +462,7 @@ export class CityScene extends Phaser.Scene {
           return
         }
         if (this.contentsHidden.has(room.id)) return
-        if (this.roomHasWalker(room.id)) this.outlinePending.set(room.id, outline)
+        if (this.roomHasMotion(room.id)) this.outlinePending.set(room.id, outline)
         else this.mergeOutline(outline)
       }).catch(error => {
         console.error(error)
@@ -476,8 +471,8 @@ export class CityScene extends Phaser.Scene {
     }
   }
 
-  private roomHasWalker(placeId: number): boolean {
-    return Object.values(this.residents?.residents ?? {}).some(resident => resident.walking
+  private roomHasMotion(placeId: number): boolean {
+    return Object.values(this.residents?.residents ?? {}).some(resident => (resident.walking || resident.agreementUntil != null)
       && (resident.placeId === placeId || resident.destinationId === placeId))
   }
 
