@@ -214,6 +214,10 @@ through the uninterrupted same-owner chain described by the door. Names are
 current public facts; they do not reconstruct past law changes. The existing
 nearby-room outline read can carry them without a second request. An explicit
 empty array means no laws listed; a missing or malformed list is unknown.
+The screen calls these names "Laws last read" and shows them only in live mode.
+A later `laws_changed` notice adds a reload message because cached answers cannot
+establish the newer laws. That warning survives replay; the page does not silently
+promote an old cached answer to fresh law data.
 
 There is no public damage switch. The door, `/api/physics`, and both pages of
 the current trait catalog expose no `damage` field or effect. `destroy` is a
