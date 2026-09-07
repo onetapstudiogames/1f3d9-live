@@ -22,6 +22,7 @@ const places: readonly ReplayPlace[] = [
   { id: 2, name: 'town', parent_id: 195, owner: null, owner_id: null, quiet: false, has_drawing: false },
   { id: 10, name: 'new room', parent_id: 2, owner: 'mara', owner_id: 1, quiet: false, has_drawing: false },
   { id: 11, name: 'child', parent_id: 10, owner: 'mara', owner_id: 1, quiet: false, has_drawing: false },
+  { id: 300, name: 'new continent', parent_id: 195, owner: 'mara', owner_id: 1, quiet: false, has_drawing: false },
 ]
 
 const replay = (timeline: readonly ReplayEvent[]): ReplayFile => ({
@@ -137,6 +138,30 @@ test('keeps outside-window rows inert and rejects frontier away from the world r
   assert.equal(recordedRoomName(plan, places[1]!, Date.parse('2026-09-07T10:30:00.000Z')), 'town')
   assert.equal(plan.foundings.has(10), false)
   assert.ok(plan.issues.some(issue => issue.includes('frontier')))
+})
+
+test('keeps a frontier founding whose parent is the map root', () => {
+  const frontier = event('place_created', '2026-09-07T10:10:00.000Z', '7', { name: 'new continent', place_id: 300, parent_id: 195, frontier: true })
+  const plan = planPlaces(replay([frontier]))
+  assert.equal(plan.foundings.get(300)?.frontier, true)
+  assert.equal(recordedRoomName(plan, places[4]!, Date.parse('2026-09-07T10:09:00.000Z')), null)
+  assert.equal(recordedRoomName(plan, places[4]!, Date.parse('2026-09-07T10:30:00.000Z')), 'new continent')
+  assert.deepEqual(plan.issues, [])
+})
+
+test('same-instant renames are ordered by change id as a number, not as text', () => {
+  const smaller = event('place_renamed', '2026-09-07T10:20:00.000Z', '9999', { name: 'the same name', former_name: 'old room', place_id: 10 })
+  const larger = event('place_renamed', '2026-09-07T10:20:00.000Z', '10000', { name: 'the same name', former_name: 'the same name', place_id: 10 })
+  const plan = planPlaces(replay([larger, smaller]))
+  assert.deepEqual(plan.renamings.get(10)?.map(row => row.changeId), ['9999', '10000'])
+})
+
+test('one incomplete-notice sentence is said once, however many rows are incomplete', () => {
+  const first = event('place_created', '2026-09-07T10:10:00.000Z', '3', { name: '', place_id: 10, parent_id: 2 })
+  const second = event('place_created', '2026-09-07T10:12:00.000Z', '4', { name: '', place_id: 11, parent_id: 10 })
+  const plan = planPlaces(replay([first, second]))
+  assert.equal(plan.issues.filter(issue => issue.includes('notice is incomplete')).length, 1)
+  assert.equal(plan.unresolvedFoundings.has(11), true)
 })
 
 test('history supplies only the immediate recorded predecessor and never swaps by itself', () => {

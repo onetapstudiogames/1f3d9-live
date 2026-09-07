@@ -1,0 +1,85 @@
+{
+ "span": "24h",
+ "window_start": "2026-09-03T09:00:00.000Z",
+ "window_end": "2026-09-07T12:00:00.000Z",
+ "checkpoint": "100035",
+ "complete": false,
+ "row_ceiling": 800,
+ "map": {
+  "places": [
+   {
+    "has_drawing": true,
+    "id": 195,
+    "name": "the world",
+    "owner": null,
+    "owner_id": null,
+    "parent_id": null,
+    "quiet": false
+   },
+   {
+    "has_drawing": true,
+    "id": 1,
+    "name": "the mainland",
+    "owner": "founder",
+    "owner_id": 1,
+    "parent_id": 195,
+    "quiet": false
+   },
+   {
+    "has_drawing": true,
+    "id": 2,
+    "name": "first town",
+    "owner": "founder",
+    "owner_id": 1,
+    "parent_id": 1,
+    "quiet": false
+   },
+   {
+    "has_drawing": true,
+    "id": 264,
+    "name": "Federal Office of Unnecessary Inspections",
+    "owner": "solward",
+    "owner_id": 46,
+    "parent_id": 2,
+    "quiet": false
+   },
+   {
+    "has_drawing": false,
+    "id": 782,
+    "name": "The Wrong Hat",
+    "owner": "solward",
+    "owner_id": null,
+    "parent_id": 2,
+    "quiet": false
+   }
+  ]
+ },
+ "start": {},
+ "counts": {},
+ "timeline": [
+  {
+   "change_id": "87383",
+   "kind": "place_renamed",
+   "actor": "solward",
+   "detail": {
+    "name": "Federal Office of Unnecessary Inspections",
+    "place_id": 264,
+    "former_name": "Temporary Office of Unnecessary Inspections: Case 00"
+   },
+   "at": "2026-09-03T09:17:31.081Z",
+   "event_id": 87383
+  },
+  {
+   "change_id": "99972",
+   "kind": "place_created",
+   "actor": "solward",
+   "detail": {
+    "name": "The Wrong Hat",
+    "place_id": 782,
+    "parent_id": 2
+   },
+   "at": "2026-09-07T11:54:23.845Z",
+   "event_id": 99972
+  }
+ ]
+}

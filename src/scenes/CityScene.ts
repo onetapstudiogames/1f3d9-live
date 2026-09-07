@@ -195,7 +195,9 @@ export class CityScene extends Phaser.Scene {
         const kind = founding?.changeId === event.change_id ? 'founding' : rename ? 'renaming' : null
         return kind ? [placeAnimation(kind, id, event.change_id, this.elapsed, this.clock!.speed)] : []
       })
+      const running = this.placeAnimations
       this.placeAnimations = stepPlaceAnimations(this.placeAnimations, incoming, this.elapsed)
+      if (this.fixtureMode) this.markFinishedPlaces(running)
       this.residents = stepResidents(this.residents, due.events, elapsed, this.elapsed, this.layout, this.clock.speed)
       if (this.handovers) {
         this.handoverFrame = stepHandovers(this.handovers, due.events, this.residents, this.layout, this.elapsed, this.clock.speed)
@@ -208,6 +210,18 @@ export class CityScene extends Phaser.Scene {
     this.drawResidents()
     this.drawHandovers()
     this.updateHud()
+  }
+
+  // Two plain facts for the saved-fixture run to wait on: a recorded founding finished
+  // laying its bricks, and a recorded renaming finished swapping its plate. An animation
+  // leaves the running list only when it is done. Neither flag says when, and neither clears.
+  private markFinishedPlaces(running: readonly PlaceAnimation[]): void {
+    const still = new Set(this.placeAnimations.map(animation => animation.changeId))
+    for (const animation of running) {
+      if (still.has(animation.changeId)) continue
+      if (animation.kind === 'founding') document.body.dataset['liveFoundingShown'] = 'true'
+      else document.body.dataset['liveRenameShown'] = 'true'
+    }
   }
 
   private updateRooms(): void {

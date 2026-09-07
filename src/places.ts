@@ -98,6 +98,8 @@ export function planPlaces(
   const invalidFoundings = new Set<number>()
   const invalidRenamings = new Set<number>()
   const issues: string[] = []
+  // The same sentence says nothing twice, however many rows are wrong in the same way.
+  const note = (message: string): void => { if (!issues.includes(message)) issues.push(message) }
   const seen = new Map<string, Founding | Renaming>()
   const rootId = replay.map.places.find(place => place.parent_id === null)?.id
 
@@ -111,7 +113,7 @@ export function planPlaces(
         guarded.add(rawPlaceId)
         if (event.kind === 'place_created') invalidFoundings.add(rawPlaceId)
       }
-      issues.push(`A recorded ${event.kind === 'place_created' ? 'founding' : 'renaming'} could not be shown because its notice is incomplete.`)
+      note(`A recorded ${event.kind === 'place_created' ? 'founding' : 'renaming'} could not be shown because its notice is incomplete.`)
       continue
     }
     if (start === null || end === null || parsed.time < start || parsed.time > end) continue
@@ -124,30 +126,30 @@ export function planPlaces(
       invalidRenamings.add(old.placeId)
       if ('parentId' in parsed) invalidFoundings.add(parsed.placeId)
       if ('parentId' in old) invalidFoundings.add(old.placeId)
-      issues.push(`Place notice ${parsed.changeId} contradicts another notice, so it was not shown.`)
+      note(`Place notice ${parsed.changeId} contradicts another notice, so it was not shown.`)
       continue
     }
     seen.set(parsed.changeId, parsed)
     const place = byId.get(parsed.placeId)
     if (!place) {
-      issues.push(`Place ${String(parsed.placeId)} is not in the recorded map, so its ${'parentId' in parsed ? 'founding' : 'renaming'} was not shown.`)
+      note(`Place ${String(parsed.placeId)} is not in the recorded map, so its ${'parentId' in parsed ? 'founding' : 'renaming'} was not shown.`)
       continue
     }
     if ('parentId' in parsed) {
       if (parsed.frontier && parsed.parentId !== rootId) {
         invalidFoundings.add(parsed.placeId)
-        issues.push(`Place ${String(parsed.placeId)} has a frontier notice away from the world edge, so its founding was not shown.`)
+        note(`Place ${String(parsed.placeId)} has a frontier notice away from the world edge, so its founding was not shown.`)
         continue
       }
       if (place.parent_id !== parsed.parentId) {
         invalidFoundings.add(parsed.placeId)
-        issues.push(`Place ${String(parsed.placeId)} has a different recorded parent, so its founding was not shown.`)
+        note(`Place ${String(parsed.placeId)} has a different recorded parent, so its founding was not shown.`)
         continue
       }
       const existing = foundings.get(parsed.placeId)
       if (existing && !sameFounding(existing, parsed)) {
         invalidFoundings.add(parsed.placeId)
-        issues.push(`Place ${String(parsed.placeId)} has contradictory founding notices, so its founding was not shown.`)
+        note(`Place ${String(parsed.placeId)} has contradictory founding notices, so its founding was not shown.`)
       } else foundings.set(parsed.placeId, parsed)
     } else {
       const list = renamings.get(parsed.placeId) ?? []
@@ -157,7 +159,10 @@ export function planPlaces(
 
   for (const id of invalidFoundings) foundings.delete(id)
   for (const [id, rows] of renamings) {
-    rows.sort((left, right) => left.time - right.time || left.changeId.localeCompare(right.changeId))
+    // Change ids are the city's own numbers, so 9999 comes before 10000; a change id
+    // that is not a number leaves the difference NaN and falls back to a text compare.
+    rows.sort((left, right) => left.time - right.time
+      || Number(left.changeId) - Number(right.changeId) || left.changeId.localeCompare(right.changeId))
     const founding = foundings.get(id)
     let prior = founding?.name ?? rows[0]?.formerName ?? null
     for (const [index, row] of rows.entries()) {
@@ -168,7 +173,7 @@ export function planPlaces(
     }
     if (invalidRenamings.has(id)) {
       renamings.delete(id)
-      issues.push(`Place ${String(id)} has contradictory renaming notices, so its names were not shown.`)
+      note(`Place ${String(id)} has contradictory renaming notices, so its names were not shown.`)
     } else renamings.set(id, rows)
   }
 
@@ -178,12 +183,12 @@ export function planPlaces(
     const history = histories.get(id)
     if (!history) {
       needed.add(id)
-      issues.push(`The earlier name of place ${String(id)} could not be read, so it stays blank.`)
+      note(`The earlier name of place ${String(id)} could not be read, so it stays blank.`)
     }
     else {
       const firstTime = rows[0]!.time
       if (!history.some(span => span.endedAt === firstTime && span.startedAt < firstTime)) {
-        issues.push(`The earlier name of place ${String(id)} is not in its recorded history.`)
+        note(`The earlier name of place ${String(id)} is not in its recorded history.`)
       }
     }
   }
