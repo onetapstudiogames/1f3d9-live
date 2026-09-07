@@ -7,6 +7,7 @@ import type { ResidentState } from '../replay/simulation.ts'
 import { isNewResident, sparkleAlpha } from '../newcomers.ts'
 import { bubbleRects, bubbleShape, typedBubbleFrame } from '../speech.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
+import { lockCells } from '../laws.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
 
@@ -21,6 +22,8 @@ export class ResidentView {
   private readonly sparkle: Phaser.GameObjects.Graphics
   private showing: Phaser.GameObjects.Graphics | null = null
   private contest: Phaser.GameObjects.Graphics | null = null
+  private lock: Phaser.GameObjects.Graphics | null = null
+  private lockLabel: Phaser.GameObjects.Text | null = null
   private readonly named: boolean
   private standingTexture = 'resident-default'
 
@@ -72,6 +75,17 @@ export class ResidentView {
     const alpha = sparkleAlpha(resident.sparkle, now)
     this.sparkle.setPosition(resident.x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
     this.zzz.setPosition(resident.x + 13, resident.y - 13).setVisible(sleeping && resident.visible)
+    const blocked = resident.visible ? resident.blockedAttempt : null
+    if (blocked) {
+      this.lock ??= this.sprite.scene.add.graphics().setDepth(204)
+      this.lockLabel ??= this.sprite.scene.add.text(0, 0, '', { fontFamily: 'monospace', fontSize: '11px', color: '#3a201f',
+        backgroundColor: '#f1c7b7', padding: { x: 3, y: 2 } }).setDepth(204).setOrigin(0.5, 1)
+      this.lock.clear().setPosition(resident.x - 5, resident.y - 54)
+      for (const cell of lockCells()) this.lock.fillStyle(cell.color).fillRect(cell.x, cell.y, cell.width, cell.height)
+      this.lockLabel.setText(`blocked ${blocked.attempt.action}`).setPosition(resident.x, resident.y - 58)
+    } else if (this.lock || this.lockLabel) {
+      this.lock?.destroy(); this.lockLabel?.destroy(); this.lock = null; this.lockLabel = null
+    }
     const bubble = resident.bubble
     const moment = showingFor(bubble, resident.visible, places, resident.handle)
       ?? (resident.visible ? resident.showingNotice ?? null : null)
@@ -124,6 +138,8 @@ export class ResidentView {
     this.sparkle.destroy()
     this.showing?.destroy()
     this.contest?.destroy()
+    this.lock?.destroy()
+    this.lockLabel?.destroy()
   }
 }
 

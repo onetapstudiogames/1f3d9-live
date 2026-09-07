@@ -1,4 +1,5 @@
 import type { CensusPage, Drawing, PlaceOutline, ReplayFile, Resident, Thing } from './types.ts'
+import { parseLawNames } from '../laws.ts'
 import { parseNameHistory, type NameSpan } from '../places.ts'
 
 export const CITY_ORIGIN = 'https://1f3d9.com'
@@ -263,5 +264,6 @@ async function fetchPlaceOutline(id: number, search: string): Promise<PlaceOutli
     return Number.isSafeInteger(row['id']) && (row['id'] as number) > 0 && row['place_id'] === id && name
       ? [{ id: row['id'] as number, name, placeId: id, hasDrawing: row['has_drawing'] === true }] : []
   })
-  return Object.freeze({ placeId: id, quiet: place['quiet'], things: Object.freeze(things), totalItems: page['total_items'] as number, hasMore: page['has_more'] as boolean })
+  return Object.freeze({ placeId: id, quiet: place['quiet'], things: Object.freeze(things), totalItems: page['total_items'] as number,
+    hasMore: page['has_more'] as boolean, lawNames: parseLawNames(place['laws']) })
 }

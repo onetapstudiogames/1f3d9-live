@@ -11,6 +11,7 @@ import { inventionDuration, inventionFor, type StartedInvention } from '../inven
 import { agreementSignature, handshakeDuration, planHandshake, type AgreementSignature, type HandshakeResident, type StartedHandshake } from '../agreements.ts'
 import type { AgreementPair } from '../city/agreements.ts'
 import { showingNoticeFor, type ShowingMoment } from '../showing.ts'
+import { blockedAttemptFor, blockedAttemptDuration, type BlockMoment } from '../laws.ts'
 
 export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
@@ -41,6 +42,7 @@ export type ResidentState = Readonly<{
   inventionUntil?: number | null
   agreementUntil?: number | null
   showingNotice?: ShowingMoment | null
+  blockedAttempt?: BlockMoment | null
 }>
 
 export type Simulation = Readonly<{
@@ -169,7 +171,8 @@ export function stepResidents(
     const actor = typeof event.actor === 'string' ? event.actor.trim() : ''
     const id = state.actors.get(actor)
     if (id === undefined || !residents[id]) {
-      addIssue(issues, event.kind === 'agreement_sign' ? 'agreement' : inventionFor(event) ? 'invention' : 'actor')
+      addIssue(issues, event.kind === 'agreement_sign' ? 'agreement' : blockedAttemptFor(event) ? 'blocked'
+        : inventionFor(event) ? 'invention' : 'actor')
       continue
     }
     residents[id] = { ...residents[id]!, queue: [...residents[id]!.queue, { event }] }
@@ -182,10 +185,12 @@ export function stepResidents(
     if (resident.inventionUntil != null && nowMs >= resident.inventionUntil) resident = { ...resident, inventionUntil: null }
     if (resident.agreementUntil != null && nowMs >= resident.agreementUntil) resident = { ...resident, agreementUntil: null }
     if (resident.showingNotice && nowMs >= resident.showingNotice.expiresAt) resident = { ...resident, showingNotice: null }
+    if (resident.blockedAttempt && nowMs >= resident.blockedAttempt.expiresAt) resident = { ...resident, blockedAttempt: null }
     if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
     if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
     if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
-    if (!resident.walking && !resident.bubble && !resident.sparkle && !resident.showingNotice && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null) {
+    if (!resident.walking && !resident.bubble && !resident.sparkle && !resident.showingNotice && !resident.blockedAttempt
+      && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null) {
       resident = startNext(resident, residents, nowMs, layout, issues, speed, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs)
     }
     residents[id] = resident
@@ -239,6 +244,12 @@ function startNext(
     const event = queued.event
     const queue = next.queue.slice(1)
     const detail = event.detail
+    const blocked = blockedAttemptFor(event)
+    if (blocked) {
+      next = { ...next, queue }
+      if (next.placeId === null || !next.visible || !placeVisible(layout, next.placeId)) { addIssue(issues, 'blocked'); continue }
+      return { ...next, blockedAttempt: Object.freeze({ attempt: blocked, expiresAt: nowMs + blockedAttemptDuration(speed) }) }
+    }
     if (event.kind === 'agreement_sign') {
       const signature = agreementSignature(event, agreementPairs)
       next = { ...next, queue }
@@ -488,13 +499,14 @@ function baseResident(id: number, handle: string, placeId: number | null): Resid
 }
 
 function isPending(resident: ResidentState): boolean {
-  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.showingNotice != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
+  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.showingNotice != null
+    || resident.blockedAttempt != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
 }
 
 function handshakeResident(row: ResidentState, drawn: boolean): HandshakeResident {
   return Object.freeze({ id: row.id, handle: row.handle, placeId: row.placeId, x: row.x, y: row.y, visible: row.visible && drawn,
     destinationId: row.destinationId, walking: row.walking,
-    busy: Boolean(row.bubble || row.showingNotice || row.sparkle || row.transferUntil || row.inventionUntil || row.agreementUntil) })
+    busy: Boolean(row.bubble || row.showingNotice || row.blockedAttempt || row.sparkle || row.transferUntil || row.inventionUntil || row.agreementUntil) })
 }
 
 function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean, reservations: ThingReservations, startedTransfers: readonly StartedTransfer[]): Simulation {
@@ -518,6 +530,7 @@ const ISSUE_WORDS = {
   handover: 'Some recorded handovers could not be shown because both residents were not visibly together.',
   agreement: 'Some recorded signatures could not be shown because the two original parties were not visibly together with a clear place to meet.',
   invention: 'Some recorded inventions could not be shown because their inventor has no visible place in the map.',
+  blocked: 'Some recorded blocked attempts could not be shown because the resident had no visible place in the map.',
 } as const
 
 type IssueKind = keyof typeof ISSUE_WORDS

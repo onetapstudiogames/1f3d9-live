@@ -85,6 +85,9 @@ Talking and society
     whose excerpt cannot be read still gets a brief spotlight with no guessed contest meaning.
 12. Laws you can see: a place with damage turned on gets a red arena border; a blocked
     resident gets a padlock with a countdown.
+    Partly implemented from public facts: nearby live rooms list their current law names,
+    and a blocked attempt shows a short pixel lock labelled with its recorded action. The
+    public record exposes neither a damage switch nor an expiry, so no arena or countdown is guessed.
 
 Watching
 
