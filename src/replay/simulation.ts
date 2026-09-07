@@ -38,6 +38,7 @@ export type ResidentState = Readonly<{
   destinationId: number | null
   destination: Point | null
   walkEventId: string | null
+  pathProgress?: number
   transferUntil: number | null
   inventionUntil?: number | null
   agreementUntil?: number | null
@@ -336,7 +337,7 @@ function startNext(
         continue
       }
       const distance = path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
-      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
+      return { ...next, queue, walking: true, path, pathProgress: 0, walkElapsed: 0, walkDuration: walkDuration(distance, speed), destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
     }
     if (event.kind === 'note') {
       next = handleNote(next, event, queue, all, nowMs, layout, issues, speed, reservations)
@@ -418,10 +419,12 @@ function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLay
       if (at !== null) slowCentres.push(at)
     }
   }
-  const sampled = pointAlongPath(resident.path, walkProgress(distance, elapsedShare, slowCentres))
-  if (!sampled.done) return { ...resident, walkElapsed, x: sampled.x, y: sampled.y, flipX: sampled.flipX, visible: visibleAt(sampled, layout) }
+  const pathProgress = walkProgress(distance, elapsedShare, slowCentres)
+  const sampled = pointAlongPath(resident.path, pathProgress)
+  if (!sampled.done) return { ...resident, pathProgress, walkElapsed, x: sampled.x, y: sampled.y, flipX: sampled.flipX, visible: visibleAt(sampled, layout) }
   const placeId = resident.destinationId
-  return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null }
+  const { pathProgress: _finishedProgress, ...standing } = resident
+  return { ...standing, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null }
 }
 
 function pathDistance(path: readonly Point[]): number {

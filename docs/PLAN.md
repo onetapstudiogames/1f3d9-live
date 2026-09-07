@@ -104,6 +104,8 @@ Watching
     pause, hidden rooms, offscreen activity, replay resets, and the default-off preference stay silent.
 16. The world root drawn as the sea, continents as islands; a move through the world is a
     little boat ride.
+    Implemented with one crisp tiled sea, sandy continent edges, and a small pixel boat only
+    while a recorded walk crosses the exposed world floor. Inland routes and timings stay unchanged.
 
 ## What the city may need to add (small server changes, one at a time)
 

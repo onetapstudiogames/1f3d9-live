@@ -2,6 +2,31 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SceneSound } from '../src/scenes/SceneSound.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
+import { pointAlongPath } from '../src/ground/path.ts'
+
+test('the sound adapter consumes water footsteps silently and resumes normal land cadence', t => {
+  const h = setup(); t.after(h.restore)
+  h.documentEvents.emit('pointerdown', true)
+  const layout = nestedLayout([{ id: 1, parent_id: null }, { id: 2, parent_id: 1 }])
+  const room = layout.rooms[2]!
+  const path = [{ x: room.x + 20, y: room.y + 60 }, { x: room.x, y: room.y + 60 },
+    { x: room.x - 20, y: room.y + 60 }]
+  const update = (progress: number, now: number) => {
+    const point = pointAlongPath(path, progress)
+    h.updateWalk({ ...point, id: 1, path, pathProgress: progress, walking: true,
+      walkEventId: 'recorded-move', walkElapsed: now, bubble: null }, layout, now)
+  }
+  update(0.25, 100)
+  assert.equal(h.voices.length, 1)
+  update(0.75, 520); update(0.8, 940)
+  assert.equal(h.voices.length, 1, 'water movement does not play footsteps')
+  assert.equal((h.doc.body.dataset as Record<string, string>)['liveBoating'], '1')
+  update(0.25, 1360)
+  assert.equal(h.voices.length, 2)
+  update(0.3, 1370)
+  assert.equal(h.voices.length, 2, 'returning to land cannot play back missed water ticks')
+  assert.equal((h.doc.body.dataset as Record<string, string>)['liveBoating'], '')
+})
 
 test('a remembered on choice stays silent until a trusted keyboard gesture, even with running audio', t => {
   const h = setup(); t.after(h.restore)
@@ -130,6 +155,9 @@ function setup() {
   const camera = { width: 800, height: 600, zoom: 1, scrollX: 0, scrollY: 0 }
   const figures = new Map([[1, { sprite: { visible: true } }]])
   return { sound, control, status, context, voices, documentEvents, controlEvents, windowEvents, doc,
+    updateWalk(resident: unknown, walkingLayout: ReturnType<typeof nestedLayout>, now: number) {
+      sound.update(now, false, { residents: { 1: resident } } as never, figures as never, [], walkingLayout, camera as never)
+    },
     update(noteId: number, now: number, paused = false) {
       const residents = { residents: { 1: { id: 1, x: 100, y: 100, walking: false, walkEventId: null,
         walkElapsed: 0, bubble: { noteId, startedAt: now } } } }

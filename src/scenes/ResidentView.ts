@@ -8,6 +8,9 @@ import { isNewResident, sparkleAlpha } from '../newcomers.ts'
 import { bubbleRects, bubbleShape, typedBubbleFrame } from '../speech.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
 import { lockCells } from '../laws.ts'
+import { boatFrame } from '../sea.ts'
+import type { NestedLayout } from '../ground/nested.ts'
+import { BoatView } from './BoatView.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
 
@@ -24,10 +27,12 @@ export class ResidentView {
   private contest: Phaser.GameObjects.Graphics | null = null
   private lock: Phaser.GameObjects.Graphics | null = null
   private lockLabel: Phaser.GameObjects.Text | null = null
+  private readonly boat: BoatView
   private readonly named: boolean
   private standingTexture = 'resident-default'
 
   constructor(scene: Phaser.Scene, resident: ResidentState) {
+    this.boat = new BoatView(scene)
     const plate = residentNamePlate(resident.handle)
     this.named = plate !== null
     this.sprite = scene.add.image(resident.x, resident.y, 'resident-default')
@@ -60,14 +65,17 @@ export class ResidentView {
   }
 
   update(resident: ResidentState, zoom: number, now: number, followed: boolean, asleep = false,
-    recordedTime = Number.NaN, places: readonly ReplayPlace[] = []): VisibleSpeech | null {
+    recordedTime = Number.NaN, places: readonly ReplayPlace[] = [], layout?: NestedLayout): VisibleSpeech | null {
     const currentTexture = this.sprite.texture.key
     if (!currentTexture.endsWith('-asleep')) this.standingTexture = currentTexture
     const sleeping = asleep && !resident.walking && resident.bubble === null
     const texture = sleeping && this.sprite.scene.textures.exists(`${this.standingTexture}-asleep`)
       ? `${this.standingTexture}-asleep` : this.standingTexture
     if (this.sprite.texture.key !== texture) this.sprite.setTexture(texture)
-    const bob = resident.walking ? Math.sin(now / 90) * 2 : 0
+    const sailing = layout && resident.walking && resident.walkEventId
+      ? boatFrame(layout, resident.path, resident.pathProgress ?? 0, resident.visible) : null
+    this.boat.update(sailing)
+    const bob = sailing ? sailing.bob : resident.walking ? Math.sin(now / 90) * 2 : 0
     this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
     this.name.setPosition(resident.x, resident.y + (sleeping ? 19 : 22)).setVisible(this.named && resident.visible && (zoom >= 0.45 || followed))
     this.newTag.setPosition(this.name.x + (this.named ? this.name.width / 2 + 3 : 0), this.name.y)
@@ -140,6 +148,7 @@ export class ResidentView {
     this.contest?.destroy()
     this.lock?.destroy()
     this.lockLabel?.destroy()
+    this.boat.destroy()
   }
 }
 

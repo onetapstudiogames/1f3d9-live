@@ -28,6 +28,8 @@ test('the fixture draws floors, controls, follow, and the clickable minimap', as
   await page.goto('/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places')
   await expect.poll(() => page.evaluate(() => document.body.dataset['liveReady'] ?? ''), { timeout: 30_000 }).toBe('true')
   await expect(page.locator('body')).toHaveAttribute('data-live-mode', 'live')
+  await expect(page.locator('body')).toHaveAttribute('data-live-sea', 'true')
+  await expect(page.locator('body')).toHaveAttribute('data-live-boating', '')
   await expect(page.getByRole('checkbox', { name: 'Sound', exact: true })).not.toBeChecked()
   await page.getByRole('checkbox', { name: 'Sound', exact: true }).check()
   await expect(page.locator('body')).toHaveAttribute('data-live-sound', 'true')

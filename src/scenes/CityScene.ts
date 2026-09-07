@@ -609,7 +609,7 @@ export class CityScene extends Phaser.Scene {
       const point = projected.get(resident.id)
       const displayed = point ? { ...resident, x: point.x, y: point.y } : resident
       const speech = figure.update(hidden || sleeperHidden ? { ...displayed, visible: false } : displayed, camera.zoom, this.elapsed,
-        resident.id === this.following, this.sleepers.has(resident.id), this.clock?.time ?? Number.NaN, this.replay?.map.places)
+        resident.id === this.following, this.sleepers.has(resident.id), this.clock?.time ?? Number.NaN, this.replay?.map.places, this.layout)
       if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
     this.agreementLayer.draw(this, this.figures, this.contentsHidden)

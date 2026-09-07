@@ -5,6 +5,7 @@ import type { Drawing } from '../city/types.ts'
 import { drawingCells } from '../city/drawing.ts'
 import { curtainCells, placeFloorArt, roomsToDraw } from '../room-art.ts'
 import { recordedRoomName, type PlacePlan } from '../places.ts'
+import { islandRim, seaTiles } from '../sea.ts'
 import {
   animationProgress, brickCount, placeAnimationsByKind, signScale, wallBricks, type PlaceAnimation,
 } from '../place-animation.ts'
@@ -17,21 +18,36 @@ export class RoomView {
   private readonly surfaces = new Map<number, {
     paint: Phaser.GameObjects.Graphics; windows: Phaser.GameObjects.Graphics
     building: Phaser.GameObjects.Graphics | null; bricks: ReturnType<typeof wallBricks>; drawn: number
-    art: Phaser.GameObjects.TileSprite | null; shade: Phaser.GameObjects.Rectangle | null
+    art: Phaser.GameObjects.TileSprite | null; shade: Phaser.GameObjects.Rectangle | null; sea: Phaser.GameObjects.Graphics | null
   }>()
 
   constructor(scene: Phaser.Scene, layout: NestedLayout, private plan: PlacePlan) {
     // The mood covers the floor and walls; plates, figures and words keep their contrast.
     this.tint = scene.add.rectangle(0, 0, 1, 1).setScrollFactor(0).setDepth(0.25)
     const floors = [0x344d3c, 0x557354, 0x7e9262, 0xb3af7e, 0xc3b58b]
+    document.body.dataset['liveSea'] = 'true'
     for (const room of roomsToDraw(layout)) {
       const depth = room.depth / 1000
       const paint = scene.add.graphics().setDepth(depth)
       const windows = scene.add.graphics().setDepth(0.5 + depth).setVisible(false)
       const bricks = plan.foundings.has(room.id) ? wallBricks(room) : []
       const building = bricks.length ? scene.add.graphics().setDepth(depth).setVisible(false) : null
-      this.surfaces.set(room.id, { paint, windows, building, bricks, drawn: -1, art: null, shade: null })
+      const sea = room.id === layout.rootId
+        ? scene.add.graphics().setDepth(depth + 0.0003)
+        : null
+      if (sea) {
+        sea.fillStyle(0x315d68).fillRect(room.x + 4, room.y + 4, room.width - 8, room.height - 8)
+        for (let y = room.y + 4; y < room.y + room.height - 4; y += 128) {
+          for (let x = room.x + 4; x < room.x + room.width - 4; x += 128) for (const cell of seaTiles()) {
+            sea.fillStyle(cell.color).fillRect(x + cell.x, y + cell.y, cell.width, cell.height)
+          }
+        }
+      }
+      this.surfaces.set(room.id, { paint, windows, building, bricks, drawn: -1, art: null, shade: null, sea })
       const { x, y, width, height, door } = room
+      if (room.parentId === layout.rootId) for (const rim of islandRim(room)) {
+        paint.fillStyle(rim.color).fillRect(rim.x, rim.y, rim.width, rim.height)
+      }
       paint.fillStyle(0x0a1916, 0.35).fillRect(x + 7, y + 9, width, height)
       const floorColor = floors[Math.min(room.depth, floors.length - 1)]!
       paint.fillStyle(floorColor, 1).fillRect(x, y, width, height)
@@ -104,7 +120,7 @@ export class RoomView {
     const plate = this.plates.get(id)
     const surface = this.surfaces.get(id)
     const key = `place-${id}`
-    if (!plate || !surface || plate.room.quiet || scene.textures.exists(key)) return
+    if (!plate || !surface || surface.sea || plate.room.quiet || scene.textures.exists(key)) return
     const floor = placeFloorArt(plate.room)
     const paint = scene.make.graphics({ x: 0, y: 0 })
     for (const cell of drawingCells(drawing)) {
@@ -134,6 +150,7 @@ export class RoomView {
       const founding = animation?.founding ?? null
       const shown = !contentsHidden.has(id)
       surface.paint.setVisible(shown)
+      surface.sea?.setVisible(shown)
       surface.art?.setVisible(shown)
       surface.shade?.setVisible(shown)
       surface.windows.setVisible(shown && lit)

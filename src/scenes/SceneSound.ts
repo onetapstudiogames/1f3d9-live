@@ -8,6 +8,7 @@ import { readSoundEnabled, saveSoundEnabled } from '../preferences.ts'
 import type { ResidentView } from './ResidentView.ts'
 import { browserStorage } from './fixture-state.ts'
 import { SoundView } from './SoundView.ts'
+import { boatFrame } from '../sea.ts'
 
 export class SceneSound {
   private state: SoundState = createSoundState()
@@ -65,11 +66,18 @@ export class SceneSound {
     const width = camera.width / camera.zoom; const height = camera.height / camera.zoom
     const left = camera.scrollX + camera.width / 2 - width / 2; const top = camera.scrollY + camera.height / 2 - height / 2
     const inView = (x: number, y: number): boolean => x >= left && x <= left + width && y >= top && y <= top + height
-    const soundResidents = Object.values(residents.residents).map(resident => ({
+    const boating: number[] = []
+    const soundResidents = Object.values(residents.residents).map(resident => {
+      const figureDrawn = figures.get(resident.id)?.sprite.visible === true
+      const sailing = resident.walking && resident.walkEventId
+        ? boatFrame(layout, resident.path, resident.pathProgress ?? 0, figureDrawn) : null
+      if (sailing) boating.push(resident.id)
+      return {
       id: resident.id, walkKey: resident.walking ? resident.walkEventId : null, walkElapsed: resident.walkElapsed,
       bubbleKey: resident.bubble ? String(resident.bubble.noteId ?? `${resident.id}:${resident.bubble.startedAt}`) : null,
-      drawn: figures.get(resident.id)?.sprite.visible === true, onCamera: inView(resident.x, resident.y),
-    }))
+      drawn: figureDrawn && !sailing, onCamera: inView(resident.x, resident.y),
+    } })
+    document.body.dataset['liveBoating'] = boating.join(',')
     const drawable = new Set(roomsToDraw(layout).filter(room => !room.quiet).map(room => room.id))
     const activeFoundings = animations.filter(row => row.kind === 'founding').map(row => {
       const room = layout.rooms[row.placeId]
