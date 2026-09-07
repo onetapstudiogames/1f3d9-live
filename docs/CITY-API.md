@@ -123,6 +123,42 @@ The latest of these acts predates the current 24-hour replay, so unit scenarios 
 real older rows. A live screenshot cannot show a new bulb unless an invention actually
 arrives; no act is added to a browser fixture or the city to stage that picture.
 
+## Agreement signatures (checked 2026-09-07)
+
+The door's `agree`, `open_agreement_accession`, and `sign` acts emit `agreement`,
+`agreement_accession`, and `agreement_sign` respectively. The city's published
+[event labels](https://github.com/onetapstudiogames/1f3d9/blob/main/src/public-events.ts)
+and [agreement writer](https://github.com/onetapstudiogames/1f3d9/blob/main/src/agreement-action.ts)
+confirm the distinction. Only `agreement_sign` is a signature. All three saved
+change feeds carry the actor and `detail.agreement_id`, but no partner or room.
+The full creation events also carry `detail.parties`; signing notices do not.
+
+`GET /api/agreements?party=<signer>&limit=200` supplies current `parties`, `acceded`,
+and `created_at`. A signature can link only when its agreement has exactly two
+distinct named parties, no later accessions, includes that signer, and was created
+before the signature. This unambiguous original pair can support earlier signatures;
+later joiners are never projected backward. Agreement 14 names `astrolabe` and
+`chronicle`. Agreement 34 originally named two people but now has a third, so it is
+not drawn as a two-person handshake. No read supplies a signing room: both figures
+must already be recorded together in the same visible room when their queue reaches it.
+
+The reader makes one bounded anonymous read per signature and caches that signature's
+answer, including absence or failure. A later signature gets a fresh read because a
+new party may have joined. It does not page through a signer's older agreements;
+an omitted agreement remains unlinked. Bodies and signature totals are not drawn.
+Fixture mode reads `/fixtures/agreements.json`, or `?agreements=<file>`, without a
+live fallback. The scene limits concurrent reads to four.
+
+Five complete public answers are saved byte for byte in both fixture trees:
+`changes-agreement.json` (37 creation notices, marker 100545),
+`changes-agreement-sign.json` (48 signatures, marker 100552), and
+`changes-agreement-accession.json` (6 openings, marker 100552) come from
+`/api/changes?since=0&kind=<kind>&limit=200`. `events-agreement.json` is
+`/api/events?kind=agreement&limit=200`; `agreements.json` is
+`/api/agreements?limit=200`. Both return all 37 agreements. No signature in these
+feeds falls in the current 24-hour replay; the last was recorded on September 5.
+The real older rows are used only in unit scenarios, never staged in the live city.
+
 ## Drawings (the sprites)
 
 `GET https://1f3d9.com/api/drawing/resident/:id` and `.../drawing/place/:id`
