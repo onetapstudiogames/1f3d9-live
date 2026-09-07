@@ -17,7 +17,6 @@ export type ThingState = Readonly<{
 export type ThingSpot = Readonly<{ id: number; placeId: number; x: number; y: number }>
 export type ThingReservations = Readonly<Record<number, readonly StageStandingSpot[]>>
 export type ThingPlan = Readonly<{
-  spots: Readonly<Record<number, ThingSpot>>
   reservations: ThingReservations
   issues: readonly string[]
 }>
@@ -52,7 +51,6 @@ export function planThingSpots(replay: ReplayFile, layout: NestedLayout): ThingP
   }
 
   const touched = touchedThingIds(replay.timeline)
-  const spots: Record<number, ThingSpot> = {}
   const reservations: Record<number, readonly StageStandingSpot[]> = {}
   let overflow = false
   for (const placeId of [...new Set([...candidates.values()].map(item => item.placeId))].sort((a, b) => a - b)) {
@@ -70,11 +68,10 @@ export function planThingSpots(replay: ReplayFile, layout: NestedLayout): ThingP
       const spot = next[`thing:${String(id)}`]
       if (!spot) { overflow = true; continue }
       placed = next
-      if (!spots[id]) spots[id] = Object.freeze({ id, placeId, x: spot.x + 16, y: spot.y + 16 })
     }
     reservations[placeId] = Object.freeze(Object.values(placed))
   }
-  return freezePlan(spots, reservations, overflow ? [OVERFLOW_ISSUE] : [])
+  return freezePlan(reservations, overflow ? [OVERFLOW_ISSUE] : [])
 }
 
 export function createThings(replay: ReplayFile, layout: NestedLayout): ThingSimulation {
@@ -97,15 +94,19 @@ export function stepThings(state: ThingSimulation, events: readonly ReplayEvent[
     things[Number(idText)] = { ...thing, effect: thing.effect && nowMs < thing.effect.expiresAt ? thing.effect : null }
   }
   const queued = [...state.queue, ...events]
-  let remaining: readonly ReplayEvent[] = []
-  for (let index = 0; index < queued.length; index += 1) {
-    const event = queued[index]!
+  const remaining: ReplayEvent[] = []
+  // A thing mid puff or glow holds back its own later rows only, in recorded order.
+  // Rows for other things keep playing, so one effect never stalls the whole clock.
+  const waiting = new Set<number>()
+  for (const event of queued) {
     const affectedId = affectedThingId(event)
+    if (affectedId !== null && waiting.has(affectedId)) { remaining.push(event); continue }
     const active = affectedId === null ? null : things[affectedId]?.effect
     if (active?.kind === 'crumbs') continue
-    if (active && (active.kind === 'puff' || active.kind === 'glow')) {
-      remaining = queued.slice(index)
-      break
+    if (affectedId !== null && (active?.kind === 'puff' || active?.kind === 'glow')) {
+      waiting.add(affectedId)
+      remaining.push(event)
+      continue
     }
     const created = createdThing(event)
     if (created) {
@@ -120,6 +121,12 @@ export function stepThings(state: ThingSimulation, events: readonly ReplayEvent[
       const spot = reservationSpot(state.reservations, moved.id, moved.placeId)
       if (spot) things[moved.id] = { ...(thing ?? thingAt(spot, null, null)), ...spot, visible: true, effect: null }
       else if (thing) things[moved.id] = { ...thing, placeId: moved.placeId, visible: false, effect: null }
+      continue
+    }
+    const carriedId = carriedThing(event)
+    if (carriedId !== null) {
+      const carried = things[carriedId]
+      if (carried) things[carriedId] = { ...carried, visible: false, effect: null }
       continue
     }
     const usedId = usedThing(event)
@@ -180,8 +187,14 @@ function touchedThingIds(events: readonly ReplayEvent[]): ReadonlySet<number> {
   return result
 }
 
+// A thing_moved row with no place is a pick-up: the thing is in someone's hands, not on a floor.
+function carriedThing(event: ReplayEvent): number | null {
+  return event.kind === 'thing_moved' && validId(event.detail.thing_id) && !validId(event.detail.place_id)
+    ? event.detail.thing_id : null
+}
+
 function affectedThingId(event: ReplayEvent): number | null {
-  return createdThing(event)?.id ?? movedThing(event)?.id ?? usedThing(event) ?? consumedThing(event)
+  return createdThing(event)?.id ?? movedThing(event)?.id ?? carriedThing(event) ?? usedThing(event) ?? consumedThing(event)
 }
 
 function makeEffect(kind: ThingEffectKind, nowMs: number, speed: number): ThingEffect {
@@ -219,8 +232,8 @@ function validId(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
-function freezePlan(spots: Record<number, ThingSpot>, reservations: Record<number, readonly StageStandingSpot[]>, issues: readonly string[]): ThingPlan {
-  return Object.freeze({ spots: Object.freeze({ ...spots }), reservations: freezeReservations(reservations), issues: Object.freeze([...issues]) })
+function freezePlan(reservations: Record<number, readonly StageStandingSpot[]>, issues: readonly string[]): ThingPlan {
+  return Object.freeze({ reservations: freezeReservations(reservations), issues: Object.freeze([...issues]) })
 }
 
 function freezeReservations(reservations: Record<number, readonly StageStandingSpot[]>): ThingReservations {

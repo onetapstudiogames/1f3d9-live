@@ -182,16 +182,22 @@ export class CityScene extends Phaser.Scene {
         if (!batch.length) break
         for (const thing of batch) this.thingReads.add(thing.id)
         await Promise.all(batch.map(async thing => {
-          if (thing.name === null) {
-            try {
-              const detail = await this.readThing(thing.id)
-              if (detail) this.thingNames.set(thing.id, detail.name)
-              else this.thingReadIssue('Some thing names are missing; those name plates stay blank.')
-            } catch (error) {
-              console.error(error)
-              this.thingReadIssue('Some thing names could not be read; those name plates stay blank.')
+          // One read per thing carries both the name and whether the city has art for it.
+          // A thing that says it has no drawing is never asked for one, as for residents and places.
+          let hasDrawing = true
+          try {
+            const detail = await this.readThing(thing.id)
+            if (detail) {
+              this.thingNames.set(thing.id, detail.name)
+              hasDrawing = detail.has_drawing
+            } else if (thing.name === null) {
+              this.thingReadIssue('Some thing names are missing; those name plates stay blank.')
             }
+          } catch (error) {
+            console.error(error)
+            if (thing.name === null) this.thingReadIssue('Some thing names could not be read; those name plates stay blank.')
           }
+          if (!hasDrawing) return
           try {
             const art = await this.readThingDrawing(thing.id)
             if (art) {

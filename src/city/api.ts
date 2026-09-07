@@ -101,9 +101,10 @@ export async function fetchCensus(search: string = browserSearch()): Promise<rea
   }
 }
 
+// Only ?drawings= sends art to saved files. A record override alone (?replay= or ?census=)
+// leaves every drawing with the live city, so a saved day never quietly loses its faces.
 function drawingUrl(type: Drawing['type'], id: number, search: string): string {
-  const fixtureRoot = searchValue(search, 'drawings')
-  const root = fixtureRoot || (fixtureMode(search) ? '/fixtures/drawings' : null)
+  const root = searchValue(search, 'drawings')
   return root
     ? `${root.replace(/\/$/, '')}/${type}-${id}.json`
     : `${CITY_ORIGIN}/api/drawing/${type}/${id}`
@@ -116,7 +117,7 @@ export async function fetchDrawing(type: Drawing['type'], id: number, search: st
   const response = await fetch(drawingUrl(type, id, search), readOptions())
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`the city answered ${response.status} for the ${type} drawing ${id}`)
-  const usesFixture = Boolean(searchValue(search, 'drawings')) || fixtureMode(search)
+  const usesFixture = Boolean(searchValue(search, 'drawings'))
   if (usesFixture && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
   const value = await response.json() as Partial<Drawing>
   if (value.state !== 'complete' || !value.drawing) return null
@@ -166,10 +167,11 @@ export async function fetchThing(id: number, search: string = browserSearch()): 
   const thing = envelope?.['thing']
   if (!thing || typeof thing !== 'object') throw new Error(`the city returned an invalid thing ${id}`)
   const record = thing as Record<string, unknown>
-  if (record['id'] !== id || typeof record['name'] !== 'string' || record['name'].trim().length === 0) {
+  if (record['id'] !== id || typeof record['name'] !== 'string' || record['name'].trim().length === 0
+    || typeof record['has_drawing'] !== 'boolean') {
     throw new Error(`the city returned an invalid thing ${id}`)
   }
-  return { id, name: record['name'] }
+  return { id, name: record['name'], has_drawing: record['has_drawing'] }
 }
 
 export function createThingLoader(search: string = browserSearch()): (id: number) => Promise<Thing | null> {
