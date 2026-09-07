@@ -4,12 +4,15 @@ import { drawingCells } from '../city/drawing.ts'
 import { sleepingDrawingCells } from '../sleep.ts'
 import { residentNamePlate } from '../city/residents.ts'
 import type { ResidentState } from '../replay/simulation.ts'
+import { isNewResident, sparkleAlpha } from '../newcomers.ts'
 
 export class ResidentView {
   readonly sprite: Phaser.GameObjects.Image
   private readonly name: Phaser.GameObjects.Text
   private readonly bubble: Phaser.GameObjects.Text
   private readonly zzz: Phaser.GameObjects.Graphics
+  private readonly newTag: Phaser.GameObjects.Text
+  private readonly sparkle: Phaser.GameObjects.Graphics
   private readonly named: boolean
   private standingTexture = 'resident-default'
 
@@ -22,6 +25,15 @@ export class ResidentView {
       fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#172c24',
       backgroundColor: '#e9dfb9', padding: { x: 4, y: 2 },
     }).setOrigin(0.5, 0).setDepth(101)
+    this.newTag = scene.add.text(0, 0, 'new', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#203c2b',
+      backgroundColor: '#ffe69a', padding: { x: 3, y: 2 },
+    }).setOrigin(0, 0).setDepth(102).setVisible(false)
+    this.sparkle = scene.add.graphics().setDepth(102).setVisible(false)
+    this.sparkle.fillStyle(0xffe69a, 1)
+    for (const [x, y] of [[-25, -10], [21, -19], [18, 13]] as const) {
+      this.sparkle.fillRect(x, y - 3, 3, 9).fillRect(x - 3, y, 9, 3)
+    }
     this.bubble = scene.add.text(0, 0, '', {
       fontFamily: 'system-ui, sans-serif', fontSize: '14px', color: '#21392e',
       backgroundColor: '#fff3d6', padding: { x: 12, y: 9 },
@@ -34,7 +46,7 @@ export class ResidentView {
     }
   }
 
-  update(resident: ResidentState, zoom: number, now: number, followed: boolean, asleep = false): void {
+  update(resident: ResidentState, zoom: number, now: number, followed: boolean, asleep = false, recordedTime = Number.NaN): void {
     const currentTexture = this.sprite.texture.key
     if (!currentTexture.endsWith('-asleep')) this.standingTexture = currentTexture
     const sleeping = asleep && !resident.walking && resident.bubble === null
@@ -44,6 +56,10 @@ export class ResidentView {
     const bob = resident.walking ? Math.sin(now / 90) * 2 : 0
     this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
     this.name.setPosition(resident.x, resident.y + (sleeping ? 19 : 22)).setVisible(this.named && resident.visible && (zoom >= 0.45 || followed))
+    this.newTag.setPosition(this.name.x + (this.named ? this.name.width / 2 + 3 : 0), this.name.y)
+      .setVisible(resident.visible && (zoom >= 0.45 || followed) && isNewResident(resident.joinedAt, recordedTime))
+    const alpha = sparkleAlpha(resident.sparkle, now)
+    this.sparkle.setPosition(resident.x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
     this.zzz.setPosition(resident.x + 13, resident.y - 13).setVisible(sleeping && resident.visible)
     const bubble = resident.bubble
     this.bubble.setVisible(resident.visible && bubble !== null)

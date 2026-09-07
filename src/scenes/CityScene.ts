@@ -104,7 +104,7 @@ export class CityScene extends Phaser.Scene {
     if (document.body.dataset['liveReady'] === 'true' && !this.paused) {
       const elapsed = Math.min(100, Math.max(0, delta))
       this.elapsed += elapsed
-      // Hold the recorded moment for its walks and words, then resume the faster clock.
+      // Hold the recorded moment for its walks, words and arrivals, then resume the faster clock.
       if (!this.residents.pending) this.clock = advanceClock(this.clock, elapsed)
       const due = dueEvents(this.timeline, this.cursor, this.clock.time)
       this.cursor = due.cursor
@@ -124,7 +124,7 @@ export class CityScene extends Phaser.Scene {
         if (this.textures.exists(`resident-${resident.id}`)) figure.sprite.setTexture(`resident-${resident.id}`)
         this.figures.set(resident.id, figure)
       }
-      figure.update(resident, camera.zoom, this.elapsed, resident.id === this.following, this.sleepers.has(resident.id))
+      figure.update(resident, camera.zoom, this.elapsed, resident.id === this.following, this.sleepers.has(resident.id), this.clock?.time ?? Number.NaN)
     }
     if (!this.fixtureMode) return
     const listed = JSON.stringify([...this.figures].flatMap(([id, figure]) => {

@@ -74,6 +74,19 @@ test('the default figure lies down, wider than it is tall, head to the left', ()
   assert.equal(cells.filter(cell => cell.color === headColor).every(cell => cell.x <= 3), true)
 })
 
+test('the sleeping turn maps an asymmetric top-right cell to the top-left', () => {
+  const indices = Array<null | number>(64).fill(null)
+  indices[7] = 0
+  const drawing = {
+    id: 7,
+    type: 'resident',
+    state: 'complete',
+    drawing: { palette: ['#123456'], indices },
+  } as Drawing
+
+  assert.deepEqual(sleepingDrawingCells(drawing), [{ x: 0, y: 0, color: 0x123456 }])
+})
+
 function countByColor(cells: readonly { color: number }[]): Map<number, number> {
   const counts = new Map<number, number>()
   for (const cell of cells) counts.set(cell.color, (counts.get(cell.color) ?? 0) + 1)

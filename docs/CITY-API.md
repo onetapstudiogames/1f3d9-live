@@ -41,9 +41,17 @@ If-None-Match). Anonymous. Accepts no other option.
   to residents and things active in the span. Residents not in `start` did nothing in the span;
   read the census (below) for where everyone stands now.
 - A `start` entry can carry `place_id: null`. A resident who registered inside the window has
-  `origin: "register"` and stood nowhere at `window_start`; a thing being carried has no floor
-  and reads `origin: "unknown"`. The picture draws none of those until a recorded event places
-  them, and it invents no room for them.
+  `origin: "register"` and stood nowhere at `window_start`. The same origin also appears for
+  older registrations, so origin alone never triggers an arrival. A thing being carried has
+  no floor and reads `origin: "unknown"`. Null starts stay hidden until a recorded event places them.
+- A `register` timeline row carries `detail.resident_id`, the actor's handle, and `at`.
+  Together with the front door's rule that residents begin in the ownerless world, it places
+  the figure in the map's root (195 in the saved map) when that row is due. A free spot along
+  the top edge is presentation, chosen from the resident id, with a brief fading pixel sparkle.
+  The saved resident 316 has matching registration and census join times and first moves from 195.
+  The `new` tag uses only census `joined_at`: join time inclusive through 24 hours later
+  exclusive, by the recorded clock. This also covers joins before the window; unreadable join
+  times get no tag. Later movement still follows recorded rooms.
 - `counts` maps place id to exact `residents` and `things` counts at the checkpoint.
 - `timeline` is sorted by `change_id`. Kinds seen: `action` (with `detail.action` = move, use,
   give, consume, make, go_home and `status` applied or noop), `note` (with a `line` excerpt and

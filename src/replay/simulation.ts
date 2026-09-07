@@ -4,12 +4,15 @@ import type { NestedLayout, Point } from '../ground/nested.ts'
 import { pointAlongPath, walkPath } from '../ground/path.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
 import { appliedMove, bubbleFor, bubbleVisible, walkDuration, BASE_SPEED } from './index.ts'
+import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
 
 type QueuedEvent = Readonly<{ event: ReplayEvent }>
 
 export type ResidentState = Readonly<{
   id: number
   handle: string
+  joinedAt: string | null
+  sparkle: Sparkle | null
   placeId: number | null
   x: number
   y: number
@@ -34,6 +37,11 @@ export type Simulation = Readonly<{
 
 export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): Readonly<Record<number, number>> {
   const handles = residentIndex(census)
+  const registrations = new Map(replay.timeline.flatMap(event => {
+    const registration = registrationFor(event)
+    return registration ? [[registration.handle, registration.id] as const] : []
+  }))
+  const rootId = replay.map.places.find(place => place.parent_id === null)?.id
   const occupants = new Map<number, Set<string>>()
   const add = (placeId: unknown, key: string | undefined): void => {
     if (!validPlace(placeId) || key === undefined) return
@@ -44,13 +52,14 @@ export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): R
   for (const resident of initialResidents(replay, census)) add(resident.placeId, `id:${String(resident.id)}`)
   for (const event of replay.timeline) {
     const actor = typeof event.actor === 'string' && event.actor.length ? event.actor : null
-    const known = actor === null ? undefined : handles.get(actor)?.id
+    const known = actor === null ? undefined : handles.get(actor)?.id ?? registrations.get(actor)
     const key = known !== undefined
       ? `id:${String(known)}`
       : actor !== null ? `handle:${actor}` : `event:${String(event.event_id)}:unknown`
     add(event.detail.from_place_id, key)
     add(event.detail.to_place_id, key)
     add(event.detail.place_id, key)
+    if (registrationFor(event)) add(rootId, key)
   }
   return Object.freeze(Object.fromEntries([...occupants].map(([id, ids]) => [id, ids.size])))
 }
@@ -67,7 +76,7 @@ export function createResidents(
     if (typeof resident.handle !== 'string' || resident.handle.length === 0) continue
     actors.set(resident.handle, resident.id)
     const item = initial.get(resident.id)
-    residents[resident.id] = baseResident(resident.id, resident.handle, item?.placeId ?? null)
+    residents[resident.id] = { ...baseResident(resident.id, resident.handle, item?.placeId ?? null), joinedAt: resident.joined_at }
   }
   for (const [key, start] of Object.entries(replay.start)) {
     const match = /^resident:(\d+)$/.exec(key)
@@ -75,6 +84,18 @@ export function createResidents(
     const id = Number(match[1])
     if (!Number.isSafeInteger(id) || residents[id]) continue
     residents[id] = baseResident(id, key, start.place_id)
+  }
+  // A registration names its resident even when the census cannot be read. It does not
+  // place the figure early or substitute for the census join date used by the tag.
+  for (const event of replay.timeline) {
+    const registration = registrationFor(event)
+    if (!registration) continue
+    const { id, handle } = registration
+    if (actors.has(handle) && actors.get(handle) !== id) continue
+    if (census.some(resident => resident.id === id && resident.handle !== handle)) continue
+    const resident = residents[id] ?? baseResident(id, handle, null)
+    actors.set(handle, id)
+    residents[id] = { ...resident, handle }
   }
   placeStationary(residents, layout)
   return freezeSimulation(residents, actors, [], false)
@@ -93,6 +114,13 @@ export function stepResidents(
   )
   const issues = [...state.issues]
   for (const event of events) {
+    if (event.kind === 'register') {
+      const registration = registrationFor(event)
+      if (!registration || state.actors.get(registration.handle) !== registration.id) {
+        addIssue(issues, 'registration')
+        continue
+      }
+    }
     if (event.actor === null) continue
     const actor = typeof event.actor === 'string' ? event.actor : ''
     const id = state.actors.get(actor)
@@ -107,8 +135,9 @@ export function stepResidents(
   for (const id of Object.keys(residents).map(Number).sort((a, b) => a - b)) {
     let resident = residents[id]!
     if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
+    if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
     if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
-    if (!resident.walking && !resident.bubble) resident = startNext(resident, residents, nowMs, layout, issues, speed)
+    if (!resident.walking && !resident.bubble && !resident.sparkle) resident = startNext(resident, residents, nowMs, layout, issues, speed)
     residents[id] = resident
   }
   return freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending))
@@ -128,6 +157,11 @@ function startNext(
     const event = queued.event
     const queue = next.queue.slice(1)
     const detail = event.detail
+    if (event.kind === 'register') {
+      next = arrive({ ...next, queue }, all, nowMs, layout, issues, speed)
+      if (next.sparkle) return next
+      continue
+    }
     const isApplied = event.kind === 'action' && (detail.action === 'move' || detail.action === 'go_home') && detail.status === 'applied' && !('error' in detail && detail.error != null)
     const isNoopAnchor = event.kind === 'action' && (detail.action === 'move' || detail.action === 'go_home') && detail.status === 'noop' &&
       validPlace(detail.from_place_id) && detail.from_place_id === detail.to_place_id
@@ -196,6 +230,29 @@ function startNext(
     next = { ...next, queue }
   }
   return next
+}
+
+function arrive(
+  resident: ResidentState,
+  all: Readonly<Record<number, ResidentState>>,
+  nowMs: number,
+  layout: NestedLayout,
+  issues: string[],
+  speed: number,
+): ResidentState {
+  if (resident.placeId !== null) return resident
+  const root = layout.rooms[layout.rootId]
+  if (!root) { addIssue(issues, 'room'); return resident }
+  const occupied = Object.values(all).filter(item => item.id !== resident.id).flatMap(item => [
+    ...(item.visible ? [{ x: item.x, y: item.y }] : []),
+    ...(item.destinationId === root.id && item.destination ? [item.destination] : []),
+    ...(!item.visible && !item.walking && item.placeId === root.id ? [{ x: item.x, y: item.y }] : []),
+  ])
+  const point = newcomerSpot(resident.id, root, occupied)
+  if (!point) { addIssue(issues, 'placement'); return resident }
+  // The registration plus the city's front-door rule places a new resident in the
+  // ownerless world. Only this free edge spot is presentation; later moves win.
+  return { ...resident, placeId: root.id, x: point.x, y: point.y, visible: placeVisible(layout, root.id), sparkle: sparkleFor(nowMs, speed) }
 }
 
 function handleNote(
@@ -282,11 +339,11 @@ function placeVisible(layout: NestedLayout, placeId: number): boolean {
 }
 
 function baseResident(id: number, handle: string, placeId: number | null): ResidentState {
-  return { id, handle, placeId, x: 0, y: 0, flipX: false, walking: false, visible: false, bubble: null, queue: [], path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null }
+  return { id, handle, joinedAt: null, sparkle: null, placeId, x: 0, y: 0, flipX: false, walking: false, visible: false, bubble: null, queue: [], path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null }
 }
 
 function isPending(resident: ResidentState): boolean {
-  return resident.walking || resident.bubble !== null || resident.queue.length > 0
+  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.queue.length > 0
 }
 
 function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean): Simulation {
@@ -303,6 +360,7 @@ function validPlace(value: unknown): value is number {
 const ISSUE_WORDS = {
   'route-gap': 'The record skips part of some routes; those figures reappear at their next recorded room.',
   actor: 'Some recorded events name residents the resident list does not know; they are not drawn.',
+  registration: 'Some arrivals have no usable registration record; those figures wait for a recorded room.',
   room: 'Some recorded events name a room the map does not show; those are not drawn.',
   placement: 'Some rooms had no free spot left, so those figures were not moved into them.',
   route: 'Some recorded walks have no path on the map; those figures stay where the record last placed them.',
