@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { drawingCells } from '../src/city/drawing.ts'
 import { initialResidents } from '../src/city/residents.ts'
 import { sleepingDrawingCells, sleepingResidents } from '../src/sleep.ts'
 import type { CensusPage, Drawing, ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
@@ -32,38 +33,52 @@ test('marks only an asleep resident whose unchanged census position is valid at 
   assert.deepEqual([...sleepingResidents(baseReplay, [resident({ joined_at: baseReplay.window_start })])], [7])
 })
 
-test('sleeping drawing is a bounded crisp curl that retains custom art colors', () => {
-  const custom = {
-    id: 7,
-    type: 'resident',
-    state: 'complete',
-    drawing: { palette: ['#112233', '#abcdef'], indices: Array.from({ length: 64 }, (_, i) => i < 40 ? 0 : 1) },
-  } as Drawing
-  const cells = sleepingDrawingCells(custom)
+const fullDrawing = {
+  id: 7,
+  type: 'resident',
+  state: 'complete',
+  drawing: {
+    palette: ['#112233', '#abcdef', '#ff0044', '#00cc77'],
+    indices: Array.from({ length: 64 }, (_, i) => i % 4),
+  },
+} as Drawing
 
-  assert.equal(cells.every(cell => Number.isInteger(cell.x) && Number.isInteger(cell.y) && cell.x >= 0 && cell.x < 8 && cell.y >= 0 && cell.y < 8), true)
-  assert.deepEqual(new Set(cells.map(cell => cell.color)), new Set([0x112233, 0xabcdef]))
-  assert.equal(cells.some(cell => cell.x >= 5 && cell.y <= 3), true)
-  assert.equal(cells.some(cell => cell.x <= 5 && cell.y >= 3), true)
-})
+for (const [name, drawing] of [['the default figure', null], ['a full 64 cell drawing', fullDrawing]] as const) {
+  test(`the sleeping pose keeps every painted pixel and colour of ${name}`, () => {
+    const standing = drawingCells(drawing)
+    const cells = sleepingDrawingCells(drawing)
 
-test('default sleeping drawing stays a visible 8 by 8 pixel figure', () => {
+    assert.equal(cells.length, standing.length)
+    assert.deepEqual(new Set(cells.map(cell => cell.color)), new Set(standing.map(cell => cell.color)))
+    assert.deepEqual(countByColor(cells), countByColor(standing))
+  })
+
+  test(`the sleeping pose gives ${name} one cell each inside the 8 by 8 grid`, () => {
+    const cells = sleepingDrawingCells(drawing)
+    const seats = new Set(cells.map(cell => `${cell.x},${cell.y}`))
+
+    assert.equal(seats.size, cells.length)
+    assert.equal(cells.every(cell => Number.isInteger(cell.x) && cell.x >= 0 && cell.x < 8), true)
+    assert.equal(cells.every(cell => Number.isInteger(cell.y) && cell.y >= 0 && cell.y < 8), true)
+  })
+}
+
+test('the default figure lies down, wider than it is tall, head to the left', () => {
+  const standing = drawingCells(null)
   const cells = sleepingDrawingCells(null)
-  assert.equal(cells.length > 20, true)
-  assert.equal(cells.every(cell => cell.x >= 0 && cell.x < 8 && cell.y >= 0 && cell.y < 8), true)
+  const span = (values: readonly number[]) => Math.max(...values) - Math.min(...values) + 1
+  const headColor = 0x5b3b24
+
+  assert.equal(span(standing.map(cell => cell.y)) > span(standing.map(cell => cell.x)), true)
+  assert.equal(span(cells.map(cell => cell.x)) > span(cells.map(cell => cell.y)), true)
+  assert.equal(cells.filter(cell => cell.color === headColor).every(cell => cell.x <= 3), true)
 })
 
-test('sleeping drawing folds each resident actual pixel pattern', () => {
-  const first = {
-    id: 1, type: 'resident', state: 'complete',
-    drawing: { palette: ['#112233'], indices: [0, ...Array<null>(63).fill(null)] },
-  } as Drawing
-  const second = {
-    ...first, id: 2,
-    drawing: { palette: ['#112233'], indices: [...Array<null>(63).fill(null), 0] },
-  } as Drawing
-  assert.notDeepEqual(sleepingDrawingCells(first), sleepingDrawingCells(second))
-})
+function countByColor(cells: readonly { color: number }[]): Map<number, number> {
+  const counts = new Map<number, number>()
+  for (const cell of cells) counts.set(cell.color, (counts.get(cell.color) ?? 0) + 1)
+  return counts
+}
 
 test('any replay start entry rejects sleep, including an explicit null entry', () => {
   const placed = { ...baseReplay, start: { 'resident:7': { place_id: 12 } } }

@@ -1,12 +1,11 @@
 import { drawingCells, type DrawingCell } from './city/drawing.ts'
 import type { Drawing, ReplayFile, Resident } from './city/types.ts'
 
+// Lying down is a quarter turn of the whole 8 by 8 grid, anticlockwise, so the head that
+// stood at the top now points left and the feet point right. Every painted cell lands on its
+// own cell inside the grid, so the resident keeps every pixel and every colour of its own art.
 export function sleepingDrawingCells(drawing: Drawing | null): readonly DrawingCell[] {
-  return drawingCells(drawing).map(cell => {
-    if (cell.y <= 2) return { x: 5 + Math.floor(cell.x / 3), y: 1 + cell.y, color: cell.color }
-    if (cell.y <= 5) return { x: 1 + Math.floor(cell.x * 5 / 8), y: cell.y, color: cell.color }
-    return { x: 2 + Math.floor(cell.x * 3 / 8), y: 9 - cell.y, color: cell.color }
-  })
+  return drawingCells(drawing).map(cell => ({ x: cell.y, y: 7 - cell.x, color: cell.color }))
 }
 
 export function sleepingResidents(replay: ReplayFile, census: readonly Resident[]): ReadonlySet<number> {

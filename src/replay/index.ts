@@ -28,6 +28,14 @@ const WALK_SHORTEST_MS = 1_200
 const WALK_LONGEST_MS = 4_000
 const WALK_FLOOR_MS = 400
 
+// The speed box is read as plain text, so a missing, empty or nonsense value never throws:
+// anything that is not a positive number falls back to the speed the page starts at.
+export function chosenSpeed(value: string | null | undefined): number {
+  if (typeof value !== 'string' || value.trim().length === 0) return BASE_SPEED
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : BASE_SPEED
+}
+
 export function holdScale(speed: number): number {
   if (!Number.isFinite(speed) || speed <= 0) return 1
   return BASE_SPEED / speed

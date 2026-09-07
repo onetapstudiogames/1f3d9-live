@@ -10,6 +10,7 @@ import {
   bubbleDuration,
   bubbleFor,
   bubbleVisible,
+  chosenSpeed,
   createClock,
   dueEvents,
   holdScale,
@@ -173,4 +174,30 @@ test('a bubble expires sooner at a faster speed and keeps its recorded words', (
   assert.equal(bubbleFor(note, 10_000, 300)!.expiresAt, 12_000)
   assert.equal(bubbleFor(note, 10_000, 60)!.expiresAt, 20_000)
   assert.equal(bubbleFor(note, 10_000, 300)!.text, 'a word')
+})
+
+test('the speed box reading takes any positive number the page offers', () => {
+  assert.equal(chosenSpeed('60'), 60)
+  assert.equal(chosenSpeed('120'), 120)
+  assert.equal(chosenSpeed('300'), 300)
+  assert.equal(chosenSpeed(' 300 '), 300)
+  assert.equal(chosenSpeed('2.5'), 2.5)
+})
+
+test('a missing speed box falls back to the speed the page starts at', () => {
+  assert.equal(chosenSpeed(null), BASE_SPEED)
+  assert.equal(chosenSpeed(undefined), BASE_SPEED)
+})
+
+test('an empty or nonsense speed box falls back to the speed the page starts at', () => {
+  assert.equal(chosenSpeed(''), BASE_SPEED)
+  assert.equal(chosenSpeed('   '), BASE_SPEED)
+  assert.equal(chosenSpeed('fast'), BASE_SPEED)
+  assert.equal(chosenSpeed('12x'), BASE_SPEED)
+  assert.equal(chosenSpeed('Infinity'), BASE_SPEED)
+})
+
+test('a zero or negative speed box falls back to the speed the page starts at', () => {
+  assert.equal(chosenSpeed('0'), BASE_SPEED)
+  assert.equal(chosenSpeed('-120'), BASE_SPEED)
 })

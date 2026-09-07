@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { fetchReplay, fetchCensus, createDrawingLoader } from '../city/api.ts'
 import type { ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
-import { createClock, advanceClock, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
+import { createClock, advanceClock, chosenSpeed, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
 import { createResidents, stepResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
 import { residentNamePlate } from '../city/residents.ts'
 import { RoomView } from './RoomView.ts'
@@ -54,7 +54,7 @@ export class CityScene extends Phaser.Scene {
       this.replay = record.value
       this.timeline = prepareTimeline(this.replay.timeline)
       this.layout = nestedLayout(this.replay.map.places, roomCapacity(this.replay, census))
-      const speed = Number((document.getElementById('speed') as HTMLSelectElement).value)
+      const speed = chosenSpeed(document.querySelector<HTMLSelectElement>('#speed')?.value)
       this.clock = createClock(this.replay.window_start, this.replay.window_end, speed)
       this.sleepers = sleepingResidents(this.replay, census)
       this.residents = createResidents(this.replay, census, this.layout)
@@ -161,7 +161,7 @@ export class CityScene extends Phaser.Scene {
       document.getElementById('pause')!.textContent = this.paused ? 'Play' : 'Pause'
     })
     document.getElementById('speed')?.addEventListener('change', event => {
-      if (this.clock) this.clock = { ...this.clock, speed: Number((event.target as HTMLSelectElement).value) }
+      if (this.clock) this.clock = { ...this.clock, speed: chosenSpeed((event.target as HTMLSelectElement).value) }
     })
     document.getElementById('in')?.addEventListener('click', () => this.zoom(1.3))
     document.getElementById('out')?.addEventListener('click', () => this.zoom(1 / 1.3))
