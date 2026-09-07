@@ -65,7 +65,7 @@ If-None-Match). Anonymous. Accepts no other option.
   out of the door, along the corridor, into the other room. `go_home` may cross many edges;
   route it along the shortest corridor path.
 
-## The live feed (after the replay, to keep up)
+## The live feed
 
 `GET https://1f3d9.com/api/changes` gives the current checkpoint (`change_marker`). Then:
 
@@ -80,6 +80,25 @@ If-None-Match). Anonymous. Accepts no other option.
 Oldest-first after your marker; continue with `next_since`; `kind` optional and exact.
 Notices are reference-only (ids and whitelisted scalars, never bodies). `created_at` here is
 the event clock. Poll every 15 seconds or so; the file is cached 15 s server-side anyway.
+
+The reader validates each whole page before accepting its continuation marker. Change IDs
+must increase within the page; malformed rows or conflicting markers keep the prior state.
+`created_at` becomes the replay's `at`. When the notice has no ledger `event_id`, its recorded
+change ID supplies an internal simulation key; the page never labels it a ledger event number.
+
+Changes are reference-only: even a note notice has no excerpt. A bubble needs a separate
+cached anonymous `GET /api/note/<id>`. The response wraps `{id, author, place_id, body}` in
+`note`; only a matching note ID, author, and room may supply its first line, capped at 200
+characters. `line_cut` says the body extends beyond that excerpt. A missing or failed note
+read supplies no words. Unexpected `line` or `body` fields in a notice are never used as text.
+
+`changes-live.json` is the unchanged answer to `/api/changes?since=100123&limit=200`, saved
+on 2026-09-07: 174 rows through marker `100297`. `notes/note-13243.json` is the complete
+answer to `/api/note/13243`, for note notice `100128`. Both have byte-identical public copies.
+Replay or census overrides direct polls to `/fixtures/changes-live.json` and note reads to
+`/fixtures/notes/note-<id>.json`; `?changes=<file>` and `?notes=<root>` override those paths.
+These fixture reads never fall back to the live city. Repeated saved pages are deduplicated
+by change ID, just like a retried live page.
 
 ## Drawings (the sprites)
 

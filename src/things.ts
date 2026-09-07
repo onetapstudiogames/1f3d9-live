@@ -129,6 +129,30 @@ export function addPresentThings(
   return freezeThings(things, freezeReservations(reservations), issues, state.queue)
 }
 
+export function reserveLiveThingEvents(
+  state: ThingSimulation, events: readonly ReplayEvent[], layout: NestedLayout,
+  blockers: ThingReservations = {},
+): ThingSimulation {
+  const reservations: Record<number, readonly StageStandingSpot[]> = { ...state.reservations }
+  let missing = false
+  for (const event of events) {
+    const placement = createdThing(event) ?? movedThing(event)
+    if (!placement) continue
+    const room = layout.rooms[placement.placeId]
+    if (!room || !placeVisible(layout, placement.placeId)) { missing = true; continue }
+    const old = reservations[placement.placeId] ?? []
+    if (old.some(spot => spot.key === `thing:${placement.id}`)) continue
+    const found = stageFindFreeSpots([{ key: `thing:${placement.id}`, kind: 'thing' }], room.standing, {}, [], [
+      ...old, ...(blockers[placement.placeId] ?? []),
+    ])[`thing:${placement.id}`]
+    if (!found) { missing = true; continue }
+    reservations[placement.placeId] = Object.freeze([...old, found])
+  }
+  const issue = 'Some new thing destinations could not be placed, so no floor position was invented.'
+  const issues = missing && !state.issues.includes(issue) ? [...state.issues, issue] : state.issues
+  return freezeThings({ ...state.things }, freezeReservations(reservations), issues, state.queue)
+}
+
 export function stepThings(state: ThingSimulation, events: readonly ReplayEvent[], nowMs: number, speed: number = BASE_SPEED): ThingSimulation {
   const things: Record<number, ThingState> = {}
   for (const [idText, thing] of Object.entries(state.things)) {
