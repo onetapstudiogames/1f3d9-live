@@ -90,6 +90,24 @@ test('a walk finishes before the following note is shown', () => {
   assert.equal(completed.residents[7]!.visible, false)
 })
 
+test('inventions take their actor queue turn between walks and words, one at a time', () => {
+  let state = createResidents(replay(), census, layout)
+  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 })
+  const first = event('kind_invented', { name: 'lamp moss', kind_id: 4 })
+  const second = { ...event('trait_coined', { name: 'patient', trait_id: 9 }), change_id: '2', event_id: 2 }
+  const note = event('note', { place_id: 1 }, 'done')
+  state = stepResidents(state, [move, first, second, note], 100, 100, layout)
+  assert.equal(state.residents[7]!.walking, true)
+  assert.deepEqual(state.startedInventions, [])
+  state = stepResidents(state, [], 10_000, 10_100, layout)
+  assert.equal(state.startedInventions?.[0]?.invention.name, 'lamp moss')
+  assert.equal(state.residents[7]!.bubble, null)
+  state = stepResidents(state, [], 0, 12_300, layout)
+  assert.equal(state.startedInventions?.[0]?.invention.name, 'patient')
+  state = stepResidents(state, [], 0, 14_500, layout)
+  assert.deepEqual(state.residents[7]!.bubble, { text: 'done', cut: false, expiresAt: 19_500 })
+})
+
 test('a full destination reports no free spot rather than no path', () => {
   const fullDestination = {
     ...layout,

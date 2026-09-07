@@ -25,6 +25,8 @@ import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
 import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
 import { prepareLiveResidents } from '../replay/simulation.ts'
 import { reserveLiveThingEvents, type ThingReservations } from '../things.ts'
+import { stepInventions, type InventionState } from '../inventions.ts'
+import { InventionLayer } from './InventionLayer.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -45,6 +47,7 @@ export class CityScene extends Phaser.Scene {
   private handovers?: HandoverState
   private handoverFrame?: ReturnType<typeof stepHandovers>
   private handoverViews = new Map<string, HandoverView>()
+  private inventions: InventionState = Object.freeze({ moments: [], pending: false, issues: [] }); private inventionLayer?: InventionLayer
   private thingViews = new Map<number, ThingView>()
   private thingNames = new Map<number, string>()
   private thingReads = new Set<number>()
@@ -84,9 +87,7 @@ export class CityScene extends Phaser.Scene {
   // The test-only figure list is written for the saved-fixture run the browser check drives.
   private readonly fixtureMode = new URLSearchParams(window.location.search).has('replay')
     || new URLSearchParams(window.location.search).has('census')
-
   constructor() { super('city') }
-
   create(): void {
     document.body.dataset['liveReady'] = 'loading'
     document.body.dataset['liveFollowing'] = ''
@@ -98,7 +99,6 @@ export class CityScene extends Phaser.Scene {
     this.connectControls()
     void this.loadCity()
   }
-
   private async loadCity(): Promise<void> {
     try {
       const [record, censusRead] = await Promise.allSettled([fetchReplay(), fetchCensus()])
@@ -125,6 +125,7 @@ export class CityScene extends Phaser.Scene {
       this.placeAnimations = []
       this.liveState = Object.freeze({ marker: this.replay.checkpoint, seen: new Set<string>(), failures: 0, lastReadAt: null, retryMs: 0 })
       this.rooms = new RoomView(this, this.layout, this.placePlan!)
+      this.inventionLayer = new InventionLayer(this)
       this.updateRooms()
       addDrawingTexture(this, 'resident-default', null)
       addThingTexture(this, 'thing-default', null)
@@ -260,6 +261,8 @@ export class CityScene extends Phaser.Scene {
     this.drawThings()
     this.drawResidents()
     this.drawHandovers()
+    this.inventionLayer?.update(this.inventions, this.residents, this.contentsHidden, this.cameras.main.zoom)
+    if (this.fixtureMode) document.body.dataset['liveInventions'] = String(this.inventions.moments.length)
     this.updateHud()
   }
 
@@ -369,6 +372,7 @@ export class CityScene extends Phaser.Scene {
     this.residents = createResidents(this.replay, this.census, this.layout, this.things.reservations)
     this.handovers = createHandovers(this.replay.timeline)
     this.handoverFrame = undefined
+    this.inventions = Object.freeze({ moments: [], pending: false, issues: [] }); this.inventionLayer?.clear()
     this.liveQueue = []
     this.outlineReads.clear()
     this.outlinePending.clear()
@@ -389,6 +393,8 @@ export class CityScene extends Phaser.Scene {
   private applyEvents(events: readonly ReplayFile['timeline'][number][], elapsed: number): void {
     if (!this.layout || !this.residents || !this.things || !this.handovers || !this.clock) return
     this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed)
+    this.inventions = stepInventions(this.inventions, this.residents.startedInventions ?? [], this.residents,
+      this.contentsHidden, this.elapsed)
     this.handoverFrame = stepHandovers(this.handovers, events, this.residents, this.layout, this.elapsed, this.clock.speed)
     this.handovers = this.handoverFrame.state
     this.things = stepThings(this.things, this.handoverFrame.floorEvents, this.elapsed, this.clock.speed)
@@ -783,7 +789,7 @@ export class CityScene extends Phaser.Scene {
       : this.liveReadError ? 'Live read failed; the last drawn state is kept while the page waits to try again.'
       : this.paused ? 'Live: paused; new records will wait here.'
       : `Live: keeping up with the city${this.liveState?.lastReadAt ? `, last read at ${new Date(this.liveState.lastReadAt).toISOString().slice(11, 16)} UTC.` : '.'}`
-    const issues = [...this.readIssues, ...(this.residents?.issues ?? []), ...(this.things?.issues ?? [])]
+    const issues = [...this.readIssues, ...(this.residents?.issues ?? []), ...(this.things?.issues ?? []), ...this.inventions.issues]
     const sleep = this.sleepers.size ? (this.showSleepers ? 'Sleepers are shown.' : 'Sleepers are hidden.') : ''
     const status = `${this.readStatus} ${sleep} ${this.followNotice} ${state}${issues.length ? ` ${issues.join(' ')}` : ''}`.trim()
     if (status !== this.lastHud) {

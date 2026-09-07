@@ -28,6 +28,7 @@ test('the fixture draws tiled floors, sleeper control, and both ways to follow',
   await page.goto('/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places')
   await expect.poll(() => page.evaluate(() => document.body.dataset['liveReady'] ?? ''), { timeout: 30_000 }).toBe('true')
   await expect(page.locator('body')).toHaveAttribute('data-live-mode', 'live')
+  await expect(page.locator('body')).toHaveAttribute('data-live-inventions', '0')
   await expect.poll(() => page.evaluate(() => document.body.dataset['livePoll'] ?? ''), { timeout: 30_000 }).toBe('true')
   await expect(page.locator('#status')).toContainText('Live: keeping up with the city')
   await expect.poll(() => page.evaluate(() => document.body.dataset['livePlaceDrawing'] ?? ''), { timeout: 30_000 }).toBe('true')

@@ -100,6 +100,29 @@ Replay or census overrides direct polls to `/fixtures/changes-live.json` and not
 These fixture reads never fall back to the live city. Repeated saved pages are deduplicated
 by change ID, just like a retried live page.
 
+## Inventions and coined traits (checked 2026-09-07)
+
+The public door describes kind invention and revision as paid acts, and trait coining as
+free. Their change notices name the actor and invention, but carry no place:
+
+- `kind_invented`: `actor`, `detail.name`, `detail.kind_id`.
+- `kind_revised`: `actor`, `detail.name`, `detail.kind_id`.
+- `trait_coined`: `actor`, `detail.name`, `detail.trait_id`.
+
+The lightbulb belongs over the actor's figure only where an earlier recorded placement
+already puts it. Neither the invention ID nor its name supplies a room. Kinds and traits
+share the same pixel bulb; it conveys the recorded act, with no price or payment claim.
+
+Four complete anonymous answers were saved byte for byte in both fixture trees:
+`changes-kind-invented.json`, `changes-kind-revised.json`, and `changes-trait-coined.json`
+come from `/api/changes?since=0&kind=<kind>&limit=200`. They return 40, 39, and 200 rows
+respectively at marker `100380`. The trait answer continues at `84812`;
+`changes-trait-coined-page2.json` is the answer with `since=84812`, returning the last
+14 rows at marker `100381`. Both trait pages are retained without joining or rewriting them.
+The latest of these acts predates the current 24-hour replay, so unit scenarios use those
+real older rows. A live screenshot cannot show a new bulb unless an invention actually
+arrives; no act is added to a browser fixture or the city to stage that picture.
+
 ## Drawings (the sprites)
 
 `GET https://1f3d9.com/api/drawing/resident/:id` and `.../drawing/place/:id`
