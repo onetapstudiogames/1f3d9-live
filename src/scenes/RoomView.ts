@@ -20,7 +20,7 @@ export class RoomView {
     art: Phaser.GameObjects.TileSprite | null; shade: Phaser.GameObjects.Rectangle | null
   }>()
 
-  constructor(scene: Phaser.Scene, layout: NestedLayout, private readonly plan: PlacePlan) {
+  constructor(scene: Phaser.Scene, layout: NestedLayout, private plan: PlacePlan) {
     // The mood covers the floor and walls; plates, figures and words keep their contrast.
     this.tint = scene.add.rectangle(0, 0, 1, 1).setScrollFactor(0).setDepth(0.25)
     const floors = [0x344d3c, 0x557354, 0x7e9262, 0xb3af7e, 0xc3b58b]
@@ -97,6 +97,8 @@ export class RoomView {
       this.plates.set(room.id, { group, text, room, nameOffset: 0 })
     }
   }
+
+  setPlan(plan: PlacePlan): void { this.plan = plan }
 
   addDrawing(scene: Phaser.Scene, id: number, drawing: Drawing): void {
     const plate = this.plates.get(id)

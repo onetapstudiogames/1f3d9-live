@@ -118,6 +118,18 @@ export function createResidents(
   return freezeSimulation(residents, actors, [], false, reservations, [])
 }
 
+export function prepareLiveResidents(state: Simulation, events: readonly ReplayEvent[]): Simulation {
+  const residents = { ...state.residents }
+  const actors = new Map(state.actors)
+  for (const event of events) {
+    const registration = registrationFor(event)
+    if (!registration || actors.has(registration.handle) || residents[registration.id]) continue
+    actors.set(registration.handle, registration.id)
+    residents[registration.id] = baseResident(registration.id, registration.handle, null)
+  }
+  return freezeSimulation(residents, actors, state.issues, state.pending, state.reservations, state.startedTransfers)
+}
+
 export function stepResidents(
   state: Simulation,
   events: readonly ReplayEvent[],
