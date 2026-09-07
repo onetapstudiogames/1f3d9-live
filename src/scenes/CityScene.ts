@@ -637,6 +637,7 @@ export class CityScene extends Phaser.Scene {
     document.getElementById('pause')?.addEventListener('click', () => {
       this.paused = !this.paused
       document.getElementById('pause')!.textContent = this.paused ? 'Play' : 'Pause'
+      this.updateHud()
     })
     document.getElementById('replay-day')?.addEventListener('click', () => this.replayDay())
     document.getElementById('speed')?.addEventListener('change', event => {

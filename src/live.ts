@@ -62,11 +62,12 @@ export function settleAtNow(
   let residents = createResidents(replay, census, layout, things.reservations)
   let handovers = createHandovers(replay.timeline)
   let elapsed = 0
+  const settleStep = 1_000_000
   for (const event of replay.timeline) {
     let incoming: readonly ReplayEvent[] = [event]
     for (let frame = 0; frame < 100_000; frame += 1) {
-      elapsed += 100
-      residents = stepResidents(residents, incoming, 100, elapsed, layout, speed)
+      elapsed += settleStep
+      residents = stepResidents(residents, incoming, settleStep, elapsed, layout, speed)
       const handover = stepHandovers(handovers, incoming, residents, layout, elapsed, speed)
       handovers = handover.state
       things = stepThings(things, handover.floorEvents, elapsed, speed)
