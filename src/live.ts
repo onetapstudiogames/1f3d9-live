@@ -16,6 +16,22 @@ export type LiveReadState = Readonly<{
 const POLL_MS = 15_000
 const MAX_RETRY_MS = 120_000
 
+export function liveNoteReferences(events: readonly ReplayEvent[], layout: NestedLayout):
+  readonly Readonly<{ event: ReplayEvent; index: number }>[] {
+  return events.map((event, index) => ({ event, index })).filter(({ event }) => {
+    const id = event.detail.note_id
+    const placeId = event.detail.place_id
+    if (event.kind !== 'note' || !Number.isSafeInteger(id) || (id as number) <= 0
+      || typeof placeId !== 'number' || !layout.rooms[placeId]) return false
+    let room: NestedLayout['rooms'][number] | undefined = layout.rooms[placeId]
+    while (room) {
+      if (room.quiet) return false
+      room = room.parentId === null ? undefined : layout.rooms[room.parentId]
+    }
+    return true
+  })
+}
+
 export function newLiveEvents(state: LiveReadState, events: readonly ReplayEvent[]): readonly ReplayEvent[] {
   const committed = numericId(state.marker)
   return [...events].filter(event => numericId(event.change_id) > committed && !state.seen.has(event.change_id))

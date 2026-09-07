@@ -22,7 +22,7 @@ import {
 import { followChoices } from '../follow.ts'
 import { readShowSleepers, saveShowSleepers } from '../preferences.ts'
 import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
-import { liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
+import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
 import { prepareLiveResidents } from '../replay/simulation.ts'
 import { reserveLiveThingEvents, type ThingReservations } from '../things.ts'
 
@@ -303,12 +303,7 @@ export class CityScene extends Phaser.Scene {
 
   private async enrichNotes(events: readonly ReplayFile['timeline'][number][]): Promise<readonly ReplayFile['timeline'][number][]> {
     const result = [...events]
-    const candidates = events.map((event, index) => ({ event, index })).filter(({ event }) => {
-      const id = event.detail.note_id
-      return event.kind === 'note' && Number.isSafeInteger(id) && (id as number) > 0
-        && typeof event.detail.place_id === 'number'
-        && this.layout?.rooms[event.detail.place_id] !== undefined && !this.contentsHidden.has(event.detail.place_id)
-    })
+    const candidates = this.layout ? liveNoteReferences(events, this.layout) : []
     for (let offset = 0; offset < candidates.length; offset += 4) {
       await Promise.all(candidates.slice(offset, offset + 4).map(async ({ event, index }) => {
         try {

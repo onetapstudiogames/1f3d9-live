@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { liveReadFailed, liveReadSucceeded, newLiveEvents, validContinuation, wakeActiveSleepers, type LiveReadState } from '../src/live.ts'
+import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, validContinuation, wakeActiveSleepers, type LiveReadState } from '../src/live.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
 import { settleAtNow } from '../src/live.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
@@ -9,6 +9,18 @@ import { createResidents, prepareLiveResidents } from '../src/replay/simulation.
 
 const row = (changeId: string, at = '2026-01-01T00:00:01Z'): ReplayEvent => ({
   actor: null, at, change_id: changeId, event_id: Number(changeId), kind: 'notice', detail: {},
+})
+
+test('live note reads use current map privacy even while replay looks before a room was founded', () => {
+  const place = (id: number, parent_id: number | null, quiet = false) =>
+    ({ id, parent_id, quiet, name: `room ${id}`, owner: null, owner_id: null, has_drawing: false })
+  const layout = nestedLayout([place(1, null), place(2, 1), place(3, 1, true), place(4, 3)])
+  const note = (id: number, placeId: number): ReplayEvent => ({ ...row(String(id)), kind: 'note',
+    actor: 'writer', detail: { note_id: id, place_id: placeId } })
+  const currentNote = note(11, 2)
+  // No replay clock or animation-hidden list may suppress a public note read.
+  assert.deepEqual(liveNoteReferences([currentNote, note(12, 3), note(13, 4), note(14, 99),
+    { ...note(15, 2), detail: { note_id: 0, place_id: 2 } }, row('16')], layout), [{ event: currentNote, index: 0 }])
 })
 
 test('live pages stay oldest-first and duplicate retries are ignored', () => {
