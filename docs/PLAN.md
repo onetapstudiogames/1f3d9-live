@@ -99,6 +99,9 @@ Watching
     Implemented: the optional Director glides among rooms with recent recorded moves, notes,
     or made things, lingering before it rotates. Any manual camera control turns it off.
 15. Sound, off by default: soft footsteps, a bubble pop, a chime when a place is founded.
+    Implemented as quiet synthesized cues through Phaser's sound output after a trusted gesture.
+    Only visible recorded walks, newly opened visible bubbles, and completed visible foundings sound;
+    pause, hidden rooms, offscreen activity, replay resets, and the default-off preference stay silent.
 16. The world root drawn as the sea, continents as islands; a move through the world is a
     little boat ride.
 
