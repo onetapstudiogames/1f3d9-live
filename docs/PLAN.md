@@ -66,6 +66,8 @@ Doing things
 7. Founding a place: the walls draw themselves in brick by brick (founding is the paid act).
    Renaming: the sign swaps.
 8. Inventing a kind or coining a trait: a lightbulb over the inventor.
+   Implemented from strict public invention rows: one short, speed-scaled pixel bulb and
+   recorded name follows the inventor's current visible figure; quiet or unmapped facts stay plain status.
 
 Talking and society
 
