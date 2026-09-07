@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
-test('the fixture draws floors, controls, follow, and the clickable minimap', async ({ page }) => {
+async function loadFixture(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -27,6 +27,11 @@ test('the fixture draws floors, controls, follow, and the clickable minimap', as
   })
   await page.goto('/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places')
   await expect.poll(() => page.evaluate(() => document.body.dataset['liveReady'] ?? ''), { timeout: 30_000 }).toBe('true')
+  return { external, errors }
+}
+
+test('the fixture draws floors and remembers the sound and sleeper controls', async ({ page }) => {
+  const { external, errors } = await loadFixture(page)
   await expect(page.locator('body')).toHaveAttribute('data-live-mode', 'live')
   await expect(page.locator('body')).toHaveAttribute('data-live-sea', 'true')
   await expect(page.locator('body')).toHaveAttribute('data-live-boating', '')
@@ -64,6 +69,13 @@ test('the fixture draws floors, controls, follow, and the clickable minimap', as
   await page.locator('#minimap-toggle').click()
   await expect(page.locator('#minimap-canvas')).toBeVisible()
   await page.screenshot({ path: 'docs/screenshots/latest.png', fullPage: false })
+  expect(external).toEqual([])
+  expect(errors).toEqual([])
+})
+
+test('the fixture follows residents and navigates by minimap and Director', async ({ page }) => {
+  const { external, errors } = await loadFixture(page)
+  await page.getByRole('button', { name: 'Pause', exact: true }).click()
   await expect.poll(() => page.evaluate(() => JSON.parse(document.body.dataset['liveFigures'] ?? '[]').length)).toBeGreaterThan(0)
   const [figure] = await page.evaluate(() => JSON.parse(document.body.dataset['liveFigures']!) as { id: number; x: number; y: number }[])
   expect(figure).toBeDefined()
