@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { initialResidents, residentIndex } from '../src/city/residents.ts'
+import { initialResidents, residentIndex, residentNamePlate } from '../src/city/residents.ts'
 import type { ReplayFile, Resident } from '../src/city/types.ts'
 
 const census: Resident[] = [
@@ -42,4 +42,23 @@ test('initialResidents never resurrects null starts or residents with invalid jo
   const residents = initialResidents(replay, census)
   assert.equal(residents.some(item => item.id === 9), false)
   assert.equal(residents.some(item => item.id === 10), false)
+})
+
+test('a record key is not a name, so no plate is drawn for it', () => {
+  assert.equal(residentNamePlate('resident:12'), null)
+  assert.equal(residentNamePlate('resident 999'), null)
+  assert.equal(residentNamePlate('  resident:7  '), null)
+  assert.equal(residentNamePlate(''), null)
+  assert.equal(residentNamePlate('   '), null)
+  assert.equal(residentNamePlate(null), null)
+  assert.equal(residentNamePlate(undefined), null)
+  assert.equal(residentNamePlate(12), null)
+})
+
+test('a real handle keeps its plate, even one that only looks like a key', () => {
+  assert.equal(residentNamePlate('starter'), 'starter')
+  assert.equal(residentNamePlate('  starter  '), 'starter')
+  assert.equal(residentNamePlate('resident:twelve'), 'resident:twelve')
+  assert.equal(residentNamePlate('resident:12b'), 'resident:12b')
+  assert.equal(residentNamePlate('resident'), 'resident')
 })

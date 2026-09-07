@@ -4,13 +4,17 @@ import test from 'node:test'
 
 import type { ReplayEvent, ReplayFile } from '../src/city/types.ts'
 import {
+  BASE_SPEED,
   advanceClock,
   appliedMove,
+  bubbleDuration,
   bubbleFor,
   bubbleVisible,
   createClock,
   dueEvents,
+  holdScale,
   prepareTimeline,
+  walkDuration,
 } from '../src/replay/index.ts'
 
 const event = (overrides: Partial<ReplayEvent> = {}): ReplayEvent => ({
@@ -132,4 +136,41 @@ test('the timeline is sorted and read once, with unreadable times left until las
   ])
   assert.deepEqual(prepareTimeline([]), [])
   assert.deepEqual(dueEvents(rows, 0, Date.parse('2026-09-07T00:00:02.000Z')).events.map(item => item.event_id), [1, 2, 3])
+})
+
+test('hold lengths shrink with the chosen speed and stop at a floor', () => {
+  assert.equal(holdScale(BASE_SPEED), 1)
+  assert.equal(holdScale(60), 2)
+  assert.equal(holdScale(300), 0.4)
+  assert.equal(holdScale(0), 1)
+  assert.equal(holdScale(Number.NaN), 1)
+
+  assert.equal(bubbleDuration(BASE_SPEED), 5_000)
+  assert.equal(bubbleDuration(60), 10_000)
+  assert.equal(bubbleDuration(300), 2_000)
+  assert.equal(bubbleDuration(100_000), 1_500)
+
+  assert.equal(walkDuration(0, BASE_SPEED), 1_200)
+  assert.equal(walkDuration(600, BASE_SPEED), 3_000)
+  assert.equal(walkDuration(5_000, BASE_SPEED), 4_000)
+  assert.equal(walkDuration(600, 60), 6_000)
+  assert.equal(walkDuration(600, 300), 1_200)
+  assert.equal(walkDuration(0, 300), 480)
+  assert.equal(walkDuration(0, 100_000), 400)
+})
+
+test('a faster speed shortens every hold and never inverts the order of the speeds', () => {
+  const speeds = [60, BASE_SPEED, 300]
+  const holds = speeds.map(speed => bubbleDuration(speed) + walkDuration(0, speed) + walkDuration(900, speed))
+  assert.deepEqual([...holds].sort((left, right) => right - left), holds)
+  assert.ok(holds[2]! < holds[1]!)
+  assert.ok(holds[1]! < holds[0]!)
+})
+
+test('a bubble expires sooner at a faster speed and keeps its recorded words', () => {
+  const note = event({ kind: 'note', line: 'a word' })
+  assert.equal(bubbleFor(note, 10_000)!.expiresAt, 15_000)
+  assert.equal(bubbleFor(note, 10_000, 300)!.expiresAt, 12_000)
+  assert.equal(bubbleFor(note, 10_000, 60)!.expiresAt, 20_000)
+  assert.equal(bubbleFor(note, 10_000, 300)!.text, 'a word')
 })

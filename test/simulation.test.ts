@@ -236,3 +236,76 @@ test('a noop move anchors a first placement quietly and reports only a real skip
   assert.equal(moved.residents[7]!.walking, false)
   assert.deepEqual(moved.issues, ['The record skips part of some routes; those figures reappear at their next recorded room.'])
 })
+
+const threeCensus: readonly Resident[] = [
+  { id: 7, handle: 'walker', current_place_id: 2, model: '', joined_at: '', has_drawing: false, asleep: false },
+  { id: 8, handle: 'still', current_place_id: 2, model: '', joined_at: '', has_drawing: false, asleep: false },
+  { id: 9, handle: 'other', current_place_id: 1, model: '', joined_at: '', has_drawing: false, asleep: false },
+]
+const threeStart = {
+  'resident:7': { origin_event_id: 1, place_id: 2 },
+  'resident:8': { origin_event_id: 1, place_id: 2 },
+  'resident:9': { origin_event_id: 1, place_id: 1 },
+}
+const walkAway = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 })
+const callOther = { ...event('note', { place_id: 2 }, 'over here'), actor: 'other' }
+
+test('a figure walking out of a room no longer holds a spot in it', () => {
+  const oneSpot = { ...layout, rooms: { ...rooms, 2: { ...rooms[2], standing: { x: 420, y: 20, width: 64, height: 64 } } } } as unknown as NestedLayout
+  const aloneStart = {
+    'resident:7': { origin_event_id: 1, place_id: 2 },
+    'resident:8': { origin_event_id: 1, place_id: 1 },
+    'resident:9': { origin_event_id: 1, place_id: 1 },
+  }
+  const state = createResidents({ ...replay(aloneStart), timeline: [] }, threeCensus, oneSpot)
+  const vacated = state.residents[7]!
+  const next = stepResidents(state, [walkAway, callOther], 0, 0, oneSpot)
+
+  assert.equal(next.residents[7]!.walking, true)
+  assert.equal(next.residents[9]!.placeId, 2)
+  assert.deepEqual([next.residents[9]!.x, next.residents[9]!.y], [vacated.x, vacated.y])
+  // Only the honest gap in the record is reported; the room was not called full.
+  assert.deepEqual(next.issues, ['The record skips part of some routes; those figures reappear at their next recorded room.'])
+})
+
+test('the same events at two frame rates end on the same standing spots', () => {
+  const settled = (deltaMs: number): Record<number, { placeId: number | null; x: number; y: number }> => {
+    let state = createResidents({ ...replay(threeStart), timeline: [] }, threeCensus, layout)
+    let now = 0
+    state = stepResidents(state, [walkAway], 0, now, layout)
+    let called = false
+    for (let frame = 0; frame < 4_000 && (state.pending || !called); frame += 1) {
+      now += deltaMs
+      const due = !called && now >= 600 ? [callOther] : []
+      if (due.length) called = true
+      state = stepResidents(state, due, deltaMs, now, layout)
+    }
+    return Object.fromEntries(Object.values(state.residents)
+      .map(resident => [resident.id, { placeId: resident.placeId, x: resident.x, y: resident.y }]))
+  }
+
+  const fine = settled(16)
+  assert.equal(fine[9]!.placeId, 2)
+  assert.equal(fine[7]!.placeId, 3)
+  assert.deepEqual(fine, settled(100))
+  assert.deepEqual(fine, settled(50))
+})
+
+test('a faster chosen speed settles the same events in less time', () => {
+  const settleMs = (speed: number): number => {
+    let state = createResidents(replay(), census, layout)
+    let now = 0
+    state = stepResidents(state, [
+      event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 }),
+      event('note', { place_id: 3 }, 'arrived'),
+    ], 0, now, layout, speed)
+    for (let frame = 0; frame < 20_000 && state.pending; frame += 1) {
+      now += 16
+      state = stepResidents(state, [], 16, now, layout, speed)
+    }
+    return now
+  }
+
+  assert.ok(settleMs(300) < settleMs(120))
+  assert.ok(settleMs(120) < settleMs(60))
+})

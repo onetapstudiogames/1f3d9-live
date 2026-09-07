@@ -1,17 +1,21 @@
 import Phaser from 'phaser'
 import type { Drawing } from '../city/types.ts'
 import { drawingCells } from '../city/drawing.ts'
+import { residentNamePlate } from '../city/residents.ts'
 import type { ResidentState } from '../replay/simulation.ts'
 
 export class ResidentView {
   readonly sprite: Phaser.GameObjects.Image
   private readonly name: Phaser.GameObjects.Text
   private readonly bubble: Phaser.GameObjects.Text
+  private readonly named: boolean
 
   constructor(scene: Phaser.Scene, resident: ResidentState) {
+    const plate = residentNamePlate(resident.handle)
+    this.named = plate !== null
     this.sprite = scene.add.image(resident.x, resident.y, 'resident-default')
       .setScale(4).setDepth(100).setInteractive({ useHandCursor: true }).setData('residentId', resident.id)
-    this.name = scene.add.text(0, 0, resident.handle, {
+    this.name = scene.add.text(0, 0, plate ?? '', {
       fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#172c24',
       backgroundColor: '#e9dfb9', padding: { x: 4, y: 2 },
     }).setOrigin(0.5, 0).setDepth(101)
@@ -25,7 +29,7 @@ export class ResidentView {
   update(resident: ResidentState, zoom: number, now: number, followed: boolean): void {
     const bob = resident.walking ? Math.sin(now / 90) * 2 : 0
     this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
-    this.name.setPosition(resident.x, resident.y + 22).setVisible(resident.visible && (zoom >= 0.45 || followed))
+    this.name.setPosition(resident.x, resident.y + 22).setVisible(this.named && resident.visible && (zoom >= 0.45 || followed))
     const bubble = resident.bubble
     this.bubble.setVisible(resident.visible && bubble !== null)
     if (bubble) {

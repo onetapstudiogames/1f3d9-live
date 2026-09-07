@@ -18,9 +18,32 @@ export type Bubble = Readonly<{
   expiresAt: number
 }>
 
+// The clock runs fast between recorded moments and stands still while a figure walks
+// or a word is up. Those holds are most of what the saved day costs, so they shrink with
+// the chosen speed and stop shrinking at a floor that keeps a walk visible and a line readable.
+export const BASE_SPEED = 120
 const BUBBLE_DURATION_MS = 5_000
+const BUBBLE_FLOOR_MS = 1_500
+const WALK_SHORTEST_MS = 1_200
+const WALK_LONGEST_MS = 4_000
+const WALK_FLOOR_MS = 400
 
-export function createClock(start: string, end: string, speed = 120): Clock {
+export function holdScale(speed: number): number {
+  if (!Number.isFinite(speed) || speed <= 0) return 1
+  return BASE_SPEED / speed
+}
+
+export function walkDuration(distance: number, speed: number = BASE_SPEED): number {
+  const paced = Number.isFinite(distance) && distance > 0 ? distance * 5 : 0
+  const base = Math.min(WALK_LONGEST_MS, Math.max(WALK_SHORTEST_MS, paced))
+  return Math.max(WALK_FLOOR_MS, base * holdScale(speed))
+}
+
+export function bubbleDuration(speed: number = BASE_SPEED): number {
+  return Math.max(BUBBLE_FLOOR_MS, BUBBLE_DURATION_MS * holdScale(speed))
+}
+
+export function createClock(start: string, end: string, speed: number = BASE_SPEED): Clock {
   const startTime = Date.parse(start)
   const endTime = Date.parse(end)
 
@@ -83,14 +106,14 @@ export function appliedMove(event: ReplayEvent): AppliedMove | null {
   return { fromId, toId }
 }
 
-export function bubbleFor(event: ReplayEvent, shownAt: number): Bubble | null {
+export function bubbleFor(event: ReplayEvent, shownAt: number, speed: number = BASE_SPEED): Bubble | null {
   if (event.kind !== 'note' || typeof event.line !== 'string' || event.line.length === 0) return null
   if (!Number.isFinite(shownAt)) return null
 
   return {
     text: event.line,
     cut: event.line_cut === true,
-    expiresAt: shownAt + BUBBLE_DURATION_MS,
+    expiresAt: shownAt + bubbleDuration(speed),
   }
 }
 

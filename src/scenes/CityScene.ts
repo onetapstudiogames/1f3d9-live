@@ -4,6 +4,7 @@ import type { ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
 import { createClock, advanceClock, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
 import { createResidents, stepResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
+import { residentNamePlate } from '../city/residents.ts'
 import { RoomView } from './RoomView.ts'
 import { ResidentView, addDrawingTexture } from './ResidentView.ts'
 import { nearbyRooms } from '../camera.ts'
@@ -63,7 +64,9 @@ export class CityScene extends Phaser.Scene {
       document.body.dataset['liveReady'] = censusRead.status === 'fulfilled' ? 'true' : 'error'
       this.updateHud()
     } catch (error) {
-      this.readIssues.push(`Could not read the public record: ${String(error)}`)
+      // The reader's own words help nobody reading the page; the console keeps them.
+      console.error(error)
+      this.readIssues.push('The public record could not be read.')
       document.body.dataset['liveReady'] = 'error'
       this.updateHud()
     }
@@ -99,7 +102,7 @@ export class CityScene extends Phaser.Scene {
       if (!this.residents.pending) this.clock = advanceClock(this.clock, elapsed)
       const due = dueEvents(this.timeline, this.cursor, this.clock.time)
       this.cursor = due.cursor
-      this.residents = stepResidents(this.residents, due.events, elapsed, this.elapsed, this.layout)
+      this.residents = stepResidents(this.residents, due.events, elapsed, this.elapsed, this.layout, this.clock.speed)
     }
     this.drawResidents()
     this.rooms?.update(this.cameras.main)
@@ -207,8 +210,13 @@ export class CityScene extends Phaser.Scene {
       time.setAttribute('datetime', new Date(this.clock.time).toISOString())
     }
     const resident = this.following === null ? undefined : this.residents?.residents[this.following]
+    const followed = resident ? residentNamePlate(resident.handle) : null
     const view = document.getElementById('view')
-    if (view) view.textContent = resident ? `Following ${resident.handle} · click floor to stop` : this.viewName
+    if (view) {
+      view.textContent = resident
+        ? `Following ${followed ?? 'a figure the resident list does not name'} · click floor to stop`
+        : this.viewName
+    }
     const ended = this.clock && this.clock.time >= this.clock.end && !this.residents?.pending
     const failed = document.body.dataset['liveReady'] === 'error'
     const state = failed ? 'Playback is stopped; the last drawn state is kept.' : !this.clock ? ''
