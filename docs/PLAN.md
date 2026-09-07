@@ -96,6 +96,8 @@ Watching
     it navigates on click and can hide on a phone. Follow keeps an acquired figure inside the view.
 14. Director mode: the camera picks the busiest room on its own and drifts between scenes
     (the stream and screensaver mode).
+    Implemented: the optional Director glides among rooms with recent recorded moves, notes,
+    or made things, lingering before it rotates. Any manual camera control turns it off.
 15. Sound, off by default: soft footsteps, a bubble pop, a chime when a place is founded.
 16. The world root drawn as the sea, continents as islands; a move through the world is a
     little boat ride.

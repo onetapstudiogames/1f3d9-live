@@ -33,6 +33,8 @@ import { browserStorage, markFinishedPlaces, visibleFigureList } from './fixture
 import { currentLawStatus, invalidateCurrentLaws, rememberCurrentLaws } from '../laws.ts'
 import { keepFollowedInView, MinimapView } from './MinimapView.ts'
 import { refreshFollowPicker } from './follow-controls.ts'
+import { DirectorView } from './DirectorView.ts'
+import { updateViewControls } from './view-controls.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -74,6 +76,7 @@ export class CityScene extends Phaser.Scene {
   private clock?: Clock
   private rooms?: RoomView
   private minimap?: MinimapView
+  private readonly director = new DirectorView(this, id => { this.viewPlaceId = id })
   private placePlan?: PlacePlan
   private placeMoments: readonly number[] = []
   private placeAnimations: readonly PlaceAnimation[] = []
@@ -109,6 +112,7 @@ export class CityScene extends Phaser.Scene {
     const sleeperControl = document.querySelector<HTMLInputElement>('#show-sleepers')
     if (sleeperControl) sleeperControl.checked = this.showSleepers
     this.connectControls()
+    this.director.connect(() => this.stopFollowing())
     void this.loadCity()
   }
   private async loadCity(): Promise<void> {
@@ -232,7 +236,7 @@ export class CityScene extends Phaser.Scene {
       document.body.dataset['livePlaceFloor'] = String(this.textures.exists('place-1'))
     }
   }
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     if (!this.clock || !this.residents || !this.layout || !this.replay) return
     if (document.body.dataset['liveReady'] === 'true' && !this.paused) {
       const elapsed = Math.min(100, Math.max(0, delta))
@@ -271,6 +275,7 @@ export class CityScene extends Phaser.Scene {
       }
     }
     this.updateRooms()
+    if (this.director.enabled && this.replay) this.director.update(this.mode === 'live' ? [...this.replay.timeline, ...this.liveHistory] : this.replay.timeline, this.clock.time, time, this.layout, this.contentsHidden)
     this.updateOutlines()
     this.drawThings()
     this.drawResidents()
@@ -374,6 +379,7 @@ export class CityScene extends Phaser.Scene {
   }
   private replayDay(): void {
     if (!this.replay || !this.layout) return
+    this.director.stop()
     this.mode = 'replay'
     this.paused = false
     document.getElementById('pause')!.textContent = 'Pause'
@@ -544,10 +550,10 @@ export class CityScene extends Phaser.Scene {
         if (!batch.length) break
         for (const thing of batch) this.thingReads.add(thing.id)
         await Promise.all(batch.map(async thing => {
-          // One read per thing carries both the name and whether the city has art for it.
-          // A thing that says it has no drawing is never asked for one, as for residents and places.
           let hasDrawing = false
           try {
+            // One read per thing carries both the name and whether the city has art for it.
+            // A thing that says it has no drawing is never asked for one, as for residents and places.
             const detail = await this.readThing(thing.id)
             if (detail) {
               this.thingNames.set(thing.id, detail.name)
@@ -690,6 +696,7 @@ export class CityScene extends Phaser.Scene {
       this.minimap?.setVisible(document.getElementById('minimap')?.hidden === true))
   }
   private zoom(factor: number): void {
+    this.stopFollowing()
     const camera = this.cameras.main
     const x = camera.midPoint.x
     const y = camera.midPoint.y
@@ -699,6 +706,7 @@ export class CityScene extends Phaser.Scene {
     const figure = this.figures.get(id)
     const resident = this.residents?.residents[id]
     if (!figure || !resident || !this.isResidentDrawn(resident)) return
+    this.director.stop()
     const camera = this.cameras.main
     this.tweens.killTweensOf(camera)
     const scrollX = camera.scrollX
@@ -714,6 +722,7 @@ export class CityScene extends Phaser.Scene {
     this.updateHud()
   }
   private stopFollowing(notice = ''): void {
+    this.director.stop()
     this.tweens.killTweensOf(this.cameras.main)
     this.cameras.main.stopFollow()
     this.following = null
@@ -765,18 +774,9 @@ export class CityScene extends Phaser.Scene {
     }
     const resident = this.following === null ? undefined : this.residents?.residents[this.following]
     const followed = resident ? residentNamePlate(resident.handle) : null
-    const view = document.getElementById('view')
-    if (view) {
-      view.textContent = resident
-        ? `Following ${followed ?? 'a figure the resident list does not name'}`
-        : this.viewPlaceId !== null && this.placePlan && this.layout && this.clock
-          ? recordedRoomName(this.placePlan, this.layout.rooms[this.viewPlaceId]!, this.clock.time) ?? 'This room’s earlier name is not recorded.'
-          : this.viewName
-    }
-    const followState = document.getElementById('follow-state')
-    if (followState) followState.textContent = resident ? `Following ${followed ?? 'resident'} ·` : ''
-    const stop = document.querySelector<HTMLButtonElement>('#follow-stop')
-    if (stop) stop.hidden = !resident
+    updateViewControls({ director: this.director.enabled, directorStatus: this.director.status,
+      followed: resident ? followed : undefined, plan: this.placePlan, time: this.clock?.time, overview: this.viewName,
+      place: this.viewPlaceId === null ? undefined : this.layout?.rooms[this.viewPlaceId] })
     const failed = document.body.dataset['liveReady'] === 'error'
     const state = failed ? 'Playback is stopped; the last drawn state is kept.' : !this.clock ? ''
       : document.body.dataset['liveReady'] === 'loading' ? 'Reading resident drawings.'
@@ -791,7 +791,7 @@ export class CityScene extends Phaser.Scene {
       : recordedRoomName(this.placePlan, this.layout.rooms[lawPlace]!, this.clock.time)
     const laws = currentLawStatus(this.currentLaws, lawPlace, lawRoom, this.mode === 'live')
     const staleLaws = this.lawsChanged ? 'The laws changed; reload to read them again.' : ''
-    const status = `${this.readStatus} ${sleep} ${laws} ${staleLaws} ${this.followNotice} ${state}${issues.length ? ` ${issues.join(' ')}` : ''}`.trim()
+    const status = `${this.readStatus} ${sleep} ${laws} ${staleLaws} ${this.director.status} ${this.followNotice} ${state}${issues.length ? ` ${issues.join(' ')}` : ''}`.trim()
     if (status !== this.lastHud) {
       document.getElementById('status')!.textContent = status
       this.lastHud = status
