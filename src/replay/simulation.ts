@@ -173,7 +173,7 @@ function startNext(
       }
       const destination = freeDestination(next.id, walk.toId, all, layout)
       if (!destination) {
-        addIssue(issues, 'route')
+        addIssue(issues, 'placement')
         next = { ...next, queue }
         continue
       }

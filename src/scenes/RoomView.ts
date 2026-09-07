@@ -15,14 +15,31 @@ export class RoomView {
       for (let line = 44; line < Math.min(height, room.standing.height + 52); line += 32) {
         paint.lineBetween(x + 8, y + line, x + width - 8, y + line)
       }
+      const wall = (x1: number, y1: number, x2: number, y2: number, gap: boolean): void => {
+        if (!gap) { paint.lineBetween(x1, y1, x2, y2); return }
+        if (y1 === y2) {
+          paint.lineBetween(x1, y1, door.x - 22, y2)
+          paint.lineBetween(door.x + 22, y1, x2, y2)
+        } else {
+          paint.lineBetween(x1, y1, x2, door.y - 22)
+          paint.lineBetween(x1, door.y + 22, x2, y2)
+        }
+      }
+      const onTop = door.y === y
+      const onBottom = door.y === y + height
+      const onLeft = door.x === x
+      const onRight = door.x === x + width
       paint.lineStyle(7, 0x243c30, 1)
-      paint.beginPath().moveTo(door.x - 22, y + height).lineTo(x, y + height)
-        .lineTo(x, y).lineTo(x + width, y).lineTo(x + width, y + height)
-        .lineTo(door.x + 22, y + height).strokePath()
+      wall(x, y, x + width, y, onTop)
+      wall(x, y + height, x + width, y + height, onBottom)
+      wall(x, y, x, y + height, onLeft)
+      wall(x + width, y, x + width, y + height, onRight)
       paint.lineStyle(2, 0xe2ddaf, 0.8)
-      paint.lineBetween(x + 2, y + 2, x + width - 2, y + 2)
-      paint.lineBetween(x + 2, y + 2, x + 2, y + height - 2)
-      paint.fillStyle(0xe2cc94, 0.65).fillRect(door.x - 20, door.y - 3, 40, 6)
+      wall(x + 2, y + 2, x + width - 2, y + 2, onTop)
+      wall(x + 2, y + 2, x + 2, y + height - 2, onLeft)
+      paint.fillStyle(0xe2cc94, 0.65)
+      if (onTop || onBottom) paint.fillRect(door.x - 20, door.y - 3, 40, 6)
+      else paint.fillRect(door.x - 3, door.y - 20, 6, 40)
       const name = room.name.length > 32 ? `${room.name.slice(0, 31)}…` : room.name
       const text = scene.add.text(x + 12, y + 12, `${name}${room.quiet ? ' · quiet' : ''}`, {
         fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#f8edcf',

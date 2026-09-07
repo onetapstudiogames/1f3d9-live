@@ -2,10 +2,19 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { stageFindFreeSpots } from '../src/ground/stage-ground.ts'
-import { nestedLayout, type Place, type Room } from '../src/ground/nested.ts'
+import { nestedLayout, type Place, type Point, type Room } from '../src/ground/nested.ts'
 import { pointAlongPath, walkPath } from '../src/ground/path.ts'
 
 const overlaps = (a: Room, b: Room): boolean => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+
+const doorWall = (room: Room): string => {
+  const { x, y, width, height, door } = room
+  if (door.x === x && door.y === y + height / 2) return 'left'
+  if (door.x === x + width && door.y === y + height / 2) return 'right'
+  if (door.y === y && door.x === x + width / 2) return 'top'
+  if (door.y === y + height && door.x === x + width / 2) return 'bottom'
+  assert.fail(`Door ${room.id} must be halfway along its own wall`)
+}
 
 test('free spots remain deterministic salvage', () => {
   const entries = Object.freeze(Array.from({ length: 3 }, (_, index) => Object.freeze({ key: `resident:${String(index)}`, kind: 'resident' as const })))
@@ -50,10 +59,23 @@ test('nested layout keeps children inside parents without sibling overlap', () =
     const children = parent.children.map(id => layout.rooms[id]!)
     for (const [index, child] of children.entries()) {
       assert.ok(child.x >= parent.x && child.y >= parent.y && child.x + child.width <= parent.x + parent.width && child.y + child.height <= parent.y + parent.height)
-      assert.equal(child.door.y, child.y + child.height)
+      doorWall(child)
       for (const sibling of children.slice(index + 1)) assert.equal(overlaps(child, sibling), false)
     }
   }
+})
+
+test('doors repeat on reload and successive siblings by id differ, with all four walls in each group of four', () => {
+  // Spaced ids ensure variety does not depend on consecutive ids or their remainder.
+  const places = [{ id: 1, parent_id: null }, ...Array.from({ length: 12 }, (_, index) => ({ id: (index + 1) * 8, parent_id: 1 }))]
+  const capacity = { 8: 25, 32: 4, 64: 10 }
+  const layout = nestedLayout(places, capacity)
+  assert.deepEqual(nestedLayout(JSON.parse(JSON.stringify(places)), { ...capacity }), layout)
+  assert.deepEqual(nestedLayout([...places].reverse(), capacity), layout)
+  for (const room of Object.values(layout.rooms)) doorWall(room)
+  const walls = layout.rooms[1]!.children.map(id => doorWall(layout.rooms[id]!))
+  for (let index = 1; index < walls.length; index += 1) assert.notEqual(walls[index], walls[index - 1])
+  for (let index = 0; index <= walls.length - 4; index += 1) assert.equal(new Set(walls.slice(index, index + 4)).size, 4)
 })
 
 test('standing floor fits every declared occupant with spare choices', () => {
@@ -90,6 +112,60 @@ const crosses = (a: { x: number; y: number }, b: { x: number; y: number }, room:
   if (a.y === b.y) return a.y > room.y && a.y < room.y + room.height && Math.max(Math.min(a.x, b.x), room.x) < Math.min(Math.max(a.x, b.x), room.x + room.width)
   return true
 }
+
+const touchesRectangle = (a: Point, b: Point, room: Room): boolean =>
+  Math.max(a.x, b.x) >= room.x && Math.min(a.x, b.x) <= room.x + room.width &&
+  Math.max(a.y, b.y) >= room.y && Math.min(a.y, b.y) <= room.y + room.height
+
+function assertWallCrossings(a: Point, b: Point, room: Room): void {
+  if (a.x === b.x) {
+    for (const y of [room.y, room.y + room.height]) {
+      if (a.x >= room.x && a.x <= room.x + room.width && y >= Math.min(a.y, b.y) && y <= Math.max(a.y, b.y)) {
+        assert.deepEqual({ x: a.x, y }, room.door, `walk crosses room ${room.id} away from its door`)
+      }
+    }
+  } else {
+    for (const x of [room.x, room.x + room.width]) {
+      if (a.y >= room.y && a.y <= room.y + room.height && x >= Math.min(a.x, b.x) && x <= Math.max(a.x, b.x)) {
+        assert.deepEqual({ x, y: a.y }, room.door, `walk crosses room ${room.id} away from its door`)
+      }
+    }
+  }
+}
+
+test('all door directions route both ways over floor on uneven rows and through nested rooms', () => {
+  const places: Place[] = [{ id: 1, parent_id: null },
+    ...Array.from({ length: 12 }, (_, index) => ({ id: index + 2, parent_id: 1 })),
+    ...Array.from({ length: 8 }, (_, index) => ({ id: index + 20, parent_id: 2 + Math.floor(index / 2) })),
+  ]
+  const layout = nestedLayout(places, { 2: 20, 4: 5, 7: 50, 9: 8, 12: 30, 20: 14, 23: 5 })
+  const rooms = Object.values(layout.rooms)
+  assert.equal(new Set(rooms.map(doorWall)).size, 4)
+  const ancestors = (room: Room): number[] => room.parentId === null ? [room.id] : [room.id, ...ancestors(layout.rooms[room.parentId]!)]
+  for (const from of rooms) for (const to of rooms) {
+    const start = { x: from.standing.x + from.standing.width * 0.79, y: from.standing.y + from.standing.height * 0.83 }
+    const end = { x: to.standing.x + to.standing.width * 0.24, y: to.standing.y + to.standing.height * 0.31 }
+    const path = walkPath(layout, from.id, to.id, start, end)
+    assert.deepEqual(path[0], start)
+    assert.deepEqual(path.at(-1), end)
+    const fromChain = ancestors(from)
+    const toChain = ancestors(to)
+    const lca = fromChain.find(id => toChain.includes(id))!
+    const crossedIds = [...fromChain.slice(0, fromChain.indexOf(lca)), ...toChain.slice(0, toChain.indexOf(lca))]
+    const allowed = new Set([...fromChain, ...toChain])
+    for (const id of crossedIds) assert.ok(path.some(point => point.x === layout.rooms[id]!.door.x && point.y === layout.rooms[id]!.door.y), `missing door ${id}`)
+    for (let index = 1; index < path.length; index += 1) {
+      const a = path[index - 1]!
+      const b = path[index]!
+      assert.ok(a.x === b.x || a.y === b.y, 'every segment is horizontal or vertical')
+      assert.ok(b.x > 0 && b.y > 0 && b.x < layout.width && b.y < layout.height, 'walk stays inside the world')
+      for (const room of rooms) {
+        if (!allowed.has(room.id)) assert.equal(touchesRectangle(a, b, room), false, `${from.id}→${to.id} touches third room ${room.id}`)
+        else assertWallCrossings(a, b, room)
+      }
+    }
+  }
+})
 
 test('walk paths cross each tree-edge door and avoid unrelated rooms', () => {
   const layout = nestedLayout([

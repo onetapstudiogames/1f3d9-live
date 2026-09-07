@@ -40,8 +40,8 @@ samples under `test/fixtures/`) before any work.
 - Phaser 3.90 (stable line; not Phaser 4), Vite, TypeScript strict. No other runtime
   dependency without a reason written in the PR.
 - `src/main.ts` boots one scene. `src/scenes/` holds scenes. `src/city/` is the only place
-  that talks to the city (`api.ts`, `types.ts`). `src/ground/` is the salvaged, pure room and
-  corridor math from the city's step 4 (keep it pure; its tests are `test/ground.test.ts`).
+  that talks to the city (`api.ts`, `types.ts`). `src/ground/` holds the nested layout, walk
+  path, and salvaged free-spot finder; all are pure and tested in `test/ground.test.ts`.
   Put every new pure piece (the replay clock, the sampler, wander rules, bubble timing) in
   `src/` as plain functions with tests under `test/`, and keep Phaser objects thin.
 - `?replay=<url>` on the page reads a saved replay instead of the live city. The smoke test

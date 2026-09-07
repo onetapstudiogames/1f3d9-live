@@ -8,32 +8,34 @@ function append(points: Point[], point: Point): void {
 }
 
 const leftAisle = (room: Room): number => room.x + ROOM_PADDING / 2
-const bottomLane = (room: Room): number => room.y + room.height - ROOM_PADDING / 2
 
-function toOwnDoor(points: Point[], room: Room): void {
-  const current = points.at(-1)!
-  append(points, { x: leftAisle(room), y: current.y })
-  append(points, { x: leftAisle(room), y: bottomLane(room) })
-  append(points, { x: room.door.x, y: bottomLane(room) })
-  append(points, room.door)
+// The inset perimeter is clear of children and connects every door to the left aisle.
+function doorToOwnAisle(room: Room): readonly Point[] {
+  const { door } = room
+  const left = leftAisle(room)
+  const top = room.y + ROOM_PADDING / 2
+  const right = room.x + room.width - ROOM_PADDING / 2
+  const bottom = room.y + room.height - ROOM_PADDING / 2
+  if (door.x === room.x) return [door, { x: left, y: door.y }]
+  if (door.x === room.x + room.width) return [door, { x: right, y: door.y }, { x: right, y: top }, { x: left, y: top }]
+  const laneY = door.y === room.y ? top : bottom
+  return [door, { x: door.x, y: laneY }, { x: left, y: laneY }]
 }
 
-function childDoorToParentAisle(points: Point[], parent: Room, child: Room): void {
-  const laneY = child.door.y + ROOM_GAP / 2
-  append(points, { x: child.door.x, y: laneY })
-  append(points, { x: leftAisle(parent), y: laneY })
-}
-
-function parentAisleToChildDoor(points: Point[], parent: Room, child: Room): void {
-  const laneY = child.door.y + ROOM_GAP / 2
-  append(points, { x: leftAisle(parent), y: laneY })
-  append(points, { x: child.door.x, y: laneY })
-  append(points, child.door)
-}
-
-function doorToOwnAisle(points: Point[], room: Room): void {
-  append(points, { x: room.door.x, y: bottomLane(room) })
-  append(points, { x: leftAisle(room), y: bottomLane(room) })
+function childDoorToParentAisle(layout: NestedLayout, parent: Room, child: Room): readonly Point[] {
+  const { door } = child
+  const bottom = child.y + child.height
+  if (door.y === child.y) {
+    // Shelves align at the bottom. A short room must clear its taller neighbours first.
+    const rowTop = Math.min(...parent.children.map(id => layout.rooms[id]!)
+      .filter(sibling => sibling.y + sibling.height === bottom).map(sibling => sibling.y))
+    const laneY = rowTop - ROOM_GAP / 2
+    return [door, { x: door.x, y: laneY }, { x: leftAisle(parent), y: laneY }]
+  }
+  const laneY = bottom + ROOM_GAP / 2
+  if (door.y === bottom) return [door, { x: door.x, y: laneY }, { x: leftAisle(parent), y: laneY }]
+  const outsideX = door.x + (door.x === child.x ? -ROOM_GAP / 2 : ROOM_GAP / 2)
+  return [door, { x: outsideX, y: door.y }, { x: outsideX, y: laneY }, { x: leftAisle(parent), y: laneY }]
 }
 
 export function walkPath(layout: NestedLayout, fromId: number, toId: number, start: Point, end: Point): readonly Point[] {
@@ -59,14 +61,14 @@ export function walkPath(layout: NestedLayout, fromId: number, toId: number, sta
   const toSet = new Set(toChain.map(room => room.id))
   const lca = fromChain.find(room => toSet.has(room.id))!
   const points: Point[] = [Object.freeze({ ...start })]
+  append(points, { x: leftAisle(from), y: start.y })
 
-  if (from.id === lca.id) append(points, { x: leftAisle(lca), y: start.y })
-  else {
+  if (from.id !== lca.id) {
     let current = from
     while (current.id !== lca.id) {
-      toOwnDoor(points, current)
+      for (const point of [...doorToOwnAisle(current)].reverse()) append(points, point)
       const parent = layout.rooms[current.parentId!]!
-      childDoorToParentAisle(points, parent, current)
+      for (const point of childDoorToParentAisle(layout, parent, current)) append(points, point)
       current = parent
     }
   }
@@ -74,8 +76,8 @@ export function walkPath(layout: NestedLayout, fromId: number, toId: number, sta
   const descent = toChain.slice(0, toChain.findIndex(room => room.id === lca.id)).reverse()
   let parent = lca
   for (const child of descent) {
-    parentAisleToChildDoor(points, parent, child)
-    doorToOwnAisle(points, child)
+    for (const point of [...childDoorToParentAisle(layout, parent, child)].reverse()) append(points, point)
+    for (const point of doorToOwnAisle(child)) append(points, point)
     parent = child
   }
   append(points, { x: leftAisle(to), y: end.y })
