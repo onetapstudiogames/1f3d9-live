@@ -206,6 +206,59 @@ Whole `/api/note/<id>` answers for founder notes 6612, 8578, 10059, 10060, 10065
 rules, count, and corrections. The count predates the current replay window, so
 it is checked in unit scenarios without adding an old event to a browser replay.
 
+## Laws and blocked attempts (checked 2026-09-07)
+
+An anonymous place outline includes effective `place.laws`, an array of
+`{traitId, name, recipe, sourcePlaceId, position}`. These include inherited laws
+through the uninterrupted same-owner chain described by the door. Names are
+current public facts; they do not reconstruct past law changes. The existing
+nearby-room outline read can carry them without a second request. An explicit
+empty array means no laws listed; a missing or malformed list is unknown.
+
+There is no public damage switch. The door, `/api/physics`, and both pages of
+the current trait catalog expose no `damage` field or effect. `destroy` is a
+different, scoped recipe effect: an effective local law may permit that specific
+recipe to destroy another owner's thing. It is not general arena permission.
+Neither a law name nor prose nor a withdrawn thing supports a red arena border.
+
+Public `effect_scheduled` notices carry only `effect_id` and `place_id`.
+`effect_resolved` carries `effect_id`, `status`, and sometimes a bounded `error`.
+Neither identifies a blocked resident, block duration, or expiry. Their actor is
+the originating actor and need not be the effect target. The public physics
+ceiling `max_block_seconds` is a limit, not anyone's remaining time. The city's
+[public event whitelist](https://github.com/onetapstudiogames/1f3d9/blob/main/src/public-events.ts)
+and effect writers confirm this distinction.
+
+An exact `action` row with `detail.status: "blocked"` does record that its actor's
+named action was blocked at that moment. Scree's saved action event 84651, change
+84649, names `move`, `action_id: 71583`, and `source_thing_id: 2477`. It carries no
+room or remaining time. A short padlock can mark that attempt over the figure
+where an earlier recorded placement puts it, without moving the figure or
+claiming a current block. Its display lifetime is presentation, never a numeric
+countdown. Opening at now clears old attempt effects. Failed actions, error prose,
+trait recipes, and timer resolution statuses do not establish such an attempt.
+
+Fourteen whole anonymous answers are saved byte for byte in both fixture trees:
+`physics-laws.json` from `/api/physics`; `traits-laws.json` and
+`traits-laws-page2.json` from `/api/traits?limit=200` and the returned
+`&before_id=17` continuation (200 and 15 traits); `changes-laws.json` from
+`/api/changes?since=0&kind=laws_changed&limit=200` (161 notices, no more);
+`changes-effect-scheduled.json` and `changes-effect-resolved.json` from the same
+query with their exact kinds (200 each, both partial); and
+`events-effect-resolved.json` from `/api/events?kind=effect_resolved&limit=200`
+(the newest 200, partial). The effect samples establish only the public shape,
+not a complete effect history.
+
+`outline-square-laws.json`, `outline-lab-laws.json`, `places/place-97.json`, and
+`places/place-767.json` save `/api/place/<id>?view=outline` for 3, 61, 97, and 767.
+The first two have empty law lists; the regression bench lists three laws, and
+whose footstep lists `waits-for-a-look`. No sample is labelled an arena.
+`events-actions-laws.json`, `events-juniper-laws.json`, and `events-scree-laws.json`
+save `/api/events?kind=action&limit=200`, then the same query with
+`actor=juniper-vale` and `actor=scree`. All three are bounded pages with more.
+The scree page contains six exact blocked attempts, all on September 2; none is
+inserted into a browser replay or staged in the city.
+
 ## Drawings (the sprites)
 
 `GET https://1f3d9.com/api/drawing/resident/:id` and `.../drawing/place/:id`
