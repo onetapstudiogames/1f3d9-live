@@ -19,7 +19,6 @@ import { hiddenRooms, planPlaces, recordedRoomName, type NameSpan, type PlacePla
 import {
   advanceToPlaceMoment, contentHiddenRooms, placeAnimation, stepPlaceAnimations, type PlaceAnimation,
 } from '../place-animation.ts'
-import { followChoices } from '../follow.ts'
 import { readShowSleepers, saveShowSleepers } from '../preferences.ts'
 import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
 import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
@@ -32,6 +31,8 @@ import { readAgreementPairs } from '../agreements.ts'
 import { AgreementLayer } from './AgreementLayer.ts'
 import { browserStorage, markFinishedPlaces, visibleFigureList } from './fixture-state.ts'
 import { currentLawStatus, invalidateCurrentLaws, rememberCurrentLaws } from '../laws.ts'
+import { keepFollowedInView, MinimapView } from './MinimapView.ts'
+import { refreshFollowPicker } from './follow-controls.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -72,6 +73,7 @@ export class CityScene extends Phaser.Scene {
   private recordThingIds: ReadonlySet<number> = new Set()
   private clock?: Clock
   private rooms?: RoomView
+  private minimap?: MinimapView
   private placePlan?: PlacePlan
   private placeMoments: readonly number[] = []
   private placeAnimations: readonly PlaceAnimation[] = []
@@ -87,6 +89,7 @@ export class CityScene extends Phaser.Scene {
   private elapsed = 0
   private paused = false
   private following: number | null = null
+  private followAcquired = false
   private viewName = 'The city, room inside room'
   private viewPlaceId: number | null = null
   private nearbyIndex = 0
@@ -135,6 +138,11 @@ export class CityScene extends Phaser.Scene {
       this.placeAnimations = []
       this.liveState = Object.freeze({ marker: this.replay.checkpoint, seen: new Set<string>(), failures: 0, lastReadAt: null, retryMs: 0 })
       this.rooms = new RoomView(this, this.layout, this.placePlan!)
+      const foundingIds = new Set([...this.placePlan!.foundings.keys(), ...this.placePlan!.unresolvedFoundings])
+      this.minimap = new MinimapView(this.layout, foundingIds, point => {
+        this.stopFollowing(); this.cameras.main.centerOn(point.x, point.y)
+      })
+      this.minimap.setVisible(!window.matchMedia('(max-width: 600px)').matches)
       this.inventionLayer = new InventionLayer(this)
       this.updateRooms()
       addDrawingTexture(this, 'resident-default', null)
@@ -266,6 +274,8 @@ export class CityScene extends Phaser.Scene {
     this.updateOutlines()
     this.drawThings()
     this.drawResidents()
+    this.updateFollowCamera()
+    this.minimap?.update(this.cameras.main, this.following === null ? null : this.figures.get(this.following)?.sprite ?? null, this.contentsHidden)
     this.drawHandovers()
     this.inventionLayer?.update(this.inventions, this.residents, this.contentsHidden, this.cameras.main.zoom)
     if (this.fixtureMode) document.body.dataset['liveInventions'] = String(this.inventions.moments.length)
@@ -524,7 +534,6 @@ export class CityScene extends Phaser.Scene {
     // thing has been drawn at least once. It says nothing about when, and never clears.
     if (this.fixtureMode && motions.length > 0) document.body.dataset['liveHandoverShown'] = 'true'
   }
-
   private async loadThingDetails(): Promise<void> {
     if (this.readingThings) return
     this.readingThings = true
@@ -565,11 +574,9 @@ export class CityScene extends Phaser.Scene {
       }
     } finally { this.readingThings = false }
   }
-
   private thingReadIssue(message: string): void {
     if (!this.readIssues.includes(message)) this.readIssues.push(message)
   }
-
   private drawResidents(): void {
     const camera = this.cameras.main
     const state = this.residents?.residents ?? {}
@@ -679,62 +686,57 @@ export class CityScene extends Phaser.Scene {
       document.getElementById('follow-open')?.setAttribute('aria-expanded', 'false')
     })
     document.getElementById('follow-stop')?.addEventListener('click', () => this.stopFollowing())
+    document.getElementById('minimap-toggle')?.addEventListener('click', () =>
+      this.minimap?.setVisible(document.getElementById('minimap')?.hidden === true))
   }
-
   private zoom(factor: number): void {
     const camera = this.cameras.main
     const x = camera.midPoint.x
     const y = camera.midPoint.y
     camera.setZoom(Phaser.Math.Clamp(camera.zoom * factor, 0.005, 3)).centerOn(x, y)
   }
-
   private follow(id: number): void {
     const figure = this.figures.get(id)
     const resident = this.residents?.residents[id]
     if (!figure || !resident || !this.isResidentDrawn(resident)) return
     const camera = this.cameras.main
+    this.tweens.killTweensOf(camera)
     const scrollX = camera.scrollX
     const scrollY = camera.scrollY
     this.following = id
+    this.followAcquired = false
     this.followNotice = ''
     camera.startFollow(figure.sprite, false, 0.12, 0.12)
-    // Phaser centres immediately inside startFollow. Restore this frame so the following
-    // frames make the visible glide instead of jumping straight to the figure.
     camera.setScroll(scrollX, scrollY)
+    camera.stopFollow()
     this.tweens.add({ targets: camera, zoom: Math.max(0.65, camera.zoom), duration: 350, ease: 'Sine.Out' })
     document.body.dataset['liveFollowing'] = String(id)
     this.updateHud()
   }
-
   private stopFollowing(notice = ''): void {
+    this.tweens.killTweensOf(this.cameras.main)
     this.cameras.main.stopFollow()
     this.following = null
+    this.followAcquired = false
     this.followNotice = notice
     document.body.dataset['liveFollowing'] = ''
     this.updateHud()
   }
-
   private isResidentDrawn(resident: Simulation['residents'][number]): boolean {
     const hiddenRoom = (resident.placeId !== null && this.contentsHidden.has(resident.placeId)) ||
       (resident.destinationId !== null && this.contentsHidden.has(resident.destinationId))
     return resident.visible && !hiddenRoom && (this.showSleepers || !this.sleepers.has(resident.id))
   }
-
-  private updateFollowChoices(): void {
-    const search = document.querySelector<HTMLInputElement>('#follow-search')?.value ?? ''
-    const residents = Object.values(this.residents?.residents ?? {}).map(resident =>
-      this.isResidentDrawn(resident) ? resident : { ...resident, visible: false })
-    const choices = followChoices(residents, this.sleepers, this.showSleepers, search)
-    const serialized = JSON.stringify(choices)
-    if (serialized === this.lastFollowChoices) return
-    this.lastFollowChoices = serialized
-    const picker = document.querySelector<HTMLSelectElement>('#follow-picker')
-    if (!picker) return
-    const prompt = new Option('Choose a resident…', '', true, true)
-    prompt.disabled = true
-    picker.replaceChildren(prompt, ...choices.map(choice => new Option(choice.name, String(choice.id))))
+  private updateFollowCamera(): void {
+    if (this.following === null) return
+    const figure = this.figures.get(this.following)
+    if (!figure) return
+    this.followAcquired = keepFollowedInView(this.cameras.main, figure.sprite, this.followAcquired)
   }
-
+  private updateFollowChoices(): void {
+    this.lastFollowChoices = refreshFollowPicker(this.residents?.residents ?? {}, this.sleepers, this.showSleepers,
+      this.lastFollowChoices, resident => this.isResidentDrawn(resident))
+  }
   private focusResidents(): void {
     this.stopFollowing()
     if (!this.layout || !this.residents) return
@@ -747,7 +749,6 @@ export class CityScene extends Phaser.Scene {
     this.cameras.main.setZoom(zoom).centerOn(room.x + room.width / 2, room.y + room.height / 2)
     this.viewPlaceId = room.id
   }
-
   private showWholeCity(): void {
     if (!this.layout) return
     this.stopFollowing()
@@ -756,7 +757,6 @@ export class CityScene extends Phaser.Scene {
     this.cameras.main.setZoom(Math.min((this.scale.width - 40) / this.layout.width, (this.scale.height - 210) / this.layout.height))
       .centerOn(this.layout.width / 2, this.layout.height / 2)
   }
-
   private updateHud(): void {
     const time = document.getElementById('clock')
     if (time && this.clock) {

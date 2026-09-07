@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
-test('the fixture draws tiled floors, sleeper control, and both ways to follow', async ({ page }) => {
+test('the fixture draws floors, controls, follow, and the clickable minimap', async ({ page }) => {
   const external: string[] = []
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -49,7 +49,12 @@ test('the fixture draws tiled floors, sleeper control, and both ways to follow',
   expect(await page.evaluate(() => localStorage.getItem('1f3d9-live-show-sleepers'))).toBe('true')
   await page.getByRole('checkbox', { name: 'Show sleepers' }).uncheck()
   await expect(page.locator('#status')).toContainText('735 places')
-  await expect(page.locator('canvas')).toBeVisible()
+  await expect(page.locator('#app canvas')).toBeVisible()
+  await expect(page.locator('#minimap-canvas')).toBeVisible()
+  await page.locator('#minimap-toggle').click()
+  await expect(page.locator('#minimap-canvas')).toBeHidden()
+  await page.locator('#minimap-toggle').click()
+  await expect(page.locator('#minimap-canvas')).toBeVisible()
   await page.screenshot({ path: 'docs/screenshots/latest.png', fullPage: false })
   await expect.poll(() => page.evaluate(() => JSON.parse(document.body.dataset['liveFigures'] ?? '[]').length)).toBeGreaterThan(0)
   const [figure] = await page.evaluate(() => JSON.parse(document.body.dataset['liveFigures']!) as { id: number; x: number; y: number }[])
@@ -65,7 +70,7 @@ test('the fixture draws tiled floors, sleeper control, and both ways to follow',
   await page.getByRole('listbox', { name: 'Choose resident' }).selectOption(firstChoice.value)
   await expect(page.locator('body')).toHaveAttribute('data-live-following', firstChoice.value)
   await expect(page.locator('#view')).toContainText('Following')
-  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await page.locator('#minimap-canvas').click({ position: { x: 40, y: 40 } })
   await expect(page.locator('body')).toHaveAttribute('data-live-following', '')
   await page.getByRole('checkbox', { name: 'Show sleepers' }).check()
   await page.getByRole('button', { name: 'Follow', exact: true }).click()
