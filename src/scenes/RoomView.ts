@@ -3,7 +3,7 @@ import type { NestedLayout, Room } from '../ground/nested.ts'
 import { daylightAt, roomWindows, windowsLit } from '../daylight.ts'
 import type { Drawing } from '../city/types.ts'
 import { drawingCells } from '../city/drawing.ts'
-import { curtainCells, roomSignPlacement, roomsToDraw } from '../room-art.ts'
+import { curtainCells, placeFloorArt, roomsToDraw } from '../room-art.ts'
 import { recordedRoomName, type PlacePlan } from '../places.ts'
 import {
   animationProgress, brickCount, placeAnimationsByKind, signScale, wallBricks, type PlaceAnimation,
@@ -17,6 +17,7 @@ export class RoomView {
   private readonly surfaces = new Map<number, {
     paint: Phaser.GameObjects.Graphics; windows: Phaser.GameObjects.Graphics
     building: Phaser.GameObjects.Graphics | null; bricks: ReturnType<typeof wallBricks>; drawn: number
+    art: Phaser.GameObjects.TileSprite | null; shade: Phaser.GameObjects.Rectangle | null
   }>()
 
   constructor(scene: Phaser.Scene, layout: NestedLayout, private readonly plan: PlacePlan) {
@@ -29,7 +30,7 @@ export class RoomView {
       const windows = scene.add.graphics().setDepth(0.5 + depth).setVisible(false)
       const bricks = plan.foundings.has(room.id) ? wallBricks(room) : []
       const building = bricks.length ? scene.add.graphics().setDepth(depth).setVisible(false) : null
-      this.surfaces.set(room.id, { paint, windows, building, bricks, drawn: -1 })
+      this.surfaces.set(room.id, { paint, windows, building, bricks, drawn: -1, art: null, shade: null })
       const { x, y, width, height, door } = room
       paint.fillStyle(0x0a1916, 0.35).fillRect(x + 7, y + 9, width, height)
       const floorColor = floors[Math.min(room.depth, floors.length - 1)]!
@@ -99,21 +100,21 @@ export class RoomView {
 
   addDrawing(scene: Phaser.Scene, id: number, drawing: Drawing): void {
     const plate = this.plates.get(id)
+    const surface = this.surfaces.get(id)
     const key = `place-${id}`
-    if (!plate || plate.room.quiet || scene.textures.exists(key)) return
-    const sign = roomSignPlacement(plate.room)
+    if (!plate || !surface || plate.room.quiet || scene.textures.exists(key)) return
+    const floor = placeFloorArt(plate.room)
     const paint = scene.make.graphics({ x: 0, y: 0 })
-    for (const cell of drawingCells(drawing)) paint.fillStyle(cell.color).fillRect(cell.x, cell.y, 1, 1)
-    paint.generateTexture(key, 8, 8)
+    for (const cell of drawingCells(drawing)) {
+      paint.fillStyle(cell.color).fillRect(cell.x * floor.cellSize, cell.y * floor.cellSize, floor.cellSize, floor.cellSize)
+    }
+    paint.generateTexture(key, floor.tileSize, floor.tileSize)
     paint.destroy()
-    const frame = scene.add.graphics()
-      .fillStyle(0xe2ddaf).fillRect(-2, -2, sign.size + 4, sign.size + 4)
-      .fillStyle(0x273c30).fillRect(0, 0, sign.size, sign.size)
-    const art = scene.add.image(0, 0, key).setOrigin(0).setScale(sign.size / 8)
-    plate.group.add([frame, art])
-    plate.text.setPosition(sign.nameX - sign.x, sign.nameY - sign.y)
-    plate.text.setCrop(0, 0, Math.min(plate.text.width, sign.nameWidth), plate.text.height)
-    this.plates.set(id, { ...plate, nameOffset: sign.nameX - sign.x })
+    const depth = plate.room.depth / 1000
+    surface.art = scene.add.tileSprite(floor.x, floor.y, floor.width, floor.height, key).setOrigin(0)
+      .setTilePosition(floor.tileOffsetX, floor.tileOffsetY).setDepth(depth + 0.0001).setVisible(false)
+    surface.shade = scene.add.rectangle(floor.x, floor.y, floor.width, floor.height, 0x142722, floor.shadeAlpha)
+      .setOrigin(0).setDepth(depth + 0.0002).setVisible(false)
   }
 
   update(camera: Phaser.Cameras.Scene2D.Camera, recordedTime: number, now: number,
@@ -131,6 +132,8 @@ export class RoomView {
       const founding = animation?.founding ?? null
       const shown = !contentsHidden.has(id)
       surface.paint.setVisible(shown)
+      surface.art?.setVisible(shown)
+      surface.shade?.setVisible(shown)
       surface.windows.setVisible(shown && lit)
       if (surface.building) {
         // The parent floor stays bare until this row is due. Children wait for the parent walls.

@@ -17,10 +17,18 @@
     .eyebrow { color: #c3cda9; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; margin-bottom: 5px; }
     #view, .hint { color: #c2ccb8; font-size: 12px; }
     #clock { display: block; font: 17px/1.5 ui-monospace, monospace; font-variant-numeric: tabular-nums; }
-    .controls { display: flex; gap: 6px; margin-top: 8px; pointer-events: auto; }
-    button, select { border: 1px solid #7b9173; background: #243e32; color: #f3ecd9; border-radius: 3px; font: inherit; padding: 5px 10px; cursor: pointer; min-height: 34px; }
+    .controls { display: flex; gap: 6px; margin-top: 8px; pointer-events: auto; align-items: center; flex-wrap: wrap; }
+    button, select, input { border: 1px solid #7b9173; background: #243e32; color: #f3ecd9; border-radius: 3px; font: inherit; padding: 5px 10px; min-height: 34px; }
+    button, select { cursor: pointer; }
     button:hover, select:hover { background: #385641; }
-    button:focus-visible, select:focus-visible { outline: 2px solid #e2c977; outline-offset: 2px; }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #e2c977; outline-offset: 2px; }
+    .check { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; cursor: pointer; }
+    .check input { min-height: 0; accent-color: #e2c977; }
+    .follow { position: relative; pointer-events: auto; }
+    #follow-menu { position: absolute; top: calc(100% + 5px); right: 0; width: 220px; padding: 8px; background: #142722f5; border: 1px solid #7b9173; z-index: 3; }
+    #follow-menu input, #follow-menu select { width: 100%; }
+    #follow-menu select { margin-top: 6px; }
+    #follow-state { color: #c2ccb8; font-size: 12px; white-space: nowrap; }
     footer { bottom: 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
     #status { max-width: 760px; margin: 0; font-size: 12px; }
     .zoom { display: flex; gap: 6px; pointer-events: auto; }
@@ -33,7 +41,10 @@
       .clock-panel { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
       #clock { font-size: 12px; }
       .controls { margin: 0; gap: 4px; }
-      button, select { padding: 4px 7px; font-size: 12px; }
+      button, select, input { padding: 4px 7px; font-size: 12px; }
+      .clock-panel { flex-wrap: wrap; }
+      .clock-panel .controls { width: 100%; }
+      #follow-menu { position: fixed; top: 126px; left: 10px; right: 10px; width: auto; }
       .hint { display: none; }
       footer { flex-wrap: wrap-reverse; }
       #status { width: 100%; font-size: 11px; }
@@ -54,6 +65,15 @@
       <div class="controls">
         <button id="pause" type="button">Pause</button>
         <select id="speed" aria-label="Replay speed"><option value="60">60×</option><option value="120" selected>120×</option><option value="300">300×</option></select>
+        <label class="check"><input id="show-sleepers" type="checkbox"> Show sleepers</label>
+        <div class="follow">
+          <button id="follow-open" type="button" aria-expanded="false">Follow</button>
+          <div id="follow-menu" hidden>
+            <input id="follow-search" type="search" aria-label="Find resident" placeholder="Find a resident">
+            <select id="follow-picker" aria-label="Choose resident" size="6"></select>
+          </div>
+        </div>
+        <span id="follow-state"></span><button id="follow-stop" type="button" hidden>Stop</button>
       </div>
     </div>
   </header>
