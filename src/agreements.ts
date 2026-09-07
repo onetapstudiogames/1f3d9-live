@@ -12,8 +12,8 @@ export type HandshakePlan = Readonly<{ signature: AgreementSignature; leftId: nu
 export type HandshakeFrame = Readonly<{ left: Point; right: Point; hands: boolean; shake: number; agreementId: number }>
 export type StartedHandshake = Readonly<{ plan: HandshakePlan; speed: number }>
 
-const DURATION_MS = 1_800
-const FLOOR_MS = 700
+const DURATION_MS = 5_600
+const FLOOR_MS = 1_800
 const HAND_CELL_VALUES: Array<{ x: number; y: number }> = [
   { x: -3, y: 0 }, { x: -2, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 },
   { x: -1, y: 1 }, { x: 0, y: 1 },
@@ -41,8 +41,7 @@ export function planHandshake(signature: AgreementSignature, residents: Readonly
     || !eligible(first) || !eligible(second)) return null
   const room = layout.rooms[first.placeId]
   if (!room || hiddenRoom(layout, room.id)) return null
-  if (Object.values(residents).some(row => row.id !== first.id && row.id !== second.id && row.walking
-    && (row.placeId === room.id || row.destinationId === room.id))) return null
+  if (Object.values(residents).some(row => row.id !== first.id && row.id !== second.id && row.walking)) return null
   const dx = second.x - first.x; const dy = second.y - first.y; const distance = Math.hypot(dx, dy)
   if (!Number.isFinite(distance) || distance < 36) return null
   const ux = dx / distance; const uy = dy / distance; const middle = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 }
@@ -50,6 +49,8 @@ export function planHandshake(signature: AgreementSignature, residents: Readonly
   const leftTarget = Object.freeze({ x: Math.floor(middle.x - ux * half), y: Math.floor(middle.y - uy * half) })
   const rightTarget = Object.freeze({ x: Math.ceil(middle.x + ux * half), y: Math.ceil(middle.y + uy * half) })
   if (Math.max(Math.abs(leftTarget.x - rightTarget.x), Math.abs(leftTarget.y - rightTarget.y)) < 32) return null
+  if (Math.hypot(first.x - leftTarget.x, first.y - leftTarget.y) > 160
+    || Math.hypot(second.x - rightTarget.x, second.y - rightTarget.y) > 160) return null
   const obstacles = [
     ...Object.values(residents).filter(row => row.id !== first.id && row.id !== second.id && row.placeId === room.id)
       .map(row => ({ x: row.x, y: row.y, clearance: 32 })),
@@ -66,10 +67,10 @@ export function handshakeFrame(plan: HandshakePlan, now: number, speed = BASE_SP
   if (!Number.isFinite(now) || now < plan.startedAt) return null
   const duration = handshakeDuration(speed); const progress = (now - plan.startedAt) / duration
   if (progress >= 1) return null
-  const meeting = progress < 0.3 ? progress / 0.3 : progress <= 0.7 ? 1 : (1 - progress) / 0.3
+  const meeting = progress < 0.4 ? progress / 0.4 : progress <= 0.6 ? 1 : (1 - progress) / 0.4
   const point = (from: Point, to: Point): Point => Object.freeze({ x: Math.round(from.x + (to.x - from.x) * meeting), y: Math.round(from.y + (to.y - from.y) * meeting) })
   return Object.freeze({ left: point(plan.leftStart, plan.leftTarget), right: point(plan.rightStart, plan.rightTarget),
-    hands: progress >= 0.3 && progress <= 0.7, shake: progress >= 0.3 && progress <= 0.7 ? Math.round(progress * 12) % 2 : 0,
+    hands: progress >= 0.4 && progress <= 0.6, shake: progress >= 0.4 && progress <= 0.6 ? Math.round(progress * 12) % 2 : 0,
     agreementId: plan.signature.agreementId })
 }
 

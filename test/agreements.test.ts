@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agreementSignature, HAND_PIXELS, handshakeDuration, handshakeFrame, planHandshake } from '../src/agreements.ts'
+import { agreementSignature, HAND_PIXELS, handshakeDuration, handshakeFrame, planHandshake, readAgreementPairs } from '../src/agreements.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
 import type { ReplayFile, Resident } from '../src/city/types.ts'
@@ -42,7 +42,15 @@ test('different, quiet, busy, or blocked pairs do not invent a meeting', () => {
   assert.equal(planHandshake(agreementSignature(sign(), pair)!, base, quiet, {}), null)
   assert.equal(planHandshake(agreementSignature(sign(), pair)!, { ...base, 3: resident(3, 'carol', 150) }, layout, {}), null)
   assert.equal(planHandshake(agreementSignature(sign(), pair)!, { ...base, 3: { ...resident(3, 'carol', 50), walking: true } }, layout, {}), null)
+  assert.equal(planHandshake(agreementSignature(sign(), pair)!, { ...base, 3: { ...resident(3, 'carol', 50), placeId: 2,
+    destinationId: 3, walking: true } }, layout, {}), null)
   assert.equal(planHandshake(agreementSignature(sign(), pair)!, base, layout, { 1: [{ key: 'thing:1', kind: 'thing', x: 134, y: 84, width: 32, height: 32 }] }), null)
+})
+
+test('a distant pair stays unstaged instead of dashing across a huge floor', () => {
+  const huge = { ...layout, width: 1_000, rooms: { 1: { ...layout.rooms[1]!, width: 1_000,
+    standing: { x: 20, y: 20, width: 960, height: 160 } } } } as unknown as NestedLayout
+  assert.equal(planHandshake(agreementSignature(sign(), pair)!, { 1: resident(1, 'ada', 40), 2: resident(2, 'bob', 960) }, huge, {}), null)
 })
 
 test('meeting routes refuse an inflated child wall and diagonal square overlap', () => {
@@ -56,13 +64,30 @@ test('meeting routes refuse an inflated child wall and diagonal square overlap',
 })
 
 test('timing scales to a floor and the hands are crisp immutable pixels', () => {
-  assert.equal(handshakeDuration(60), 3_600)
-  assert.equal(handshakeDuration(120), 1_800)
-  assert.equal(handshakeDuration(300), 720)
-  assert.equal(handshakeDuration(1_000), 700)
+  assert.equal(handshakeDuration(60), 11_200)
+  assert.equal(handshakeDuration(120), 5_600)
+  assert.equal(handshakeDuration(300), 2_240)
+  assert.equal(handshakeDuration(1_000), 1_800)
   assert.ok(HAND_PIXELS.length > 4)
   assert.ok(HAND_PIXELS.every(cell => Number.isInteger(cell.x) && Number.isInteger(cell.y)))
   assert.ok(Object.isFrozen(HAND_PIXELS))
+})
+
+test('agreement pair reads run four at a time, retain successes, and report failures', async () => {
+  const events = Array.from({ length: 10 }, (_, index) => ({ ...sign(), change_id: String(index + 1), event_id: index + 1 }))
+  let active = 0; let peak = 0
+  const result = await readAgreementPairs(events, async event => {
+    active += 1; peak = Math.max(peak, active)
+    await new Promise(resolve => setTimeout(resolve, 1))
+    active -= 1
+    if (event.change_id === '6') throw new Error('offline')
+    return event.change_id === '8' ? null : { agreementId: 14, parties: ['ada', 'bob'] }
+  }, new Map([['1', { agreementId: 14, parties: ['ada', 'bob'] as const }]]))
+  assert.equal(peak, 4)
+  assert.equal(result.failed, true)
+  assert.equal(result.pairs.size, 8)
+  assert.equal(result.pairs.has('6'), false)
+  assert.equal(result.pairs.has('8'), false)
 })
 
 test('a signature holds both people and leaves the signer next event queued', () => {

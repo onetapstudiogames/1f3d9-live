@@ -76,7 +76,7 @@ Talking and society
    Implemented with recorded excerpts, grapheme-safe typing, bounded scrolling, and opaque
    pixel backgrounds selected only by the verified asking or telling room.
 10. Signing an agreement: two figures meet and shake hands, the agreement number over them.
-    Implemented for verified two-party signatures when both visible figures share a clear room;
+    Implemented for verified two-party signatures when both visible figures share a clear, close meeting route;
     otherwise the public record stays visible as a plain status rather than inventing a meeting.
 11. The showing room's contest: a spotlight on whoever posts an act, tiny ballots dropping
     in when votes land, confetti when the count is published.
