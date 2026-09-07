@@ -320,6 +320,16 @@ Only a direct thing row with `has_drawing: true` causes an art read; an absent f
 default parcel. `test/fixtures/places/place-3.json` is the byte-exact public square outline
 saved on 2026-09-07, matched in the public fixture tree.
 
+## Rooms with distinct speech bubbles
+
+On 2026-09-07, anonymous `GET /api/map?view=outline&parent_id=249&limit=1`
+returned place 249 named `the asking room`; the same read with `parent_id=422`
+returned place 422 named `the telling room`. Both are open to notes and are not
+quiet. The whole answers are saved byte for byte as `map-asking-room.json` and
+`map-telling-room.json` in both fixture trees. These small answers verify those
+rooms only; their `map_complete: false` does not describe the whole city map.
+Bubble styles use the recorded room, never guesses from a note's words.
+
 ## Facts about the city itself
 
 `GET https://1f3d9.com/api/official` → treasury, network, statement ("There is no 1F3D9 token..."),
