@@ -1,4 +1,4 @@
-import type { ReplayEvent, ReplayFile } from './city/types.ts'
+import type { PlaceOutline, ReplayEvent, ReplayFile } from './city/types.ts'
 import type { NestedLayout } from './ground/nested.ts'
 import { stageFindFreeSpots, type StageStandingEntry, type StageStandingSpot } from './ground/stage-ground.ts'
 import { BASE_SPEED, holdScale } from './replay/index.ts'
@@ -85,6 +85,48 @@ export function createThings(replay: ReplayFile, layout: NestedLayout): ThingSim
     things[id] = thingAt(spot, null, null)
   }
   return freezeThings(things, plan.reservations, plan.issues, [])
+}
+
+export function recordThingIds(replay: ReplayFile): ReadonlySet<number> {
+  const ids = new Set<number>()
+  for (const key of Object.keys(replay.start)) {
+    const match = /^thing:(\d+)$/.exec(key)
+    if (match && validId(Number(match[1]))) ids.add(Number(match[1]))
+  }
+  for (const event of replay.timeline) {
+    for (const value of [event.detail.thing_id, event.detail.source_thing_id]) if (validId(value)) ids.add(value)
+    if ((event.detail.asset_type === 'thing' || event.detail.type === 'thing') && validId(event.detail.asset_id ?? event.detail.id)) {
+      ids.add((event.detail.asset_id ?? event.detail.id) as number)
+    }
+  }
+  return ids
+}
+
+export function addPresentThings(
+  state: ThingSimulation,
+  outline: PlaceOutline,
+  layout: NestedLayout,
+  recordKnown: ReadonlySet<number>,
+  blockers: readonly StageStandingSpot[],
+): ThingSimulation {
+  const room = layout.rooms[outline.placeId]
+  if (!room || outline.quiet || !placeVisible(layout, outline.placeId)) return state
+  const additions = outline.things.filter(thing => !recordKnown.has(thing.id) && !state.things[thing.id]).sort((a, b) => a.id - b.id)
+  const oldSpots = state.reservations[outline.placeId] ?? []
+  const entries: StageStandingEntry[] = additions.map(thing => ({ key: `thing:${thing.id}`, kind: 'thing' as const }))
+  const placed = stageFindFreeSpots(entries, room.standing, {}, [], [...oldSpots, ...blockers])
+  const things = { ...state.things }
+  for (const thing of additions) {
+    const spot = placed[`thing:${thing.id}`]
+    if (spot) things[thing.id] = thingAt({ id: thing.id, placeId: thing.placeId, x: spot.x + 16, y: spot.y + 16 }, thing.name, null)
+  }
+  const roomReservations = [...oldSpots, ...Object.values(placed).filter(spot => spot.kind === 'thing')]
+  const reservations = { ...state.reservations, [outline.placeId]: roomReservations }
+  const shown = additions.filter(thing => things[thing.id]).length
+  const omitted = outline.hasMore || shown < additions.length
+  const issue = omitted ? `Current read for room ${outline.placeId} lists ${outline.totalItems} things; only the newest items that fit are shown.` : null
+  const issues = issue && !state.issues.includes(issue) ? [...state.issues, issue] : state.issues
+  return freezeThings(things, freezeReservations(reservations), issues, state.queue)
 }
 
 export function stepThings(state: ThingSimulation, events: readonly ReplayEvent[], nowMs: number, speed: number = BASE_SPEED): ThingSimulation {

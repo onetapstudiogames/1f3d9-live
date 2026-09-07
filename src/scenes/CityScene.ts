@@ -1,16 +1,17 @@
 import Phaser from 'phaser'
-import { fetchReplay, fetchCensus, createDrawingLoader, createThingLoader, createNameHistoryLoader } from '../city/api.ts'
-import type { ReplayFile, Resident } from '../city/types.ts'
+import { fetchReplay, fetchCensus, createDrawingLoader, createThingLoader, createNameHistoryLoader, createPlaceOutlineLoader } from '../city/api.ts'
+import type { PlaceOutline, ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
 import { createClock, chosenSpeed, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
 import { createResidents, stepResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
 import { residentNamePlate } from '../city/residents.ts'
 import { RoomView } from './RoomView.ts'
 import { ResidentView, addDrawingTexture } from './ResidentView.ts'
-import { nearbyRooms } from '../camera.ts'
+import { nearbyRooms, roomsInCamera } from '../camera.ts'
 import { sleepingResidents } from '../sleep.ts'
 import { placesWithDrawings } from '../room-art.ts'
-import { createThings, stepThings, type ThingSimulation } from '../things.ts'
+import { addPresentThings, createThings, recordThingIds, stepThings, type ThingSimulation } from '../things.ts'
+import type { StageStandingSpot } from '../ground/stage-ground.ts'
 import { ThingView, addThingTexture } from './ThingView.ts'
 import { createHandovers, stepHandovers, type HandoverState } from '../handovers.ts'
 import { HandoverView } from './HandoverView.ts'
@@ -36,6 +37,11 @@ export class CityScene extends Phaser.Scene {
   private readingThings = false
   private readonly readThing = createThingLoader()
   private readonly readThingDrawing = createDrawingLoader(undefined, 'thing')
+  private readonly readOutline = createPlaceOutlineLoader()
+  private outlineReads = new Set<number>()
+  private outlineActive = 0
+  private outlinePending = new Map<number, PlaceOutline>()
+  private recordThingIds: ReadonlySet<number> = new Set()
   private clock?: Clock
   private rooms?: RoomView
   private placePlan?: PlacePlan
@@ -93,6 +99,7 @@ export class CityScene extends Phaser.Scene {
       await this.loadPlaceNames()
       this.sleepers = sleepingResidents(this.replay, census)
       this.things = createThings(this.replay, this.layout)
+      this.recordThingIds = recordThingIds(this.replay)
       this.handovers = createHandovers(this.replay.timeline)
       this.residents = createResidents(this.replay, census, this.layout, this.things.reservations)
       this.rooms = new RoomView(this, this.layout, this.placePlan!)
@@ -217,6 +224,7 @@ export class CityScene extends Phaser.Scene {
       if (this.things) this.things = stepThings(this.things, this.handoverFrame?.floorEvents ?? due.events, this.elapsed, this.clock.speed)
     }
     this.updateRooms()
+    this.updateOutlines()
     this.drawThings()
     this.drawResidents()
     this.drawHandovers()
@@ -264,6 +272,71 @@ export class CityScene extends Phaser.Scene {
       document.body.dataset['liveThings'] = JSON.stringify(Object.values(state).filter(thing => thing.visible && !this.contentsHidden.has(thing.placeId)).map(thing => ({
         id: thing.id, name: thing.name ?? this.thingNames.get(thing.id) ?? null,
       })))
+      document.body.dataset['liveOutlineThing'] = String(Boolean(state[2627]?.visible))
+    }
+  }
+
+  private updateOutlines(): void {
+    if (!this.layout || !this.residents || !this.things || document.body.dataset['liveReady'] !== 'true') return
+    for (const [id, outline] of this.outlinePending) {
+      if (this.roomHasWalker(id)) continue
+      this.outlinePending.delete(id)
+      this.mergeOutline(outline)
+    }
+    const slots = 4 - this.outlineActive
+    if (slots <= 0) return
+    const candidates = roomsInCamera(this.layout, this.cameras.main.worldView, this.cameras.main.zoom)
+      .filter(room => !this.contentsHidden.has(room.id) && !this.outlineReads.has(room.id)).slice(0, slots)
+    for (const room of candidates) {
+      this.outlineReads.add(room.id)
+      this.outlineActive += 1
+      void this.readOutline(room.id).then(outline => {
+        if (!outline) {
+          if (!this.fixtureMode) this.thingReadIssue('A nearby room outline was missing; its floor is kept.')
+          return
+        }
+        if (this.contentsHidden.has(room.id)) return
+        if (this.roomHasWalker(room.id)) this.outlinePending.set(room.id, outline)
+        else this.mergeOutline(outline)
+      }).catch(error => {
+        console.error(error)
+        this.thingReadIssue('Some nearby room things could not be read; their floors are kept.')
+      }).finally(() => { this.outlineActive -= 1 })
+    }
+  }
+
+  private roomHasWalker(placeId: number): boolean {
+    return Object.values(this.residents?.residents ?? {}).some(resident => resident.walking
+      && (resident.placeId === placeId || resident.destinationId === placeId))
+  }
+
+  private mergeOutline(outline: PlaceOutline): void {
+    if (!this.layout || !this.residents || !this.things || this.contentsHidden.has(outline.placeId)) return
+    const blockers: StageStandingSpot[] = Object.values(this.residents.residents).flatMap(resident => {
+      const points = [resident.placeId === outline.placeId && resident.visible ? { key: `resident:${resident.id}`, x: resident.x, y: resident.y } : null,
+        resident.destinationId === outline.placeId && resident.destination ? { key: `destination:${resident.id}`, ...resident.destination } : null]
+      return points.flatMap(point => point ? [{ key: point.key, kind: 'resident' as const, x: point.x - 16, y: point.y - 16, width: 32, height: 32 }] : [])
+    })
+    const before = this.things
+    this.things = addPresentThings(before, outline, this.layout, this.recordThingIds, blockers)
+    this.residents = Object.freeze({ ...this.residents, reservations: this.things.reservations })
+    for (const row of outline.things) {
+      if (this.recordThingIds.has(row.id) || before.things[row.id] || !this.things.things[row.id]) continue
+      this.thingReads.add(row.id)
+      this.thingNames.set(row.id, row.name)
+      if (row.hasDrawing) void this.loadOutlineThingDrawing(row.id)
+    }
+  }
+
+  private async loadOutlineThingDrawing(id: number): Promise<void> {
+    try {
+      const art = await this.readThingDrawing(id)
+      if (!art) return
+      addThingTexture(this, `thing-${id}`, art)
+      this.thingViews.get(id)?.sprite.setTexture(`thing-${id}`)
+    } catch (error) {
+      console.error(error)
+      this.thingReadIssue('Some thing drawings could not be read; their pixel icons are kept.')
     }
   }
 
@@ -300,7 +373,7 @@ export class CityScene extends Phaser.Scene {
         await Promise.all(batch.map(async thing => {
           // One read per thing carries both the name and whether the city has art for it.
           // A thing that says it has no drawing is never asked for one, as for residents and places.
-          let hasDrawing = true
+          let hasDrawing = false
           try {
             const detail = await this.readThing(thing.id)
             if (detail) {

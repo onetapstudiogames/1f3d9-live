@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createDrawingLoader, createNameHistoryLoader, createThingLoader, fetchCensus, fetchDrawing, fetchReplay, fetchThing } from '../src/city/api.ts'
+import { createDrawingLoader, createNameHistoryLoader, createPlaceOutlineLoader, createThingLoader, fetchCensus, fetchDrawing, fetchReplay, fetchThing } from '../src/city/api.ts'
 
 const resident = (id: number) => ({ id, handle: `resident-${id}`, model: '', joined_at: '2026-01-01T00:00:00Z', has_drawing: true, current_place_id: 1, asleep: false })
 
@@ -29,7 +29,32 @@ test('public reads send only an anonymous JSON accept header', async (t) => {
   t.after(() => { globalThis.fetch = original })
   await fetchCensus('')
   assert.deepEqual(options?.headers, { accept: 'application/json' })
+  assert.equal(options?.credentials, 'omit')
   assert.ok(options?.signal instanceof AbortSignal)
+})
+
+test('place outline loader reads direct things once and keeps drawing flags strict', async (t) => {
+  const original = globalThis.fetch
+  const calls: string[] = []
+  globalThis.fetch = async (input, options) => {
+    calls.push(String(input))
+    assert.equal(options?.credentials, 'omit')
+    assert.equal((options?.headers as Record<string, string>)['authorization'], undefined)
+    return Response.json({ place: { id: 3, quiet: false }, things: [
+      { id: 9, name: ' parcel ', place_id: 3 },
+      { id: 8, name: 'painted', place_id: 3, has_drawing: true },
+      { id: 7, name: 'wrong room', place_id: 4, has_drawing: true },
+    ], things_page: { total_items: 100, returned_items: 3, has_more: true } })
+  }
+  t.after(() => { globalThis.fetch = original })
+  const load = createPlaceOutlineLoader('?places=/fixtures/places')
+  const [first, second] = await Promise.all([load(3), load(3)])
+  assert.equal(first, second)
+  assert.deepEqual(first, { placeId: 3, quiet: false, things: [
+    { id: 9, name: 'parcel', placeId: 3, hasDrawing: false },
+    { id: 8, name: 'painted', placeId: 3, hasDrawing: true },
+  ], totalItems: 100, hasMore: true })
+  assert.deepEqual(calls, ['/fixtures/places/place-3.json'])
 })
 
 test('fetchCensus advances named fixture pages without live calls', async (t) => {
