@@ -30,3 +30,13 @@ export function initialResidents(replay: ReplayFile, census: readonly Resident[]
   }
   return result
 }
+
+// The record's own key ("resident:12") is a key, not a name. When the resident list cannot be
+// read, that key is all a figure has, and the footer already says the figures are shown without
+// names; so this returns nothing and the figure is drawn with no plate.
+export function residentNamePlate(handle: unknown): string | null {
+  if (typeof handle !== 'string') return null
+  const name = handle.trim()
+  if (name.length === 0 || /^resident[: ]\d+$/.test(name)) return null
+  return name
+}

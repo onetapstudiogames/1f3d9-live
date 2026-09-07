@@ -3,7 +3,7 @@ import { initialResidents, residentIndex } from '../city/residents.ts'
 import type { NestedLayout, Point } from '../ground/nested.ts'
 import { pointAlongPath, walkPath } from '../ground/path.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
-import { appliedMove, bubbleFor, bubbleVisible } from './index.ts'
+import { appliedMove, bubbleFor, bubbleVisible, walkDuration, BASE_SPEED } from './index.ts'
 
 type QueuedEvent = Readonly<{ event: ReplayEvent }>
 
@@ -86,6 +86,7 @@ export function stepResidents(
   deltaMs: number,
   nowMs: number,
   layout: NestedLayout,
+  speed: number = BASE_SPEED,
 ): Simulation {
   const residents: Record<number, ResidentState> = Object.fromEntries(
     Object.entries(state.residents).map(([id, resident]) => [id, { ...resident, queue: [...resident.queue], path: [...resident.path] }]),
@@ -107,7 +108,7 @@ export function stepResidents(
     let resident = residents[id]!
     if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
     if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
-    if (!resident.walking && !resident.bubble) resident = startNext(resident, residents, nowMs, layout, issues)
+    if (!resident.walking && !resident.bubble) resident = startNext(resident, residents, nowMs, layout, issues, speed)
     residents[id] = resident
   }
   return freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending))
@@ -119,6 +120,7 @@ function startNext(
   nowMs: number,
   layout: NestedLayout,
   issues: string[],
+  speed: number,
 ): ResidentState {
   let next = resident
   while (next.queue.length) {
@@ -184,10 +186,10 @@ function startNext(
         continue
       }
       const distance = path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
-      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: Math.min(4_000, Math.max(1_200, distance * 5)), destinationId: walk.toId, destination, bubble: null }
+      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), destinationId: walk.toId, destination, bubble: null }
     }
     if (event.kind === 'note') {
-      next = handleNote(next, event, queue, all, nowMs, layout, issues)
+      next = handleNote(next, event, queue, all, nowMs, layout, issues, speed)
       if (next.bubble) return next
       continue
     }
@@ -204,6 +206,7 @@ function handleNote(
   nowMs: number,
   layout: NestedLayout,
   issues: string[],
+  speed: number,
 ): ResidentState {
   const recordedPlace = event.detail.place_id
   if (validPlace(recordedPlace) && !layout.rooms[recordedPlace]) {
@@ -221,7 +224,7 @@ function handleNote(
     if (resident.placeId !== null) addIssue(issues, 'route-gap')
     next = { ...resident, placeId, x: destination.x, y: destination.y, visible: placeVisible(layout, placeId) }
   }
-  return { ...next, queue, bubble: bubbleFor(event, nowMs) }
+  return { ...next, queue, bubble: bubbleFor(event, nowMs, speed) }
 }
 
 function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLayout): ResidentState {
@@ -235,10 +238,13 @@ function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLay
 function freeDestination(id: number, placeId: number, all: Readonly<Record<number, ResidentState>>, layout: NestedLayout): Point | null {
   const room = layout.rooms[placeId]
   if (!room) return null
-  const eligible = Object.values(all).filter(item => item.id === id || item.placeId === placeId || item.destinationId === placeId)
+  // A figure that is walking away has left; it holds a spot only in the room it walks to,
+  // and holds it at its chosen destination, never at wherever this frame happened to draw it.
+  const holds = (item: ResidentState): boolean => item.walking ? item.destinationId === placeId : item.placeId === placeId
+  const eligible = Object.values(all).filter(item => item.id === id || holds(item))
   const previous: Record<string, StageStandingSpot> = {}
   for (const item of eligible) {
-    const point = item.id === id ? null : item.destinationId === placeId ? item.destination : { x: item.x, y: item.y }
+    const point = item.id === id ? null : item.walking ? item.destination : { x: item.x, y: item.y }
     if (point) previous[`resident:${String(item.id)}`] = { key: `resident:${String(item.id)}`, kind: 'resident', x: point.x - 16, y: point.y - 16, width: 32, height: 32 }
   }
   const spots = stageFindFreeSpots(eligible.map(item => ({ key: `resident:${String(item.id)}`, kind: 'resident' as const })), room.standing, previous)
