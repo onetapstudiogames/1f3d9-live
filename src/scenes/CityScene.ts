@@ -3,7 +3,7 @@ import { fetchReplay, fetchCensus, createDrawingLoader, createThingLoader, creat
 import type { PlaceOutline, ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
 import { createClock, chosenSpeed, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
-import { createResidents, stepResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
+import { createResidents, prepareLiveResidents, stepResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
 import { residentNamePlate } from '../city/residents.ts'
 import { RoomView } from './RoomView.ts'
 import { ResidentView, addDrawingTexture } from './ResidentView.ts'
@@ -22,19 +22,19 @@ import {
 import { readShowSleepers, saveShowSleepers } from '../preferences.ts'
 import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
 import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
-import { prepareLiveResidents } from '../replay/simulation.ts'
 import { reserveLiveThingEvents, type ThingReservations } from '../things.ts'
 import { stepInventions, type InventionState } from '../inventions.ts'
 import { InventionLayer } from './InventionLayer.ts'
 import { createAgreementPairLoader, type AgreementPair } from '../city/agreements.ts'
 import { readAgreementPairs } from '../agreements.ts'
 import { AgreementLayer } from './AgreementLayer.ts'
-import { browserStorage, markFinishedPlaces, visibleFigureList } from './fixture-state.ts'
+import { browserStorage, fixtureMode, markFinishedPlaces, recordSpeechFixture, visibleFigureList } from './fixture-state.ts'
 import { currentLawStatus, invalidateCurrentLaws, rememberCurrentLaws } from '../laws.ts'
 import { keepFollowedInView, MinimapView } from './MinimapView.ts'
 import { refreshFollowPicker } from './follow-controls.ts'
 import { DirectorView } from './DirectorView.ts'
 import { updateViewControls } from './view-controls.ts'
+import { SceneSound } from './SceneSound.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -77,6 +77,7 @@ export class CityScene extends Phaser.Scene {
   private rooms?: RoomView
   private minimap?: MinimapView
   private readonly director = new DirectorView(this, id => { this.viewPlaceId = id })
+  private readonly sounds = new SceneSound(this)
   private placePlan?: PlacePlan
   private placeMoments: readonly number[] = []
   private placeAnimations: readonly PlaceAnimation[] = []
@@ -100,8 +101,7 @@ export class CityScene extends Phaser.Scene {
   private readIssues: string[] = []
   private lastHud = ''
   private lastFigures = ''
-  private readonly fixtureMode = new URLSearchParams(window.location.search).has('replay')
-    || new URLSearchParams(window.location.search).has('census')
+  private readonly fixtureMode = fixtureMode()
   constructor() { super('city') }
   create(): void {
     document.body.dataset['liveReady'] = 'loading'
@@ -112,6 +112,8 @@ export class CityScene extends Phaser.Scene {
     const sleeperControl = document.querySelector<HTMLInputElement>('#show-sleepers')
     if (sleeperControl) sleeperControl.checked = this.showSleepers
     this.connectControls()
+    this.sounds.connect()
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.sounds.destroy())
     this.director.connect(() => this.stopFollowing())
     void this.loadCity()
   }
@@ -280,6 +282,7 @@ export class CityScene extends Phaser.Scene {
     this.drawThings()
     this.drawResidents()
     this.updateFollowCamera()
+    this.sounds.update(this.elapsed, this.paused, this.residents, this.figures, this.placeAnimations, this.layout, this.cameras.main)
     this.minimap?.update(this.cameras.main, this.following === null ? null : this.figures.get(this.following)?.sprite ?? null, this.contentsHidden)
     this.drawHandovers()
     this.inventionLayer?.update(this.inventions, this.residents, this.contentsHidden, this.cameras.main.zoom)
@@ -397,6 +400,7 @@ export class CityScene extends Phaser.Scene {
     this.handoverFrame = undefined
     this.inventions = Object.freeze({ moments: [], pending: false, issues: [] }); this.inventionLayer?.clear()
     this.agreementLayer.clear()
+    this.sounds.reset()
     this.liveQueue = []
     this.outlineReads.clear()
     this.outlinePending.clear()
@@ -608,13 +612,8 @@ export class CityScene extends Phaser.Scene {
         resident.id === this.following, this.sleepers.has(resident.id), this.clock?.time ?? Number.NaN, this.replay?.map.places)
       if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
-    document.body.dataset['liveBubbleText'] = visibleSpeech?.text ?? ''
-    document.body.dataset['liveBubbleShape'] = visibleSpeech?.shape ?? ''
-    document.body.dataset['liveBubbleResident'] = visibleSpeech ? String(visibleSpeech.residentId) : ''
-    if (this.fixtureMode) document.body.dataset['liveShowing'] = visibleSpeech?.showing ?? ''
-    if (this.fixtureMode) document.body.dataset['liveShowingResident'] = visibleSpeech?.showing ? String(visibleSpeech.residentId) : ''
     this.agreementLayer.draw(this, this.figures, this.contentsHidden)
-    if (this.fixtureMode) document.body.dataset['liveHandshakes'] = String(this.agreementLayer.count)
+    recordSpeechFixture(visibleSpeech, this.fixtureMode, this.agreementLayer.count)
     const followed = this.following === null ? undefined : this.residents?.residents[this.following]
     if (followed && !this.isResidentDrawn(followed)) {
       const name = residentNamePlate(followed.handle) ?? 'That resident'
@@ -632,7 +631,7 @@ export class CityScene extends Phaser.Scene {
   private connectControls(): void {
     const camera = this.cameras.main
     let dragged = false
-    this.input.on('pointerdown', () => { dragged = false })
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => { dragged = false; this.sounds.trust(pointer.event) })
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.isDown || pointer.getDistance() < 5) return
       dragged = true
@@ -649,6 +648,7 @@ export class CityScene extends Phaser.Scene {
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _objects: unknown, _dx: number, dy: number) => this.zoom(dy > 0 ? 0.85 : 1.18))
     document.getElementById('pause')?.addEventListener('click', () => {
       this.paused = !this.paused
+      if (this.paused) this.sounds.stop()
       document.getElementById('pause')!.textContent = this.paused ? 'Play' : 'Pause'
       this.updateHud()
     })
