@@ -1,15 +1,19 @@
-import Phaser from 'phaser'
+import type Phaser from 'phaser'
 import type { ReplayEvent } from '../city/types.ts'
 import type { NestedLayout } from '../ground/nested.ts'
 import { directorActivity, directorStep, rankDirectorRooms, type DirectorState } from '../director.ts'
 import { roomsToDraw } from '../room-art.ts'
 
 export class DirectorView {
+  private readonly scene: Phaser.Scene
+  private readonly showRoom: (id: number) => void
   private state: DirectorState = Object.freeze({ roomId: null, nextAt: 0 })
   private glide?: Phaser.Tweens.Tween
   enabled = false
   status = ''
-  constructor(private readonly scene: Phaser.Scene, private readonly showRoom: (id: number) => void) {}
+  constructor(scene: Phaser.Scene, showRoom: (id: number) => void) {
+    this.scene = scene; this.showRoom = showRoom
+  }
   connect(beforeEnable: () => void): void {
     document.getElementById('director')?.addEventListener('change', event => {
       const enabled = (event.target as HTMLInputElement).checked

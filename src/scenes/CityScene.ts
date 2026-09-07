@@ -16,7 +16,9 @@ import { ThingView, addThingTexture } from './ThingView.ts'
 import { createHandovers, stepHandovers, type HandoverState } from '../handovers.ts'
 import { HandoverView } from './HandoverView.ts'
 import { hiddenRooms, planPlaces, recordedRoomName, type NameSpan, type PlacePlan } from '../places.ts'
-import { advanceToPlaceMoment, contentHiddenRooms, placeAnimation, stepPlaceAnimations, type PlaceAnimation } from '../place-animation.ts'
+import {
+  advanceToPlaceMoment, contentHiddenRooms, placeAnimation, stepPlaceAnimations, type PlaceAnimation,
+} from '../place-animation.ts'
 import { readShowSleepers, saveShowSleepers } from '../preferences.ts'
 import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
 import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
@@ -32,6 +34,8 @@ import { currentLawStatus, invalidateCurrentLaws, rememberCurrentLaws } from '..
 import { keepFollowedInView, MinimapView } from './MinimapView.ts'
 import { refreshFollowPicker } from './follow-controls.ts'
 import { DirectorView } from './DirectorView.ts'
+import { updateViewControls } from './view-controls.ts'
+
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
   private census: readonly Resident[] = []
@@ -72,9 +76,7 @@ export class CityScene extends Phaser.Scene {
   private clock?: Clock
   private rooms?: RoomView
   private minimap?: MinimapView
-  private readonly director = new DirectorView(this, id => {
-    this.viewPlaceId = id; this.viewName = `Director: watching ${recordedRoomName(this.placePlan!, this.layout!.rooms[id]!, this.clock!.time) ?? 'a room whose recorded name is unknown'}`
-  })
+  private readonly director = new DirectorView(this, id => { this.viewPlaceId = id })
   private placePlan?: PlacePlan
   private placeMoments: readonly number[] = []
   private placeAnimations: readonly PlaceAnimation[] = []
@@ -161,6 +163,7 @@ export class CityScene extends Phaser.Scene {
       void this.loadThingDetails()
       void this.pollLive()
     } catch (error) {
+      // The reader's own words help nobody reading the page; the console keeps them.
       console.error(error)
       this.readIssues.push('The public record could not be read.')
       document.body.dataset['liveReady'] = 'error'
@@ -187,6 +190,7 @@ export class CityScene extends Phaser.Scene {
     this.readIssues.push(...this.placePlan.issues)
     this.placeMoments = [...this.placePlan.foundings.values(), ...[...this.placePlan.renamings.values()].flat()]
       .map(event => event.time).sort((a, b) => a - b)
+    // A founding at window_start begins unfinished even while the first drawings load.
     this.placeAnimations = [...this.placePlan.foundings.values()]
       .filter(event => event.time === this.clock?.start)
       .map(event => placeAnimation('founding', event.placeId, event.changeId, this.elapsed, this.clock!.speed))
@@ -247,6 +251,7 @@ export class CityScene extends Phaser.Scene {
           this.applyEvents(incoming, elapsed)
         } else this.applyEvents([], elapsed)
       } else {
+      // Hold the recorded moment for its walks, words and arrivals, then resume the faster clock.
       if (!this.residents.pending && !this.things?.pending && !this.handoverFrame?.pending && !this.placeAnimations.length) {
         this.clock = advanceToPlaceMoment(this.clock, elapsed, this.placeMoments)
       }
@@ -531,6 +536,8 @@ export class CityScene extends Phaser.Scene {
       const hidden = placeId !== null && placeId !== undefined && this.contentsHidden.has(placeId)
       view.update(hidden ? { ...motion, visible: false } : motion)
     }
+    // One plain fact for the saved-fixture run to wait on: a floating copy or a carried
+    // thing has been drawn at least once. It says nothing about when, and never clears.
     if (this.fixtureMode && motions.length > 0) document.body.dataset['liveHandoverShown'] = 'true'
   }
   private async loadThingDetails(): Promise<void> {
@@ -545,6 +552,8 @@ export class CityScene extends Phaser.Scene {
         await Promise.all(batch.map(async thing => {
           let hasDrawing = false
           try {
+            // One read per thing carries both the name and whether the city has art for it.
+            // A thing that says it has no drawing is never asked for one, as for residents and places.
             const detail = await this.readThing(thing.id)
             if (detail) {
               this.thingNames.set(thing.id, detail.name)
@@ -765,18 +774,9 @@ export class CityScene extends Phaser.Scene {
     }
     const resident = this.following === null ? undefined : this.residents?.residents[this.following]
     const followed = resident ? residentNamePlate(resident.handle) : null
-    const view = document.getElementById('view')
-    if (view) {
-      view.textContent = this.director.enabled ? (this.director.status || this.viewName) : resident
-        ? `Following ${followed ?? 'a figure the resident list does not name'}`
-        : this.viewPlaceId !== null && this.placePlan && this.layout && this.clock
-          ? recordedRoomName(this.placePlan, this.layout.rooms[this.viewPlaceId]!, this.clock.time) ?? 'This room’s earlier name is not recorded.'
-          : this.viewName
-    }
-    const followState = document.getElementById('follow-state')
-    if (followState) followState.textContent = resident ? `Following ${followed ?? 'resident'} ·` : ''
-    const stop = document.querySelector<HTMLButtonElement>('#follow-stop')
-    if (stop) stop.hidden = !resident
+    updateViewControls({ director: this.director.enabled, directorStatus: this.director.status,
+      followed: resident ? followed : undefined, plan: this.placePlan, time: this.clock?.time, overview: this.viewName,
+      place: this.viewPlaceId === null ? undefined : this.layout?.rooms[this.viewPlaceId] })
     const failed = document.body.dataset['liveReady'] === 'error'
     const state = failed ? 'Playback is stopped; the last drawn state is kept.' : !this.clock ? ''
       : document.body.dataset['liveReady'] === 'loading' ? 'Reading resident drawings.'
