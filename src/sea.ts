@@ -3,6 +3,10 @@ import type { NestedLayout, Point, Room } from './ground/nested.ts'
 export type PixelRect = Readonly<{ x: number; y: number; width: number; height: number; color: number }>
 export type BoatFrame = Readonly<{ x: number; y: number; flipX: boolean; bob: number;
   hull: readonly PixelRect[]; sail: readonly PixelRect[]; cells: readonly PixelRect[] }>
+export type SeaCamera = Readonly<{ scrollX: number; scrollY: number; width: number; height: number; zoom: number }>
+export type SeaViewport = Readonly<{ x: number; y: number; width: number; height: number; pixelWidth: number;
+  pixelHeight: number; tileScaleX: number; tileScaleY: number; tileX: number; tileY: number;
+  cropX: number; cropY: number; cropWidth: number; cropHeight: number }>
 
 const SEA_TILE: readonly PixelRect[] = Object.freeze([
   { x: 8, y: 18, width: 34, height: 3, color: 0x57909a },
@@ -22,6 +26,28 @@ const BOAT_SAIL: readonly PixelRect[] = Object.freeze([
 const BOAT = Object.freeze([...BOAT_HULL, ...BOAT_SAIL])
 
 export const seaTiles = (): readonly PixelRect[] => SEA_TILE
+
+export function seaViewport(root: Room, camera: SeaCamera): SeaViewport | null {
+  if (![root.x, root.y, root.width, root.height, camera.scrollX, camera.scrollY, camera.width,
+    camera.height, camera.zoom].every(Number.isFinite) || camera.zoom <= 0 || camera.width <= 0 || camera.height <= 0) return null
+  const viewWidth = camera.width / camera.zoom; const viewHeight = camera.height / camera.zoom
+  const viewX = camera.scrollX + camera.width / 2 - viewWidth / 2
+  const viewY = camera.scrollY + camera.height / 2 - viewHeight / 2
+  const floorX = root.x + 4; const floorY = root.y + 4
+  const left = Math.max(floorX, viewX); const top = Math.max(floorY, viewY)
+  const right = Math.min(root.x + root.width - 4, viewX + viewWidth)
+  const bottom = Math.min(root.y + root.height - 4, viewY + viewHeight)
+  if (right <= left || bottom <= top) return null
+  const pixelWidth = Math.max(1, Math.ceil(camera.width)); const pixelHeight = Math.max(1, Math.ceil(camera.height))
+  const tileScaleX = pixelWidth / viewWidth; const tileScaleY = pixelHeight / viewHeight
+  const cropX = Math.max(0, (left - viewX) * tileScaleX); const cropY = Math.max(0, (top - viewY) * tileScaleY)
+  const cropWidth = Math.min(pixelWidth - cropX, (right - left) * tileScaleX)
+  const cropHeight = Math.min(pixelHeight - cropY, (bottom - top) * tileScaleY)
+  const modulo = (value: number): number => ((value % 128) + 128) % 128
+  return Object.freeze({ x: viewX, y: viewY, width: viewWidth, height: viewHeight, pixelWidth, pixelHeight,
+    tileScaleX, tileScaleY, tileX: modulo(viewX - floorX), tileY: modulo(viewY - floorY),
+    cropX, cropY, cropWidth, cropHeight })
+}
 
 export function islandRim(room: Room): readonly PixelRect[] {
   return Object.freeze([{ x: room.x - 6, y: room.y - 6, width: room.width + 12, height: room.height + 12,

@@ -10,7 +10,7 @@ import { ResidentView, addDrawingTexture } from './ResidentView.ts'
 import { nearbyRooms, roomsInCamera } from '../camera.ts'
 import { sleepingResidents } from '../sleep.ts'
 import { placesWithDrawings } from '../room-art.ts'
-import { addPresentThings, createThings, recordThingIds, stepThings, type ThingSimulation } from '../things.ts'
+import { addPresentThings, createThings, recordThingIds, reserveLiveThingEvents, stepThings, type ThingReservations, type ThingSimulation } from '../things.ts'
 import type { StageStandingSpot } from '../ground/stage-ground.ts'
 import { ThingView, addThingTexture } from './ThingView.ts'
 import { createHandovers, stepHandovers, type HandoverState } from '../handovers.ts'
@@ -22,7 +22,6 @@ import {
 import { readShowSleepers, saveShowSleepers } from '../preferences.ts'
 import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
 import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
-import { reserveLiveThingEvents, type ThingReservations } from '../things.ts'
 import { stepInventions, type InventionState } from '../inventions.ts'
 import { InventionLayer } from './InventionLayer.ts'
 import { createAgreementPairLoader, type AgreementPair } from '../city/agreements.ts'
@@ -282,6 +281,7 @@ export class CityScene extends Phaser.Scene {
     this.drawThings()
     this.drawResidents()
     this.updateFollowCamera()
+    this.rooms?.updateSea(this.cameras.main)
     this.sounds.update(this.elapsed, this.paused, this.residents, this.figures, this.placeAnimations, this.layout, this.cameras.main)
     this.minimap?.update(this.cameras.main, this.following === null ? null : this.figures.get(this.following)?.sprite ?? null, this.contentsHidden)
     this.drawHandovers()
