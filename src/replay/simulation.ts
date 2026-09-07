@@ -1,9 +1,9 @@
 import type { ReplayEvent, ReplayFile, Resident } from '../city/types.ts'
 import { initialResidents, residentIndex } from '../city/residents.ts'
 import type { NestedLayout, Point } from '../ground/nested.ts'
-import { pointAlongPath, walkPath } from '../ground/path.ts'
+import { pointAlongPath, sidestepPath, walkPath } from '../ground/path.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
-import { appliedMove, bubbleFor, bubbleVisible, walkDuration, BASE_SPEED } from './index.ts'
+import { appliedMove, bubbleFor, bubbleVisible, walkDuration, walkProgress, BASE_SPEED } from './index.ts'
 import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
 import { createdThing, movedThing, type ThingReservations } from '../things.ts'
 import { transferDuration, transferFor, transferPartners, type Transfer, type TransferPartners } from '../giving.ts'
@@ -254,7 +254,11 @@ function startNext(
         next = { ...next, queue }
         continue
       }
-      const path = walkPath(layout, walk.fromId, walk.toId, { x: next.x, y: next.y }, destination)
+      const directPath = walkPath(layout, walk.fromId, walk.toId, { x: next.x, y: next.y }, destination)
+      const standing = Object.values(all)
+        .filter(item => item.id !== next.id && !item.walking && item.placeId !== null)
+        .map(item => ({ x: item.x, y: item.y }))
+      const path = sidestepPath(layout, directPath, standing)
       if (path.length < 2) {
         addIssue(issues, 'route')
         next = { ...next, queue }
@@ -330,10 +334,34 @@ function handleNote(
 
 function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLayout): ResidentState {
   const walkElapsed = Math.min(resident.walkDuration, resident.walkElapsed + deltaMs)
-  const sampled = pointAlongPath(resident.path, resident.walkDuration ? walkElapsed / resident.walkDuration : 1)
+  const distance = pathDistance(resident.path)
+  const elapsedShare = resident.walkDuration ? walkElapsed / resident.walkDuration : 1
+  const slowCentres = [0, distance]
+  for (const id of [resident.placeId, resident.destinationId]) {
+    const door = id === null ? undefined : layout.rooms[id]?.door
+    if (door) {
+      const at = distanceAtPoint(resident.path, door)
+      if (at !== null) slowCentres.push(at)
+    }
+  }
+  const sampled = pointAlongPath(resident.path, walkProgress(distance, elapsedShare, slowCentres))
   if (!sampled.done) return { ...resident, walkElapsed, x: sampled.x, y: sampled.y, flipX: sampled.flipX, visible: visibleAt(sampled, layout) }
   const placeId = resident.destinationId
   return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null }
+}
+
+function pathDistance(path: readonly Point[]): number {
+  return path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
+}
+
+function distanceAtPoint(path: readonly Point[], wanted: Point): number | null {
+  let distance = 0
+  for (let index = 0; index < path.length; index += 1) {
+    const point = path[index]!
+    if (point.x === wanted.x && point.y === wanted.y) return distance
+    if (index + 1 < path.length) distance += Math.hypot(path[index + 1]!.x - point.x, path[index + 1]!.y - point.y)
+  }
+  return null
 }
 
 function freeDestination(id: number, placeId: number, all: Readonly<Record<number, ResidentState>>, layout: NestedLayout, reservations: ThingReservations): Point | null {

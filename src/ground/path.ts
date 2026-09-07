@@ -106,3 +106,96 @@ export function pointAlongPath(path: readonly Point[], progress: number): Readon
   }
   return Object.freeze({ ...path.at(-1)!, flipX, done: true })
 }
+
+const SIDE_CLEARANCE = 32
+
+// Add one small rectangular step around each standing centre that lies on a straight
+// segment. A candidate is accepted only when all of its corners remain on the same
+// floor as the blocked point, so a sidestep cannot cut through a room wall.
+export function sidestepPath(
+  layout: NestedLayout,
+  path: readonly Point[],
+  stationary: readonly Point[],
+): readonly Point[] {
+  if (path.length < 2 || !stationary.length) return Object.freeze([...path])
+  const result: Point[] = [Object.freeze({ ...path[0]! })]
+  for (let index = 1; index < path.length; index += 1) {
+    const from = path[index - 1]!
+    const to = path[index]!
+    const horizontal = from.y === to.y && from.x !== to.x
+    const vertical = from.x === to.x && from.y !== to.y
+    const length = Math.hypot(to.x - from.x, to.y - from.y)
+    const blockers = stationary.map(point => ({ point, along: horizontal
+      ? (point.x - from.x) * Math.sign(to.x - from.x)
+      : (point.y - from.y) * Math.sign(to.y - from.y) }))
+      .filter(({ point, along }) => (horizontal ? Math.abs(point.y - from.y) : vertical ? Math.abs(point.x - from.x) : Infinity) < SIDE_CLEARANCE &&
+        along > SIDE_CLEARANCE && along < length - SIDE_CLEARANCE)
+      .sort((left, right) => left.along - right.along)
+    if ((horizontal || vertical) && blockers.length) {
+      const groups: Array<typeof blockers> = []
+      for (const blocker of blockers) {
+        const group = groups.at(-1)
+        const previous = group?.at(-1)
+        if (group && previous && blocker.along - previous.along <= SIDE_CLEARANCE * 2) group.push(blocker)
+        else groups.push([blocker])
+      }
+      for (const group of groups) {
+        const first = group[0]!
+        const last = group.at(-1)!
+        const direction = horizontal ? Math.sign(to.x - from.x) : Math.sign(to.y - from.y)
+        const before = horizontal
+          ? { x: first.point.x - direction * SIDE_CLEARANCE, y: from.y }
+          : { x: from.x, y: first.point.y - direction * SIDE_CLEARANCE }
+        const after = horizontal
+          ? { x: last.point.x + direction * SIDE_CLEARANCE, y: from.y }
+          : { x: from.x, y: last.point.y + direction * SIDE_CLEARANCE }
+        const floor = deepestRoom(layout, first.point)
+        let added = false
+        for (const offsetDistance of [SIDE_CLEARANCE, SIDE_CLEARANCE * 1.5, SIDE_CLEARANCE * 2]) {
+          for (const side of [1, -1]) {
+            const offset = horizontal
+              ? { before: { x: before.x, y: before.y + side * offsetDistance }, after: { x: after.x, y: after.y + side * offsetDistance } }
+              : { before: { x: before.x + side * offsetDistance, y: before.y }, after: { x: after.x + side * offsetDistance, y: after.y } }
+            const candidate = [before, offset.before, offset.after, after]
+            const segments = candidate.slice(1).map((point, part) => [candidate[part]!, point] as const)
+            const clear = stationary.every(point => segments.every(([a, b]) => distanceToSegment(point, a, b) >= SIDE_CLEARANCE))
+            if (clear && candidate.every(point => deepestRoom(layout, point) === floor) &&
+                segments.every(([a, b]) => segmentStaysOnFloor(layout, a, b, floor))) {
+              for (const point of candidate) append(result, point)
+              added = true
+              break
+            }
+          }
+          if (added) break
+        }
+      }
+    }
+    append(result, to)
+  }
+  return Object.freeze(result)
+}
+
+function distanceToSegment(point: Point, from: Point, to: Point): number {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const lengthSquared = dx * dx + dy * dy
+  const ratio = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
+    ((point.x - from.x) * dx + (point.y - from.y) * dy) / lengthSquared))
+  return Math.hypot(point.x - (from.x + dx * ratio), point.y - (from.y + dy * ratio))
+}
+
+function segmentStaysOnFloor(layout: NestedLayout, from: Point, to: Point, floor: number | null): boolean {
+  const length = Math.hypot(to.x - from.x, to.y - from.y)
+  const steps = Math.max(1, Math.ceil(length / 12))
+  for (let step = 0; step <= steps; step += 1) {
+    const ratio = step / steps
+    if (deepestRoom(layout, { x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio }) !== floor) return false
+  }
+  return true
+}
+
+function deepestRoom(layout: NestedLayout, point: Point): number | null {
+  return Object.values(layout.rooms)
+    .filter(room => point.x >= room.x && point.x <= room.x + room.width && point.y >= room.y && point.y <= room.y + room.height)
+    .sort((left, right) => right.depth - left.depth)[0]?.id ?? null
+}

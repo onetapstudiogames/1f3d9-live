@@ -2,8 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { stageFindFreeSpots } from '../src/ground/stage-ground.ts'
-import { nestedLayout, type Place, type Point, type Room } from '../src/ground/nested.ts'
-import { pointAlongPath, walkPath } from '../src/ground/path.ts'
+import { nestedLayout, type NestedLayout, type Place, type Point, type Room } from '../src/ground/nested.ts'
+import { pointAlongPath, sidestepPath, walkPath } from '../src/ground/path.ts'
 
 const overlaps = (a: Room, b: Room): boolean => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
@@ -263,4 +263,35 @@ test('pointAlongPath uses distance, direction, and boundaries', () => {
   assert.deepEqual(pointAlongPath(path, 0.75), { x: -5, y: 10, flipX: true, done: false })
   assert.deepEqual(pointAlongPath(path, 1), { x: -10, y: 10, flipX: true, done: true })
   assert.deepEqual(pointAlongPath([], 0.5), { x: 0, y: 0, flipX: false, done: true })
+})
+
+test('a walk takes a small repeatable sidestep around a stationary figure on its floor', () => {
+  const sidestepLayout = { rooms: {
+    1: { id: 1, parentId: null, name: 'floor', quiet: false, depth: 0, x: 400, y: 0, width: 220, height: 180,
+      door: { x: 400, y: 90 }, standing: { x: 420, y: 20, width: 160, height: 130 }, children: [] },
+  }, roots: [1], width: 640, height: 460 } as unknown as NestedLayout
+  const straight = Object.freeze([{ x: 430, y: 60 }, { x: 570, y: 60 }])
+  const blocker = Object.freeze([{ x: 500, y: 60 }])
+  const diverted = sidestepPath(sidestepLayout, straight, blocker)
+
+  assert.deepEqual(diverted, [
+    { x: 430, y: 60 }, { x: 468, y: 60 }, { x: 468, y: 92 },
+    { x: 532, y: 92 }, { x: 532, y: 60 }, { x: 570, y: 60 },
+  ])
+  assert.deepEqual(straight, [{ x: 430, y: 60 }, { x: 570, y: 60 }])
+  assert.deepEqual(sidestepPath(sidestepLayout, straight, [{ x: 500, y: 140 }]), straight)
+})
+
+test('one sidestep clears a group and uses the free side of a blocked lane', () => {
+  const sidestepLayout = { rooms: {
+    1: { id: 1, parentId: null, name: 'floor', quiet: false, depth: 0, x: 350, y: 0, width: 320, height: 240,
+      door: { x: 350, y: 120 }, standing: { x: 370, y: 20, width: 280, height: 190 }, children: [] },
+  }, roots: [1], width: 700, height: 260 } as unknown as NestedLayout
+  const diverted = sidestepPath(sidestepLayout, [{ x: 380, y: 100 }, { x: 640, y: 100 }], [
+    { x: 470, y: 100 }, { x: 520, y: 100 }, { x: 470, y: 132 },
+  ])
+  assert.deepEqual(diverted, [
+    { x: 380, y: 100 }, { x: 438, y: 100 }, { x: 438, y: 68 },
+    { x: 552, y: 68 }, { x: 552, y: 100 }, { x: 640, y: 100 },
+  ])
 })

@@ -16,6 +16,7 @@ import {
   holdScale,
   prepareTimeline,
   walkDuration,
+  walkProgress,
 } from '../src/replay/index.ts'
 
 const event = (overrides: Partial<ReplayEvent> = {}): ReplayEvent => ({
@@ -151,13 +152,26 @@ test('hold lengths shrink with the chosen speed and stop at a floor', () => {
   assert.equal(bubbleDuration(300), 2_000)
   assert.equal(bubbleDuration(100_000), 1_500)
 
-  assert.equal(walkDuration(0, BASE_SPEED), 1_200)
-  assert.equal(walkDuration(600, BASE_SPEED), 3_000)
-  assert.equal(walkDuration(5_000, BASE_SPEED), 4_000)
-  assert.equal(walkDuration(600, 60), 6_000)
-  assert.equal(walkDuration(600, 300), 1_200)
-  assert.equal(walkDuration(0, 300), 480)
-  assert.equal(walkDuration(0, 100_000), 400)
+  assert.equal(walkDuration(0, BASE_SPEED), 2_800)
+  assert.equal(walkDuration(1_000, BASE_SPEED), 2_800)
+  assert.equal(walkDuration(16_000, BASE_SPEED), 3_400)
+  assert.equal(walkDuration(1_000_000, BASE_SPEED), 4_000)
+  assert.equal(walkDuration(1_000, 60), 5_600)
+  assert.equal(walkDuration(1_000, 300), 1_200)
+  assert.equal(walkDuration(0, 100_000), 1_200)
+})
+
+test('walk pace spends visible time near each room and accelerates only the far middle', () => {
+  const distance = 10_000
+  assert.equal(walkProgress(distance, 0), 0)
+  assert.ok(walkProgress(distance, 0.2) < 0.01)
+  assert.ok(walkProgress(distance, 0.5) > 0.4)
+  assert.ok(walkProgress(distance, 0.8) > 0.99)
+  assert.equal(walkProgress(distance, 1), 1)
+  assert.equal(walkProgress(100, 0.5), 0.5)
+  const doors = [0, 2_000, 8_000, distance]
+  assert.ok(walkProgress(distance, 0.25, doors) < 0.21)
+  assert.ok(walkProgress(distance, 0.75, doors) > 0.79)
 })
 
 test('a faster speed shortens every hold and never inverts the order of the speeds', () => {
