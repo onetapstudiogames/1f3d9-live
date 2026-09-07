@@ -25,10 +25,12 @@ floor to stop following. “Whole city” shows the map; “Residents” visits 
 The clock runs at 120× between recorded moments and holds while their walks and words
 finish. Pause and speed controls are above the picture. Room names hide at distant zoom.
 
-Open `/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-sample.json&drawings=/fixtures/drawings`
-for saved inputs. The census sample contains only the real first page, and only one drawing
-is saved. The browser check returns 404 for unsaved art and blocks all external requests.
-Census pagination and missing art are also covered by plain-function tests.
+Open `/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings`
+for saved inputs. The saved census is the city's two real pages, kept as they were served: the
+reader follows `-page1.json` to `-page2.json` the way it follows the live cursor, so every
+resident the saved replay records has a name and a drawing to look for. Only one drawing is
+saved. The browser check returns 404 for unsaved art and blocks all external requests. Census
+pagination and missing art are also covered by plain-function tests.
 
 The replay can have gaps even between its start block and its first move. At a gap, the
 picture resumes at the next recorded source room and says so; it draws no connecting walk.

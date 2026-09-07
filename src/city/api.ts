@@ -110,11 +110,14 @@ export async function fetchDrawing(type: 'resident' | 'place', id: number, searc
   const value = await response.json() as Partial<Drawing>
   if (value.state !== 'complete' || !value.drawing) return null
   const palette = value.drawing.palette
+  // Read the palette first: without it the indices cannot be checked, and the reason must stay in plain words.
+  if (!Array.isArray(palette) || !palette.every(color => typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color))) {
+    throw new Error(`the city returned an invalid ${type} drawing ${id}`)
+  }
   const indices = value.drawing.indices
-  const validPalette = Array.isArray(palette) && palette.every(color => typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color))
   const validIndices = Array.isArray(indices) && indices.length === 64
     && indices.every(index => index === null || (Number.isInteger(index) && index >= 0 && index < palette.length))
-  if (value.type !== type || value.id !== id || !validPalette || !validIndices) {
+  if (value.type !== type || value.id !== id || !validIndices) {
     throw new Error(`the city returned an invalid ${type} drawing ${id}`)
   }
   return value as Drawing

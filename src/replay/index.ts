@@ -10,6 +10,8 @@ export type Clock = Readonly<{
 
 export type AppliedMove = Readonly<{ fromId: number; toId: number }>
 
+export type TimelineRow = Readonly<{ event: ReplayEvent; time: number }>
+
 export type Bubble = Readonly<{
   text: string
   cut: boolean
@@ -41,26 +43,32 @@ export function advanceClock(clock: Clock, deltaMs: number): Clock {
   }
 }
 
+// Sort and read every recorded time once, when the replay loads, so each frame only walks a cursor.
+export function prepareTimeline(timeline: readonly ReplayEvent[]): readonly TimelineRow[] {
+  const rows = timeline
+    .map((event, originalIndex) => ({
+      event,
+      originalIndex,
+      time: Number.isFinite(Date.parse(event.at)) ? Date.parse(event.at) : Number.POSITIVE_INFINITY,
+    }))
+    .sort((left, right) => left.time - right.time || left.originalIndex - right.originalIndex)
+    .map(({ event, time }) => Object.freeze({ event, time }))
+  return Object.freeze(rows)
+}
+
 export function dueEvents(
-  timeline: readonly ReplayEvent[],
+  timeline: readonly TimelineRow[],
   cursor: number,
   time: number,
 ): { events: readonly ReplayEvent[]; cursor: number } {
-  const ordered = timeline
-    .map((item, originalIndex) => ({ item, originalIndex, time: Date.parse(item.at) }))
-    .sort((left, right) => {
-      const leftTime = Number.isFinite(left.time) ? left.time : Number.POSITIVE_INFINITY
-      const rightTime = Number.isFinite(right.time) ? right.time : Number.POSITIVE_INFINITY
-      return leftTime - rightTime || left.originalIndex - right.originalIndex
-    })
   const safeCursor = Math.min(timeline.length, Math.max(0, Math.floor(Number.isFinite(cursor) ? cursor : 0)))
   if (!Number.isFinite(time)) return { events: [], cursor: safeCursor }
 
   let nextCursor = safeCursor
-  while (nextCursor < ordered.length && ordered[nextCursor]!.time <= time) nextCursor += 1
+  while (nextCursor < timeline.length && timeline[nextCursor]!.time <= time) nextCursor += 1
 
   return {
-    events: ordered.slice(safeCursor, nextCursor).map(({ item }) => item),
+    events: timeline.slice(safeCursor, nextCursor).map(({ event }) => event),
     cursor: nextCursor,
   }
 }

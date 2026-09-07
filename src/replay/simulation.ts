@@ -3,7 +3,7 @@ import { initialResidents, residentIndex } from '../city/residents.ts'
 import type { NestedLayout, Point } from '../ground/nested.ts'
 import { pointAlongPath, walkPath } from '../ground/path.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
-import { bubbleFor, bubbleVisible } from './index.ts'
+import { appliedMove, bubbleFor, bubbleVisible } from './index.ts'
 
 type QueuedEvent = Readonly<{ event: ReplayEvent }>
 
@@ -96,7 +96,7 @@ export function stepResidents(
     const actor = typeof event.actor === 'string' ? event.actor : ''
     const id = state.actors.get(actor)
     if (id === undefined || !residents[id]) {
-      addIssue(issues, 'actor', `could not map actor ${actor || '(missing)'}`)
+      addIssue(issues, 'actor')
       continue
     }
     residents[id] = { ...residents[id]!, queue: [...residents[id]!.queue, { event }] }
@@ -132,7 +132,8 @@ function startNext(
     if (isNoopAnchor && next.placeId !== detail.from_place_id && layout.rooms[detail.from_place_id]) {
       const source = freeDestination(next.id, detail.from_place_id, all, layout)
       if (source) {
-        addIssue(issues, 'route-gap', `The record skips part of ${resident.handle}'s route; resumed at its next recorded room.`)
+        // A first placement skips nothing; only a figure that already stood somewhere lost a route.
+        if (next.placeId !== null) addIssue(issues, 'route-gap')
         next = { ...next, queue, placeId: detail.from_place_id, x: source.x, y: source.y, visible: placeVisible(layout, detail.from_place_id) }
         continue
       }
@@ -141,14 +142,14 @@ function startNext(
       const fromId = detail.from_place_id
       const toId = detail.to_place_id
       if (!layout.rooms[fromId] || !layout.rooms[toId]) {
-        addIssue(issues, 'room', `room is missing for ${resident.handle}`)
+        addIssue(issues, 'room')
         next = { ...next, queue }
         continue
       }
       if (next.placeId === null) {
         const source = freeDestination(next.id, fromId, all, layout)
         if (!source) {
-          addIssue(issues, 'placement', `could not place ${resident.handle} at source room ${String(fromId)}`)
+          addIssue(issues, 'placement')
           next = { ...next, queue }
           continue
         }
@@ -157,31 +158,33 @@ function startNext(
       if (next.placeId !== fromId) {
         const source = freeDestination(next.id, fromId, all, layout)
         if (!source) {
-          addIssue(issues, 'placement', `could not place ${resident.handle} at source room ${String(fromId)}`)
+          addIssue(issues, 'placement')
           next = { ...next, queue }
           continue
         }
-        addIssue(issues, 'route-gap', `The record skips part of ${resident.handle}'s route; resumed at its next recorded room.`)
+        addIssue(issues, 'route-gap')
         next = { ...next, placeId: fromId, x: source.x, y: source.y, visible: placeVisible(layout, fromId) }
       }
-      if (fromId === toId) {
+      // A same-room applied move only anchors the figure; appliedMove says when there is a real walk.
+      const walk = appliedMove(event)
+      if (!walk) {
         next = { ...next, queue }
         continue
       }
-      const destination = freeDestination(next.id, toId, all, layout)
+      const destination = freeDestination(next.id, walk.toId, all, layout)
       if (!destination) {
-        addIssue(issues, 'route', `could not route ${resident.handle} to room ${String(toId)}`)
+        addIssue(issues, 'route')
         next = { ...next, queue }
         continue
       }
-      const path = walkPath(layout, fromId, toId, { x: next.x, y: next.y }, destination)
+      const path = walkPath(layout, walk.fromId, walk.toId, { x: next.x, y: next.y }, destination)
       if (path.length < 2) {
-        addIssue(issues, 'route', `could not route ${resident.handle} to room ${String(toId)}`)
+        addIssue(issues, 'route')
         next = { ...next, queue }
         continue
       }
       const distance = path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
-      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: Math.min(4_000, Math.max(1_200, distance * 5)), destinationId: toId, destination, bubble: null }
+      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: Math.min(4_000, Math.max(1_200, distance * 5)), destinationId: walk.toId, destination, bubble: null }
     }
     if (event.kind === 'note') {
       next = handleNote(next, event, queue, all, nowMs, layout, issues)
@@ -204,7 +207,7 @@ function handleNote(
 ): ResidentState {
   const recordedPlace = event.detail.place_id
   if (validPlace(recordedPlace) && !layout.rooms[recordedPlace]) {
-    addIssue(issues, 'room', `recorded note room ${String(recordedPlace)} is missing for ${resident.handle}`)
+    addIssue(issues, 'room')
     return { ...resident, queue }
   }
   const placeId = validPlace(recordedPlace) ? recordedPlace : resident.placeId
@@ -212,10 +215,10 @@ function handleNote(
   if (placeId !== null && resident.placeId !== placeId) {
     const destination = freeDestination(resident.id, placeId, all, layout)
     if (!destination) {
-      addIssue(issues, 'placement', `could not place ${resident.handle} in recorded note room ${String(placeId)}`)
+      addIssue(issues, 'placement')
       return { ...resident, queue }
     }
-    if (resident.placeId !== null) addIssue(issues, 'route-gap', `The record skips part of ${resident.handle}'s route; resumed at its next recorded room.`)
+    if (resident.placeId !== null) addIssue(issues, 'route-gap')
     next = { ...resident, placeId, x: destination.x, y: destination.y, visible: placeVisible(layout, placeId) }
   }
   return { ...next, queue, bubble: bubbleFor(event, nowMs) }
@@ -289,18 +292,19 @@ function validPlace(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
-function addIssue(issues: string[], category: string, message: string): void {
-  if (issues.some(issue => issueCategory(issue) === category)) return
-  if (issues.length >= 12) return
-  issues.push(message)
-}
+// One plain sentence per kind of trouble. It names no resident and gives no count,
+// because the record did not give one; the city's own tabs hold the exact numbers.
+const ISSUE_WORDS = {
+  'route-gap': 'The record skips part of some routes; those figures reappear at their next recorded room.',
+  actor: 'Some recorded events name residents the resident list does not know; they are not drawn.',
+  room: 'Some recorded events name a room the map does not show; those are not drawn.',
+  placement: 'Some rooms had no free spot left, so those figures were not moved into them.',
+  route: 'Some recorded walks have no path on the map; those figures stay where the record last placed them.',
+} as const
 
-function issueCategory(issue: string): string {
-  if (issue.startsWith('The record skips part of ')) return 'route-gap'
-  if (issue.startsWith('could not map actor ')) return 'actor'
-  if (issue.startsWith('room is missing ')) return 'room'
-  if (issue.startsWith('recorded note room ')) return 'room'
-  if (issue.startsWith('could not place ')) return 'placement'
-  if (issue.startsWith('could not route ')) return 'route'
-  return issue
+type IssueKind = keyof typeof ISSUE_WORDS
+
+function addIssue(issues: string[], kind: IssueKind): void {
+  const message = ISSUE_WORDS[kind]
+  if (!issues.includes(message)) issues.push(message)
 }

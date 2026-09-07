@@ -100,3 +100,13 @@ test('drawing loader rejects malformed complete drawing data', async (t) => {
   t.after(() => { globalThis.fetch = original })
   await assert.rejects(createDrawingLoader('')(8), /invalid resident drawing 8/)
 })
+
+test('a drawing with indices but no palette is refused in plain words', async (t) => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => Response.json({
+    type: 'resident', id: 5, state: 'complete',
+    drawing: { indices: Array(64).fill(0) },
+  })
+  t.after(() => { globalThis.fetch = original })
+  await assert.rejects(createDrawingLoader('')(5), /invalid resident drawing 5/)
+})

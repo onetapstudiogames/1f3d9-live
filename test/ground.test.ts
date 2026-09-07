@@ -1,15 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { stageChildPlaces, stageFindFreeSpots } from '../src/ground/stage-ground.ts'
+import { stageFindFreeSpots } from '../src/ground/stage-ground.ts'
 import { nestedLayout, type Place, type Room } from '../src/ground/nested.ts'
 import { pointAlongPath, walkPath } from '../src/ground/path.ts'
 
 const overlaps = (a: Room, b: Room): boolean => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
-test('child sorting and free spots remain deterministic salvage', () => {
-  const places = Object.freeze([{ id: 9, parent_id: 1 }, { id: 1, parent_id: null }, { id: 4, parent_id: 1 }])
-  assert.deepEqual(stageChildPlaces(places, 1).map(place => place.id), [4, 9])
+test('free spots remain deterministic salvage', () => {
   const entries = Object.freeze(Array.from({ length: 3 }, (_, index) => Object.freeze({ key: `resident:${String(index)}`, kind: 'resident' as const })))
   const room = Object.freeze({ x: 0, y: 0, width: 240, height: 190 })
   const first = stageFindFreeSpots(entries, room)

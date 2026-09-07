@@ -1,5 +1,0 @@
-export { createDrawingLoader, fetchCensus, fetchDrawing, fetchReplay, replayUrl } from './api.ts'
-export { drawingCells } from './drawing.ts'
-export type { DrawingCell } from './drawing.ts'
-export { initialResidents, residentIndex } from './residents.ts'
-export type { CensusPage, Drawing, InitialResident, ReplayFile, Resident } from './types.ts'

@@ -1,5 +1,0 @@
-export { nestedLayout, ROOM_GAP, ROOM_PADDING } from './nested.ts'
-export type { NestedLayout, Place, Point, Room } from './nested.ts'
-export { pointAlongPath, walkPath } from './path.ts'
-export { stageChildPlaces, stageFindFreeSpots } from './stage-ground.ts'
-export type { StageGroundRect, StageStandingEntry, StageStandingSpot } from './stage-ground.ts'

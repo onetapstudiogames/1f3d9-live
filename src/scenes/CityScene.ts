@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { fetchReplay, fetchCensus, createDrawingLoader } from '../city/api.ts'
 import type { ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
-import { createClock, advanceClock, dueEvents, type Clock } from '../replay/index.ts'
+import { createClock, advanceClock, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
 import { createResidents, stepResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
 import { RoomView } from './RoomView.ts'
 import { ResidentView, addDrawingTexture } from './ResidentView.ts'
@@ -10,6 +10,7 @@ import { nearbyRooms } from '../camera.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
+  private timeline: readonly TimelineRow[] = []
   private layout?: NestedLayout
   private residents?: Simulation
   private clock?: Clock
@@ -24,6 +25,10 @@ export class CityScene extends Phaser.Scene {
   private readStatus = ''
   private readIssues: string[] = []
   private lastHud = ''
+  private lastFigures = ''
+  // The test-only figure list is written for the saved-fixture run the browser check drives.
+  private readonly fixtureMode = new URLSearchParams(window.location.search).has('replay')
+    || new URLSearchParams(window.location.search).has('census')
 
   constructor() { super('city') }
 
@@ -41,6 +46,7 @@ export class CityScene extends Phaser.Scene {
       const census = censusRead.status === 'fulfilled' ? censusRead.value : []
       if (censusRead.status === 'rejected') this.readIssues.push(`Could not read the resident list: ${String(censusRead.reason)}`)
       this.replay = record.value
+      this.timeline = prepareTimeline(this.replay.timeline)
       this.layout = nestedLayout(this.replay.map.places, roomCapacity(this.replay, census))
       this.clock = createClock(this.replay.window_start, this.replay.window_end)
       this.residents = createResidents(this.replay, census, this.layout)
@@ -87,7 +93,7 @@ export class CityScene extends Phaser.Scene {
       this.elapsed += elapsed
       // Hold the recorded moment for its walks and words, then resume the faster clock.
       if (!this.residents.pending) this.clock = advanceClock(this.clock, elapsed)
-      const due = dueEvents(this.replay.timeline, this.cursor, this.clock.time)
+      const due = dueEvents(this.timeline, this.cursor, this.clock.time)
       this.cursor = due.cursor
       this.residents = stepResidents(this.residents, due.events, elapsed, this.elapsed, this.layout)
     }
@@ -107,12 +113,16 @@ export class CityScene extends Phaser.Scene {
       }
       figure.update(resident, camera.zoom, this.elapsed, resident.id === this.following)
     }
-    document.body.dataset['liveFigures'] = JSON.stringify([...this.figures].flatMap(([id, figure]) => {
+    if (!this.fixtureMode) return
+    const listed = JSON.stringify([...this.figures].flatMap(([id, figure]) => {
       const x = (figure.sprite.x - camera.worldView.x) * camera.zoom
       const y = (figure.sprite.y - camera.worldView.y) * camera.zoom
       return figure.sprite.visible && x > 30 && x < this.scale.width - 30 && y > 190 && y < this.scale.height - 140
         ? [{ id, x, y }] : []
     }))
+    if (listed === this.lastFigures) return
+    this.lastFigures = listed
+    document.body.dataset['liveFigures'] = listed
   }
 
   private connectControls(): void {

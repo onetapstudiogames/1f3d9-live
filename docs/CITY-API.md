@@ -40,6 +40,10 @@ If-None-Match). Anonymous. Accepts no other option.
 - `start` maps `resident:<id>` (and `thing:<id>`) to where it stood at `window_start`, limited
   to residents and things active in the span. Residents not in `start` did nothing in the span;
   read the census (below) for where everyone stands now.
+- A `start` entry can carry `place_id: null`. A resident who registered inside the window has
+  `origin: "register"` and stood nowhere at `window_start`; a thing being carried has no floor
+  and reads `origin: "unknown"`. The picture draws none of those until a recorded event places
+  them, and it invents no room for them.
 - `counts` maps place id to exact `residents` and `things` counts at the checkpoint.
 - `timeline` is sorted by `change_id`. Kinds seen: `action` (with `detail.action` = move, use,
   give, consume, make, go_home and `status` applied or noop), `note` (with a `line` excerpt and
@@ -124,10 +128,12 @@ from memory.
 
 ## Offline fixture overrides
 
-Use `?census=/fixtures/residents-presence-sample.json` to run with the saved census sample.
-The sample contains the 200 factual residents from the saved first page only. It sets
-`has_more` to false so browser tests stay offline; it is not a complete census, and no
-second-page fixture was available from this environment.
+Use `?census=/fixtures/residents-presence-page1.json` to run with the saved census. Both real
+pages are saved exactly as the city served them: `residents-presence-page1.json` (200 residents,
+`has_more` true, `next_before_id` 117) and `residents-presence-page2.json` (115 residents,
+`has_more` false). With a fixture census the reader follows the page number in the file name,
+so it reads page 1 then page 2 and stops, the same walk it makes with the live `before_id`
+cursor, and every resident the saved replay records is named. Browser tests stay offline.
 
 Use `?drawings=/fixtures/drawings` for saved drawings. A resident request then reads
 `/fixtures/drawings/resident-<id>.json`. Missing fixture files mean that resident has no

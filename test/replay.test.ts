@@ -10,6 +10,7 @@ import {
   bubbleVisible,
   createClock,
   dueEvents,
+  prepareTimeline,
 } from '../src/replay/index.ts'
 
 const event = (overrides: Partial<ReplayEvent> = {}): ReplayEvent => ({
@@ -59,9 +60,10 @@ test('due events include the first row once and preserve order for equal timesta
     event({ event_id: 1, at: '2026-09-07T00:00:00.000Z' }),
     event({ event_id: 2, at: '2026-09-07T00:00:00.000Z' }),
   ]
-  const first = dueEvents(timeline, 0, Date.parse('2026-09-07T00:00:00.000Z'))
-  const second = dueEvents(timeline, first.cursor, Date.parse('2026-09-07T00:00:00.000Z'))
-  const last = dueEvents(timeline, second.cursor, Date.parse('2026-09-07T00:00:03.000Z'))
+  const prepared = prepareTimeline(timeline)
+  const first = dueEvents(prepared, 0, Date.parse('2026-09-07T00:00:00.000Z'))
+  const second = dueEvents(prepared, first.cursor, Date.parse('2026-09-07T00:00:00.000Z'))
+  const last = dueEvents(prepared, second.cursor, Date.parse('2026-09-07T00:00:03.000Z'))
 
   assert.deepEqual(first.events.map(({ event_id }) => event_id), [1, 2])
   assert.deepEqual(second.events, [])
@@ -70,7 +72,7 @@ test('due events include the first row once and preserve order for equal timesta
 })
 
 test('due events tolerate cursor and time outside their useful ranges', () => {
-  const timeline = [event()]
+  const timeline = prepareTimeline([event()])
   assert.deepEqual(dueEvents(timeline, -20, Number.NaN), { events: [], cursor: 0 })
   assert.deepEqual(dueEvents(timeline, 20, Date.now()), { events: [], cursor: 1 })
 })
@@ -102,7 +104,7 @@ test('real replay fixture exposes moves, noops, notes, gaps, and window clamping
   const moves = replay.timeline.map(appliedMove).filter((move) => move !== null)
   const noops = replay.timeline.filter(({ detail }) => detail.status === 'noop')
   const notes = replay.timeline.map((item) => bubbleFor(item, Date.parse(item.at))).filter((bubble) => bubble !== null)
-  const all = dueEvents(replay.timeline, 0, Date.parse(replay.window_end))
+  const all = dueEvents(prepareTimeline(replay.timeline), 0, Date.parse(replay.window_end))
   const clock = advanceClock(createClock(replay.window_start, replay.window_end), 86_400_000)
 
   assert.ok(moves.length > 0)
@@ -111,4 +113,23 @@ test('real replay fixture exposes moves, noops, notes, gaps, and window clamping
   assert.ok(replay.timeline.some((item, index) => index > 0 && Date.parse(item.at) - Date.parse(replay.timeline[index - 1]!.at) > 1_000))
   assert.equal(all.cursor, replay.timeline.length)
   assert.equal(clock.time, Date.parse(replay.window_end))
+})
+
+test('the timeline is sorted and read once, with unreadable times left until last', () => {
+  const rows = prepareTimeline([
+    event({ event_id: 3, at: '2026-09-07T00:00:02.000Z' }),
+    event({ event_id: 9, at: 'not a time' }),
+    event({ event_id: 1, at: '2026-09-07T00:00:00.000Z' }),
+    event({ event_id: 2, at: '2026-09-07T00:00:00.000Z' }),
+  ])
+
+  assert.deepEqual(rows.map(({ event: item }) => item.event_id), [1, 2, 3, 9])
+  assert.deepEqual(rows.map(({ time }) => time), [
+    Date.parse('2026-09-07T00:00:00.000Z'),
+    Date.parse('2026-09-07T00:00:00.000Z'),
+    Date.parse('2026-09-07T00:00:02.000Z'),
+    Number.POSITIVE_INFINITY,
+  ])
+  assert.deepEqual(prepareTimeline([]), [])
+  assert.deepEqual(dueEvents(rows, 0, Date.parse('2026-09-07T00:00:02.000Z')).events.map(item => item.event_id), [1, 2, 3])
 })

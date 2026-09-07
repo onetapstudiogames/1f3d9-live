@@ -93,7 +93,7 @@ test('source mismatch resumes at the recorded source without connecting from the
   assert.equal(next.residents[7]!.placeId, 1)
   assert.equal(next.residents[7]!.walking, true)
   assert.ok(next.residents[7]!.x >= rooms[1].standing.x && next.residents[7]!.x <= rooms[1].standing.x + rooms[1].standing.width)
-  assert.deepEqual(next.issues, ["The record skips part of walker's route; resumed at its next recorded room."])
+  assert.deepEqual(next.issues, ['The record skips part of some routes; those figures reappear at their next recorded room.'])
 })
 
 test('error-bearing moves never walk', () => {
@@ -137,7 +137,7 @@ test('a note naming a missing room is suppressed and preserves the last position
   assert.equal(next.residents[7]!.placeId, before.placeId)
   assert.deepEqual([next.residents[7]!.x, next.residents[7]!.y], [before.x, before.y])
   assert.equal(next.residents[7]!.bubble, null)
-  assert.ok(next.issues.some(issue => issue.includes('note room 999')))
+  assert.deepEqual(next.issues, ['Some recorded events name a room the map does not show; those are not drawn.'])
 })
 
 test('noop, null endpoints, and unknown actors preserve positions and report mapping issues', () => {
@@ -146,7 +146,7 @@ test('noop, null endpoints, and unknown actors preserve positions and report map
   const bad = { ...event('action', { action: 'move', status: 'noop', from_place_id: 2, to_place_id: 3 }), actor: 'missing' }
   const next = stepResidents(state, [bad, event('action', { action: 'move', status: 'applied', from_place_id: 2 })], 100, 100, layout)
   assert.equal(next.residents[7]!.x, x)
-  assert.ok(next.issues.some(issue => issue.includes('missing')))
+  assert.deepEqual(next.issues, ['Some recorded events name residents the resident list does not know; they are not drawn.'])
 })
 
 test('expired bubble releases the next queued note and state remains immutable', () => {
@@ -164,9 +164,10 @@ test('expired bubble releases the next queued note and state remains immutable',
 
 test('real replay finishes with every mapped resident in its last valid recorded room', () => {
   const realReplay = JSON.parse(readFileSync(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
-  const page = JSON.parse(readFileSync(new URL('./fixtures/residents-presence-page1.json', import.meta.url), 'utf8')) as { residents: Resident[] }
-  const realLayout = nestedLayout(realReplay.map.places, roomCapacity(realReplay, page.residents))
-  let state = createResidents(realReplay, page.residents, realLayout)
+  const census = ['page1', 'page2'].flatMap(page =>
+    (JSON.parse(readFileSync(new URL(`./fixtures/residents-presence-${page}.json`, import.meta.url), 'utf8')) as { residents: Resident[] }).residents)
+  const realLayout = nestedLayout(realReplay.map.places, roomCapacity(realReplay, census))
+  let state = createResidents(realReplay, census, realLayout)
   const expected = new Map(Object.values(state.residents).map(resident => [resident.id, resident.placeId]))
   let now = 0
   for (const item of realReplay.timeline) {
@@ -183,5 +184,37 @@ test('real replay finishes with every mapped resident in its last valid recorded
       state = stepResidents(state, [], 1_000, now, realLayout)
     }
   }
-  for (const [id, placeId] of expected) assert.equal(state.residents[id]!.placeId, placeId, `resident ${String(id)}: ${state.issues.filter(issue => issue.includes(state.residents[id]!.handle)).join('; ')}`)
+  for (const [id, placeId] of expected) assert.equal(state.residents[id]!.placeId, placeId, `resident ${String(id)}: ${state.issues.join(' ')}`)
+})
+
+test('the two saved census pages name every actor the saved replay records', () => {
+  const realReplay = JSON.parse(readFileSync(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
+  const census = ['page1', 'page2'].flatMap(page =>
+    (JSON.parse(readFileSync(new URL(`./fixtures/residents-presence-${page}.json`, import.meta.url), 'utf8')) as { residents: Resident[] }).residents)
+  const realLayout = nestedLayout(realReplay.map.places, roomCapacity(realReplay, census))
+  const state = createResidents(realReplay, census, realLayout)
+  const actors = new Set(realReplay.timeline.map(item => item.actor).filter((actor): actor is string => typeof actor === 'string' && actor.length > 0))
+  const unresolved = [...actors].filter(actor => state.actors.get(actor) === undefined)
+  assert.deepEqual(unresolved, [])
+  const startIds = Object.keys(realReplay.start).flatMap(key => {
+    const match = /^resident:(\d+)$/.exec(key)
+    return match ? [Number(match[1])] : []
+  })
+  assert.deepEqual(startIds.filter(id => !census.some(resident => resident.id === id)), [])
+})
+
+test('a noop move anchors a first placement quietly and reports only a real skipped route', () => {
+  const anchor = event('action', { action: 'move', status: 'noop', from_place_id: 2, to_place_id: 2 })
+  const absent = createResidents({ ...replay({}), timeline: [anchor] }, census, layout)
+  assert.equal(absent.residents[7]!.placeId, null)
+  const placed = stepResidents(absent, [anchor], 16, 16, layout)
+  assert.equal(placed.residents[7]!.placeId, 2)
+  assert.equal(placed.residents[7]!.walking, false)
+  assert.deepEqual(placed.issues, [])
+
+  const elsewhere = event('action', { action: 'move', status: 'noop', from_place_id: 1, to_place_id: 1 })
+  const moved = stepResidents(placed, [elsewhere], 16, 32, layout)
+  assert.equal(moved.residents[7]!.placeId, 1)
+  assert.equal(moved.residents[7]!.walking, false)
+  assert.deepEqual(moved.issues, ['The record skips part of some routes; those figures reappear at their next recorded room.'])
 })

@@ -25,7 +25,7 @@ test('the fixture draws, a figure follows, and empty floor releases the camera',
     }
     await route.continue()
   })
-  await page.goto('/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-sample.json&drawings=/fixtures/drawings')
+  await page.goto('/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings')
   await expect.poll(() => page.evaluate(() => document.body.dataset['liveReady'] ?? ''), { timeout: 30_000 }).toBe('true')
   await page.getByRole('button', { name: 'Pause', exact: true }).click()
   await expect(page.locator('#status')).toContainText('735 places')

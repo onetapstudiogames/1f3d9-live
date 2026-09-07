@@ -3,17 +3,6 @@ export type StageStandingEntry = Readonly<{ key: string; kind: 'resident' | 'thi
 export type StageStandingSpot = Readonly<{ key: string; kind: 'resident' | 'thing'; x: number; y: number; width: number; height: number }>
 export type StageGroundRect = Readonly<{ x: number; y: number; width: number; height: number }>
 
-export function stageChildPlaces<T extends Readonly<{ id: string | number; parent_id: string | number | null }>>(places: readonly T[], parentId: string | number): readonly T[] {
-  const parentKey = String(parentId)
-  return Object.freeze(places.filter(place => String(place.parent_id) === parentKey)
-    .sort((left, right) => {
-      const leftNumber = Number(left.id)
-      const rightNumber = Number(right.id)
-      if (Number.isSafeInteger(leftNumber) && Number.isSafeInteger(rightNumber)) return leftNumber - rightNumber
-      return String(left.id).localeCompare(String(right.id))
-    }))
-}
-
 export function stageFindFreeSpots(
   entries: readonly StageStandingEntry[],
   room: StageGroundRect,
