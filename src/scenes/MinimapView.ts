@@ -36,12 +36,15 @@ export class MinimapView {
     context.clearRect(0, 0, this.plan.width, this.plan.height)
     context.drawImage(this.base, 0, 0)
     context.drawImage(this.dynamic, 0, 0)
-    const view = frame.viewport
-    context.strokeStyle = '#f3ecd9'; context.lineWidth = 1
-    context.strokeRect(Math.round(view.x) + 0.5, Math.round(view.y) + 0.5,
-      Math.max(1, Math.round(view.width) - 1), Math.max(1, Math.round(view.height) - 1))
     if (frame.followed) {
       context.fillStyle = '#e2c977'; context.fillRect(Math.round(frame.followed.x) - 2, Math.round(frame.followed.y) - 2, 5, 5)
+    }
+    const view = frame.viewport
+    // Keep the view's edge readable even when it is smaller than the followed marker.
+    if (view.width > 0 && view.height > 0) {
+      context.strokeStyle = '#ffffff'; context.lineWidth = 1
+      context.strokeRect(Math.round(view.x) + 0.5, Math.round(view.y) + 0.5,
+        Math.max(1, Math.round(view.width) - 1), Math.max(1, Math.round(view.height) - 1))
     }
     document.body.dataset['liveMinimapView'] = `${Math.round(view.x)},${Math.round(view.y)}`
     document.body.dataset['liveMinimapFollow'] = frame.followed ? `${Math.round(frame.followed.x)},${Math.round(frame.followed.y)}` : ''
