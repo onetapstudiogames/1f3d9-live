@@ -12,6 +12,8 @@ import { sleepingResidents } from '../sleep.ts'
 import { placesWithDrawings } from '../room-art.ts'
 import { createThings, stepThings, type ThingSimulation } from '../things.ts'
 import { ThingView, addThingTexture } from './ThingView.ts'
+import { createHandovers, stepHandovers, type HandoverState } from '../handovers.ts'
+import { HandoverView } from './HandoverView.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -19,6 +21,9 @@ export class CityScene extends Phaser.Scene {
   private layout?: NestedLayout
   private residents?: Simulation
   private things?: ThingSimulation
+  private handovers?: HandoverState
+  private handoverFrame?: ReturnType<typeof stepHandovers>
+  private handoverViews = new Map<string, HandoverView>()
   private thingViews = new Map<number, ThingView>()
   private thingNames = new Map<number, string>()
   private thingReads = new Set<number>()
@@ -68,6 +73,7 @@ export class CityScene extends Phaser.Scene {
       this.clock = createClock(this.replay.window_start, this.replay.window_end, speed)
       this.sleepers = sleepingResidents(this.replay, census)
       this.things = createThings(this.replay, this.layout)
+      this.handovers = createHandovers(this.replay.timeline)
       this.residents = createResidents(this.replay, census, this.layout, this.things.reservations)
       this.rooms = new RoomView(this, this.layout)
       this.rooms.update(this.cameras.main, this.clock.time)
@@ -139,14 +145,19 @@ export class CityScene extends Phaser.Scene {
       const elapsed = Math.min(100, Math.max(0, delta))
       this.elapsed += elapsed
       // Hold the recorded moment for its walks, words and arrivals, then resume the faster clock.
-      if (!this.residents.pending && !this.things?.pending) this.clock = advanceClock(this.clock, elapsed)
+      if (!this.residents.pending && !this.things?.pending && !this.handoverFrame?.pending) this.clock = advanceClock(this.clock, elapsed)
       const due = dueEvents(this.timeline, this.cursor, this.clock.time)
       this.cursor = due.cursor
-      if (this.things) this.things = stepThings(this.things, due.events, this.elapsed, this.clock.speed)
       this.residents = stepResidents(this.residents, due.events, elapsed, this.elapsed, this.layout, this.clock.speed)
+      if (this.handovers) {
+        this.handoverFrame = stepHandovers(this.handovers, due.events, this.residents, this.layout, this.elapsed, this.clock.speed)
+        this.handovers = this.handoverFrame.state
+      }
+      if (this.things) this.things = stepThings(this.things, this.handoverFrame?.floorEvents ?? due.events, this.elapsed, this.clock.speed)
     }
     this.drawThings()
     this.drawResidents()
+    this.drawHandovers()
     this.rooms?.update(this.cameras.main, this.clock.time)
     this.updateHud()
   }
@@ -163,7 +174,8 @@ export class CityScene extends Phaser.Scene {
         if (this.textures.exists(`thing-${thing.id}`)) view.sprite.setTexture(`thing-${thing.id}`)
         this.thingViews.set(thing.id, view)
       }
-      view.update(thing, thing.name ?? this.thingNames.get(thing.id) ?? null, this.cameras.main.zoom, this.elapsed)
+      view.update(thing, thing.name ?? this.thingNames.get(thing.id) ?? null, this.cameras.main.zoom, this.elapsed,
+        this.handoverFrame?.carryThingIds.includes(thing.id) ?? false)
     }
     if (document.body.dataset['liveReady'] === 'true') void this.loadThingDetails()
     if (this.fixtureMode) {
@@ -171,6 +183,22 @@ export class CityScene extends Phaser.Scene {
         id: thing.id, name: thing.name ?? this.thingNames.get(thing.id) ?? null,
       })))
     }
+  }
+
+  private drawHandovers(): void {
+    const motions = this.handoverFrame?.motions ?? []
+    const keys = new Set(motions.map(motion => motion.key))
+    for (const [key, view] of this.handoverViews) {
+      if (!keys.has(key)) { view.destroy(); this.handoverViews.delete(key) }
+    }
+    for (const motion of motions) {
+      let view = this.handoverViews.get(motion.key)
+      if (!view) { view = new HandoverView(this); this.handoverViews.set(motion.key, view) }
+      view.update(motion)
+    }
+    // One plain fact for the saved-fixture run to wait on: a floating copy or a carried
+    // thing has been drawn at least once. It says nothing about when, and never clears.
+    if (this.fixtureMode && motions.length > 0) document.body.dataset['liveHandoverShown'] = 'true'
   }
 
   private async loadThingDetails(): Promise<void> {
@@ -325,7 +353,7 @@ export class CityScene extends Phaser.Scene {
         ? `Following ${followed ?? 'a figure the resident list does not name'} · click floor to stop`
         : this.viewName
     }
-    const pending = this.residents?.pending || this.things?.pending
+    const pending = this.residents?.pending || this.things?.pending || this.handoverFrame?.pending
     const ended = this.clock && this.clock.time >= this.clock.end && !pending
     const failed = document.body.dataset['liveReady'] === 'error'
     const state = failed ? 'Playback is stopped; the last drawn state is kept.' : !this.clock ? ''
