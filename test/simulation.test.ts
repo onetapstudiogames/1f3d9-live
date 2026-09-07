@@ -62,6 +62,24 @@ test('a walk finishes before the following note is shown', () => {
   assert.equal(completed.residents[7]!.visible, false)
 })
 
+test('a full destination reports no free spot rather than no path', () => {
+  const fullDestination = {
+    ...layout,
+    rooms: {
+      ...rooms,
+      3: { ...rooms[3], standing: { x: 420, y: 280, width: 80, height: 80 } },
+    },
+  } as unknown as NestedLayout
+  const start = {
+    'resident:7': { origin_event_id: 1, place_id: 2 },
+    'resident:8': { origin_event_id: 1, place_id: 3 },
+  }
+  const state = createResidents(replay(start), census, fullDestination)
+  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 })
+  const next = stepResidents(state, [move], 0, 0, fullDestination)
+  assert.deepEqual(next.issues, ['Some rooms had no free spot left, so those figures were not moved into them.'])
+})
+
 test('same-room applied move establishes an absent resident without walking', () => {
   const establishing = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 2 })
   const absent = { ...replay({}), timeline: [establishing] }

@@ -134,16 +134,23 @@ export function nestedLayout(
   const rootPlan = makePlan(root.id)
   if (plans.size !== places.length) throw new Error('Every place must descend from the one root')
   const rooms: Record<number, Room> = {}
-  const placeRooms = (plan: Plan, x: number, y: number, depth: number, parentId: number | null): void => {
+  const placeRooms = (plan: Plan, x: number, y: number, depth: number, parentId: number | null, doorIndex = 1): void => {
     const place = byId.get(plan.id)!
+    // Children are sorted by id: successive siblings differ, and each four use all walls.
+    const door = [
+      { x: x + plan.width, y: y + plan.height / 2 },
+      { x: x + plan.width / 2, y: y + plan.height },
+      { x, y: y + plan.height / 2 },
+      { x: x + plan.width / 2, y },
+    ][doorIndex % 4]!
     rooms[plan.id] = Object.freeze({
       id: plan.id, parentId, name: place.name ?? `place ${String(plan.id)}`, quiet: place.quiet === true,
       depth, x, y, width: plan.width, height: plan.height,
-      door: Object.freeze({ x: x + plan.width / 2, y: y + plan.height }),
+      door: Object.freeze(door),
       standing: Object.freeze({ x: x + ROOM_PADDING / 2, y: y + ROOM_PADDING / 2, width: plan.width - ROOM_PADDING, height: plan.standingHeight }),
       children: Object.freeze(plan.children.map(child => child.id)),
     })
-    for (const child of plan.children) placeRooms(plans.get(child.id)!, x + child.x, y + child.y, depth + 1, plan.id)
+    for (const [index, child] of plan.children.entries()) placeRooms(plans.get(child.id)!, x + child.x, y + child.y, depth + 1, plan.id, index)
   }
   placeRooms(rootPlan, 0, 0, 0, null)
   return Object.freeze({ rooms: Object.freeze(rooms), rootId: root.id, width: rootPlan.width, height: rootPlan.height })

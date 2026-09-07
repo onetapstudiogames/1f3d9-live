@@ -44,7 +44,10 @@ export class CityScene extends Phaser.Scene {
       const [record, censusRead] = await Promise.allSettled([fetchReplay(), fetchCensus()])
       if (record.status === 'rejected') throw record.reason
       const census = censusRead.status === 'fulfilled' ? censusRead.value : []
-      if (censusRead.status === 'rejected') this.readIssues.push(`Could not read the resident list: ${String(censusRead.reason)}`)
+      if (censusRead.status === 'rejected') {
+        console.error(censusRead.reason)
+        this.readIssues.push('The resident list could not be read, so figures are shown without names.')
+      }
       this.replay = record.value
       this.timeline = prepareTimeline(this.replay.timeline)
       this.layout = nestedLayout(this.replay.map.places, roomCapacity(this.replay, census))
@@ -79,8 +82,9 @@ export class CityScene extends Phaser.Scene {
           addDrawingTexture(this, `resident-${id}`, art)
           this.figures.get(id)?.sprite.setTexture(`resident-${id}`)
         } catch (error) {
-          const message = `Some drawings could not be read; their last figures are kept. ${String(error)}`
-          if (!this.readIssues.some(issue => issue.startsWith('Some drawings'))) this.readIssues.push(message)
+          console.error(error)
+          const message = 'Some drawings could not be read; their last figures are kept.'
+          if (!this.readIssues.includes(message)) this.readIssues.push(message)
         }
       }))
     }
