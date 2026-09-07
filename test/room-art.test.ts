@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { curtainCells, placesWithDrawings, roomSignPlacement, roomsToDraw } from '../src/room-art.ts'
+import { curtainCells, placeFloorArt, placesWithDrawings, roomsToDraw } from '../src/room-art.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import type { ReplayFile } from '../src/city/types.ts'
 
@@ -20,19 +20,20 @@ test('only recorded drawing flags select places, once per valid id', () => {
   assert.deepEqual(placesWithDrawings([], layout), [])
 })
 
-test('the sign and name share a clear header inside every saved room', async () => {
+test('place art repeats as a crisp 32 pixel tile across each inner floor', async () => {
   const replay = JSON.parse(await readFile(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
   for (const room of Object.values(nestedLayout(replay.map.places).rooms)) {
-    const sign = roomSignPlacement(room)
-    assert.deepEqual(roomSignPlacement(room), sign)
-    assert.equal(sign.size, 24, 'each recorded pixel has three whole pixels')
-    assert.ok(Number.isInteger(sign.x) && Number.isInteger(sign.y))
-    assert.ok(sign.x >= room.x + 8 && sign.y >= room.y + 8)
-    assert.ok(sign.y + sign.size <= room.y + 40, 'sign stays in the header')
-    assert.ok(sign.nameX >= sign.x + sign.size + 6)
-    assert.equal(sign.nameY, sign.y)
-    assert.ok(sign.nameWidth > 100)
-    assert.ok(sign.nameX + sign.nameWidth <= room.x + room.width - 12)
+    const floor = placeFloorArt(room)
+    assert.deepEqual(placeFloorArt(room), floor)
+    assert.equal(floor.tileSize, 32)
+    assert.equal(floor.cellSize, 4)
+    assert.equal(floor.x, room.x + 4)
+    assert.equal(floor.y, room.y + 4)
+    assert.equal(floor.width, room.width - 8)
+    assert.equal(floor.height, room.height - 8)
+    assert.equal(floor.tileOffsetX, 4)
+    assert.equal(floor.tileOffsetY, 4)
+    assert.equal(floor.shadeAlpha, 0.42)
   }
 })
 

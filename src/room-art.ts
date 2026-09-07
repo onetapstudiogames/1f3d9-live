@@ -9,13 +9,17 @@ export function placesWithDrawings(
     && place.id > 0 && visible.has(place.id)).map(place => place.id))]
 }
 
-// A three-pixel scale preserves all 8 by 8 cells and leaves the name beside the art.
-export function roomSignPlacement(room: Room): Readonly<{
-  x: number; y: number; size: number; nameX: number; nameY: number; nameWidth: number
-}> {
+export type PlaceFloorArt = Readonly<{
+  x: number; y: number; width: number; height: number
+  cellSize: number; tileSize: number; tileOffsetX: number; tileOffsetY: number; shadeAlpha: number
+}>
+
+// Four world pixels per recorded cell keeps the 8 by 8 portrait crisp. The four-pixel
+// wall inset clips the repeat while the offsets keep it anchored at the room's corner.
+export function placeFloorArt(room: Room): PlaceFloorArt {
   return Object.freeze({
-    x: room.x + 12, y: room.y + 12, size: 24,
-    nameX: room.x + 42, nameY: room.y + 12, nameWidth: room.width - 54,
+    x: room.x + 4, y: room.y + 4, width: room.width - 8, height: room.height - 8,
+    cellSize: 4, tileSize: 32, tileOffsetX: 4, tileOffsetY: 4, shadeAlpha: 0.42,
   })
 }
 
