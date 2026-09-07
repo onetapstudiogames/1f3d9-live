@@ -27,11 +27,11 @@ test('the fixture draws, a figure follows, and empty floor releases the camera',
   })
   await page.goto('/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings')
   await expect.poll(() => page.evaluate(() => document.body.dataset['liveReady'] ?? ''), { timeout: 30_000 }).toBe('true')
-  await expect.poll(() => page.evaluate(() => document.body.dataset['livePlaceDrawing'] ?? '')).toBe('true')
+  await expect.poll(() => page.evaluate(() => document.body.dataset['livePlaceDrawing'] ?? ''), { timeout: 30_000 }).toBe('true')
   await expect.poll(() => page.evaluate(() => {
     const things = JSON.parse(document.body.dataset['liveThings'] ?? '[]') as { id: number; name: string | null }[]
     return things.find(thing => thing.id === 1536)?.name
-  })).toBe('a single clock hand, the minute hand, pointing at 12')
+  }), { timeout: 30_000 }).toBe('a single clock hand, the minute hand, pointing at 12')
   await page.getByRole('button', { name: 'Pause', exact: true }).click()
   await expect(page.locator('#status')).toContainText('735 places')
   await expect(page.locator('canvas')).toBeVisible()

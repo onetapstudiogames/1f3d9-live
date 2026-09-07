@@ -55,12 +55,22 @@ test('room capacity makes space for recorded floor things and future creations, 
   assert.deepEqual(roomCapacity(record, census), { 2: 4 })
 })
 
-test('fixed thing reservations keep residents off present and future thing spots', () => {
-  const reserved = { 2: [{ key: 'thing:44', kind: 'thing', x: 440, y: 40, width: 32, height: 32 }] } as const satisfies ThingReservations
+test('fixed thing reservations keep residents 48 px clear of present and future thing spots', () => {
+  // Reserve the exact cell a resident takes when nothing is reserved, so ignoring
+  // reservations would put it right back on the thing and fail this test.
+  const free = createResidents(replay(), census, layout)
+  const taken = free.residents[7]!
+  const reserved: ThingReservations = {
+    2: [{ key: 'thing:44', kind: 'thing', x: taken.x - 16, y: taken.y - 16, width: 32, height: 32 }],
+  }
+  const spot = reserved[2]![0]!
   const state = createResidents(replay(), census, layout, reserved)
+
   assert.equal(state.reservations, reserved)
+  assert.notDeepEqual([state.residents[7]!.x, state.residents[7]!.y], [taken.x, taken.y])
   for (const resident of Object.values(state.residents)) {
-    assert.notDeepEqual([resident.x, resident.y], [456, 56])
+    const apart = Math.abs(resident.x - 16 - spot.x) >= 48 || Math.abs(resident.y - 16 - spot.y) >= 48
+    assert.equal(apart, true, `resident ${resident.id} stands inside the reserved thing's 48 px clearance`)
   }
 })
 

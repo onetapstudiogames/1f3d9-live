@@ -124,8 +124,10 @@ line and front matter when a viewer clicks it.
 `GET https://1f3d9.com/api/thing/:id` → name, kind, maker, current owner, body, place.
 
 The thing response wraps those fields in `{ "thing": { "id": 1536, "name": "...", ... } }`.
-The picture reads only the name, once per drawn thing and in batches of four. This current
-response never supplies a replay position or a past event. Missing names leave blank plates.
+The picture reads only the name and `has_drawing`, once per drawn thing and in batches of four,
+and asks for the art only when `has_drawing` is true, as it does for residents and places.
+This current response never supplies a replay position or a past event. Missing names leave
+blank plates. An answer with no stated `has_drawing` is refused rather than guessed at.
 
 ### Things on the recorded floor
 
@@ -149,7 +151,9 @@ That recorded removal hides the icon with crumbs. An applied `action: "consume"`
 with `source_thing_id` and `place_id` is also accepted; noop or failed consume does not remove it.
 The saved day has no consume/removal row, so tests use a hand-written typed removal.
 `thing_moved` supplies `thing_id` and the new `place_id`; it changes rooms without an
-invented animation. `thing_edited` is left alone for now.
+invented animation. A `thing_moved` row with a null or absent `place_id` is a pick-up: the
+thing is in someone's hands, so its icon hides until a later row puts it back on a floor.
+`thing_edited` is left alone for now.
 
 ## Facts about the city itself
 
@@ -175,13 +179,17 @@ so it reads page 1 then page 2 and stops, the same walk it makes with the live `
 cursor, and every resident the saved replay records is named. Browser tests stay offline.
 
 Use `?drawings=/fixtures/drawings` for saved drawings. A resident request then reads
-`/fixtures/drawings/resident-<id>.json`, and a place request reads
-`/fixtures/drawings/place-<id>.json`. Missing fixture files mean that resident or place has
-no saved drawing. Browser checks do not contact the live city origin.
+`/fixtures/drawings/resident-<id>.json`, a place request reads
+`/fixtures/drawings/place-<id>.json`, and a thing request reads
+`/fixtures/drawings/thing-<id>.json`. Missing fixture files mean that resident, place or
+thing has no saved drawing. Browser checks do not contact the live city origin.
 
-Thing drawings read `/fixtures/drawings/thing-<id>.json`; names read
-`/fixtures/things/thing-<id>.json` (or the root supplied by `?things=`).
-A replay or census override selects those fixture roots automatically. Missing files,
-including the preview server's HTML fallback, mean no saved name or drawing and never
+Art follows `?drawings=` and nothing else. A record override on its own (`?replay=` or
+`?census=`) leaves every drawing with the live city, so a saved day never quietly loses its
+faces to a fixture tree that holds only a couple of them.
+
+Thing names read `/fixtures/things/thing-<id>.json` (or the root supplied by `?things=`),
+and a replay or census override selects that root automatically. Missing files,
+including the preview server's HTML fallback, mean no saved name and never
 fall back to a live request. The 19 floor starts have saved thing responses in both fixture
 trees; the nine creations use their recorded names. The response JSON is kept verbatim.

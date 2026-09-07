@@ -110,6 +110,12 @@ test('any event by the handle rejects sleep, including speech and an unreadable 
   }
 })
 
+test('a padded handle or a padded actor still counts as acting, never asleep', () => {
+  const padded = { ...baseReplay, timeline: [event('sleeper')] }
+  assert.equal(sleepingResidents(padded, [resident({ handle: ' sleeper ' })]).has(7), false)
+  assert.equal(sleepingResidents({ ...baseReplay, timeline: [event('  sleeper  ')] }, [resident()]).has(7), false)
+})
+
 test('late joins and unknown or missing facts remain standing', () => {
   const unsafe: readonly Resident[] = [
     resident({ id: 1, joined_at: '2026-09-06T20:00:00.001Z' }),

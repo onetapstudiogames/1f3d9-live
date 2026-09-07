@@ -55,7 +55,7 @@ export type Drawing = Readonly<{
   drawing: Readonly<{ palette: readonly string[]; indices: readonly (number | null)[] }> | null
 }>
 
-export type Thing = Readonly<{ id: number; name: string }>
+export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean }>
 
 export type Resident = Readonly<{
   id: number

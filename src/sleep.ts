@@ -13,7 +13,7 @@ export function sleepingResidents(replay: ReplayFile, census: readonly Resident[
   const windowStart = Date.parse(replay.window_start)
   if (!Number.isFinite(windowStart)) return result
 
-  const activeHandles = new Set(replay.timeline.map(row => row.actor))
+  const activeHandles = new Set(replay.timeline.map(row => (typeof row.actor === 'string' ? row.actor.trim() : '')))
   for (const resident of census) {
     const handle = typeof resident.handle === 'string' ? resident.handle.trim() : ''
     const joinedAt = Date.parse(resident.joined_at)
@@ -21,7 +21,7 @@ export function sleepingResidents(replay: ReplayFile, census: readonly Resident[
     if (!Number.isInteger(resident.current_place_id)) continue
     if (!Number.isFinite(joinedAt) || joinedAt > windowStart) continue
     if (Object.prototype.hasOwnProperty.call(replay.start, `resident:${resident.id}`)) continue
-    if (activeHandles.has(resident.handle)) continue
+    if (activeHandles.has(handle)) continue
     result.add(resident.id)
   }
   return result

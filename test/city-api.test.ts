@@ -206,20 +206,29 @@ test('a place drawing server error stays in plain words and is not fetched again
   assert.deepEqual(urls, ['https://1f3d9.com/api/drawing/place/1'])
 })
 
-test('fixture mode defaults thing labels and thing drawings to saved files', async (t) => {
+test('a record override saves thing labels, and only ?drawings= saves art', async (t) => {
   const original = globalThis.fetch
   const urls: string[] = []
   globalThis.fetch = async input => {
     const url = String(input)
     urls.push(url)
-    if (url.includes('/things/')) return Response.json({ thing: { id: 7, name: 'small lantern', place_id: 999 } })
-    return Response.json({ type: 'thing', id: 7, state: 'complete', drawing: { palette: ['#ffffff'], indices: Array(64).fill(0) } })
+    if (url.includes('/things/')) return Response.json({ thing: { id: 7, name: 'small lantern', place_id: 999, has_drawing: true } })
+    const type = /(resident|place|thing)/.exec(url)?.[1]
+    return Response.json({ type, id: 7, state: 'complete', drawing: { palette: ['#ffffff'], indices: Array(64).fill(0) } })
   }
   t.after(() => { globalThis.fetch = original })
 
-  assert.deepEqual(await fetchThing(7, '?replay=/fixtures/replay-24h.json'), { id: 7, name: 'small lantern' })
-  assert.equal((await fetchDrawing('thing', 7, '?census=/fixtures/residents-presence-page1.json'))?.type, 'thing')
-  assert.deepEqual(urls, ['/fixtures/things/thing-7.json', '/fixtures/drawings/thing-7.json'])
+  assert.deepEqual(await fetchThing(7, '?replay=/fixtures/replay-24h.json'), { id: 7, name: 'small lantern', has_drawing: true })
+  assert.equal((await fetchDrawing('thing', 7, '?drawings=/fixtures/drawings'))?.type, 'thing')
+  // A record override on its own leaves every drawing with the live city.
+  assert.equal((await fetchDrawing('resident', 7, '?replay=/fixtures/replay-24h.json'))?.id, 7)
+  assert.equal((await fetchDrawing('place', 7, '?census=/fixtures/residents-presence-page1.json'))?.id, 7)
+  assert.deepEqual(urls, [
+    '/fixtures/things/thing-7.json',
+    '/fixtures/drawings/thing-7.json',
+    'https://1f3d9.com/api/drawing/resident/7',
+    'https://1f3d9.com/api/drawing/place/7',
+  ])
 })
 
 test('thing loader caches success, absence, and failures and supports an override root', async (t) => {
@@ -230,12 +239,12 @@ test('thing loader caches success, absence, and failures and supports an overrid
     calls.set(url, (calls.get(url) ?? 0) + 1)
     if (url.endsWith('thing-2.json')) return new Response('', { status: 404 })
     if (url.endsWith('thing-3.json')) throw new Error('offline')
-    return Response.json({ thing: { id: 1, name: 'cup', place_id: 55 } })
+    return Response.json({ thing: { id: 1, name: 'cup', place_id: 55, has_drawing: false } })
   }
   t.after(() => { globalThis.fetch = original })
   const load = createThingLoader('?things=/saved/things')
 
-  assert.deepEqual(await load(1), { id: 1, name: 'cup' })
+  assert.deepEqual(await load(1), { id: 1, name: 'cup', has_drawing: false })
   assert.equal(await load(2), null)
   assert.equal(await load(2), null)
   await assert.rejects(load(3), /offline/)
@@ -243,16 +252,19 @@ test('thing loader caches success, absence, and failures and supports an overrid
   assert.deepEqual([...calls.values()], [1, 1, 1])
 })
 
-test('thing reads validate request and response identity and name', async (t) => {
+test('thing reads validate request and response identity, name, and has_drawing', async (t) => {
   const original = globalThis.fetch
+  const bodies = [{ thing: { id: 4, name: 'wrong', has_drawing: false } }, { thing: { id: 5, name: 'no flag' } }]
   let calls = 0
-  globalThis.fetch = async () => { calls += 1; return Response.json({ thing: { id: 4, name: 'wrong' } }) }
+  globalThis.fetch = async () => { calls += 1; return Response.json(bodies.shift()) }
   t.after(() => { globalThis.fetch = original })
 
   await assert.rejects(fetchThing(0, ''), /invalid thing request/)
   await assert.rejects(fetchThing(Number.MAX_SAFE_INTEGER + 1, ''), /invalid thing request/)
   assert.equal(calls, 0)
   await assert.rejects(fetchThing(3, ''), /invalid thing 3/)
+  // Without a stated has_drawing the answer is refused rather than guessed at.
+  await assert.rejects(fetchThing(5, ''), /invalid thing 5/)
 })
 
 test('missing fixture HTML means no saved thing and never falls back live', async (t) => {

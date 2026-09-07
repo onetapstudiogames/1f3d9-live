@@ -23,15 +23,15 @@ const event = (kind: string, detail: ReplayEvent['detail'], eventId = 1): Replay
 test('planning reserves deterministic floor spots from starts and created rows only', () => {
   const made = event('thing_created', { thing_id: 12, place_id: 1, name: 'lamp' })
   const plan = planThingSpots(replay({ 'thing:11': { place_id: 1 }, 'thing:bad': { place_id: 1 }, 'thing:13': { place_id: null } }, [made]), layout)
-  assert.deepEqual(Object.keys(plan.spots).sort(), ['11', '12'])
-  assert.equal(plan.spots[11]!.placeId, 1)
-  assert.notDeepEqual([plan.spots[11]!.x, plan.spots[11]!.y], [plan.spots[12]!.x, plan.spots[12]!.y])
+  const keys = plan.reservations[1]!.map(spot => spot.key).sort()
+  assert.deepEqual(keys, ['thing:11', 'thing:12'])
   assert.equal(plan.reservations[1]!.length, 2)
+  const [first, second] = plan.reservations[1]!
+  assert.notDeepEqual([first!.x, first!.y], [second!.x, second!.y])
 })
 
 test('quiet rooms and their descendants do not get thing reservations', () => {
   const plan = planThingSpots(replay({ 'thing:1': { place_id: 2 }, 'thing:2': { place_id: 3 } }), layout)
-  assert.deepEqual(plan.spots, {})
   assert.deepEqual(plan.reservations, {})
 })
 
@@ -123,6 +123,34 @@ test('a recorded move can establish an unknown floor thing or hide it in a quiet
   assert.equal(shown.things[19]!.placeId, 1)
   const hidden = stepThings(shown, [event('thing_moved', { thing_id: 19, place_id: 2 }, 2)], 200)
   assert.equal(hidden.things[19]!.visible, false)
+})
+
+test('a move that names no place carries the thing away, and a later floor row brings it back', () => {
+  const initial = createThings(replay({ 'thing:11': { place_id: 1 }, 'thing:12': { place_id: 1 } }), layout)
+  const missing = event('thing_moved', { thing_id: 11, from_place_id: 1 })
+  // The door may say the place is null outright, not only leave it out.
+  const nullDetail = { thing_id: 12, from_place_id: 1, place_id: null } as unknown as ReplayEvent['detail']
+  const nulled = event('thing_moved', nullDetail, 2)
+  const carried = stepThings(initial, [missing, nulled], 100)
+  assert.equal(carried.things[11]!.visible, false)
+  assert.equal(carried.things[11]!.effect, null)
+  assert.equal(carried.things[12]!.visible, false)
+
+  const back = stepThings(carried, [event('thing_moved', { thing_id: 11, place_id: 1 }, 3)], 200)
+  assert.equal(back.things[11]!.visible, true)
+  assert.equal(back.things[11]!.placeId, 1)
+})
+
+test('one thing mid effect defers only its own later rows, never another thing\'s', () => {
+  const made = event('thing_created', { thing_id: 12, place_id: 1, name: 'lamp' })
+  const useLamp = event('action', { action: 'use', status: 'applied', source_thing_id: 12, place_id: 1 }, 2)
+  const useOther = event('action', { action: 'use', status: 'applied', source_thing_id: 11, place_id: 1 }, 3)
+  const initial = createThings(replay({ 'thing:11': { place_id: 1 } }, [made]), layout)
+  const state = stepThings(initial, [made, useLamp, useOther], 100)
+
+  assert.equal(state.things[12]!.effect?.kind, 'puff')
+  assert.equal(state.things[11]!.effect?.kind, 'glow')
+  assert.deepEqual(state.queue.map(row => row.event_id), [2])
 })
 
 test('overflow keeps timeline-touched things first and never invents from checkpoint counts', () => {
