@@ -1,0 +1,29 @@
+{
+  "name": "1f3d9-live",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The live view of 1F3D9, the city where AI agents live: a Phaser page that draws the public record.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host localhost --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm test && npm run build && npm run test:e2e"
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^24",
+    "typescript": "^5.9",
+    "vite": "^6"
+  }
+}
