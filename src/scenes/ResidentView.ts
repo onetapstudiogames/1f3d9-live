@@ -12,6 +12,7 @@ import { lockCells } from '../laws.ts'
 import { reappearanceAlpha } from '../viewer.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
+export type ResidentLabelBounds = Readonly<{ x: number; y: number; width: number; height: number }>
 
 export class ResidentView {
   readonly sprite: Phaser.GameObjects.Image
@@ -26,6 +27,8 @@ export class ResidentView {
   private lock: Phaser.GameObjects.Graphics | null = null
   private lockLabel: Phaser.GameObjects.Text | null = null
   private readonly named: boolean
+  private nameAllowed = false
+  private newTagAllowed = false
   private standingTexture = 'resident-default'
 
   constructor(scene: Phaser.Scene, resident: ResidentState) {
@@ -71,9 +74,11 @@ export class ResidentView {
     this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
     const appearance = reappearanceAlpha(resident.relocatedAt, now)
     for (const item of [this.sprite, this.name, this.bubble, this.bubbleBackground, this.newTag, this.zzz]) item.setAlpha(appearance)
-    this.name.setPosition(resident.x, resident.y + (sleeping ? 19 : 22)).setVisible(this.named && resident.visible && (zoom >= 0.45 || followed))
+    this.nameAllowed = this.named && resident.visible && (zoom >= 0.45 || followed)
+    this.name.setPosition(resident.x, resident.y + (sleeping ? 19 : 22)).setVisible(this.nameAllowed)
     this.newTag.setPosition(this.name.x + (this.named ? this.name.width / 2 + 3 : 0), this.name.y)
-      .setVisible(resident.visible && (zoom >= 0.45 || followed) && isNewResident(resident.joinedAt, recordedTime))
+    this.newTagAllowed = resident.visible && (zoom >= 0.45 || followed) && isNewResident(resident.joinedAt, recordedTime)
+    this.newTag.setVisible(this.newTagAllowed)
     const alpha = sparkleAlpha(resident.sparkle, now)
     this.sparkle.setPosition(resident.x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
     this.zzz.setPosition(resident.x + 13, resident.y - 13).setVisible(sleeping && resident.visible)
@@ -126,6 +131,22 @@ export class ResidentView {
         showing: moment?.confetti ? 'confetti' : moment?.ballot ? 'ballot' : moment ? 'spotlight' : '' })
     }
     return null
+  }
+
+  labelBounds(): ResidentLabelBounds | null {
+    if (!this.name.visible) return null
+    const name = this.name.getBounds()
+    const tag = this.newTag.visible ? this.newTag.getBounds() : null
+    const left = Math.min(name.left, tag?.left ?? name.left)
+    const top = Math.min(name.top, tag?.top ?? name.top)
+    const right = Math.max(name.right, tag?.right ?? name.right)
+    const bottom = Math.max(name.bottom, tag?.bottom ?? name.bottom)
+    return Object.freeze({ x: left, y: top, width: right - left, height: bottom - top })
+  }
+
+  setNameVisible(visible: boolean): void {
+    this.name.setVisible(this.nameAllowed && visible)
+    this.newTag.setVisible(this.newTagAllowed && visible)
   }
 
   destroy(): void {

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { ReplayPlace, Resident } from '../src/city/types.ts'
+import type { ReplayEvent, ReplayPlace, Resident } from '../src/city/types.ts'
 import type { NestedLayout, Room } from '../src/ground/nested.ts'
-import { busiestRoom, projectRoomPoint, roomIsPublic, singleRoomLayout } from '../src/room-view.ts'
+import { busiestRoom, projectRoomPoint, roomIsPublic, roomViewportUsable, singleRoomLayout } from '../src/room-view.ts'
 
 const room = (id: number, parentId: number | null, quiet = false): Room => Object.freeze({
   id, parentId, name: `room ${id}`, quiet, depth: parentId === null ? 0 : 1,
@@ -25,22 +25,57 @@ const resident = (id: number, placeId: number | null, visible = true): Resident 
   id, handle: visible ? `resident-${id}` : null, model: '', joined_at: '', has_drawing: visible,
   current_place_id: placeId, asleep: false,
 })
-
-test('busiest room counts exact census occupants and breaks ties by room id', () => {
-  const places = [place(1, null), place(2, 1), place(3, 1)]
-  assert.equal(busiestRoom(places, [resident(1, 3), resident(2, 2), resident(3, 2)]), 2)
-  assert.equal(busiestRoom(places, [resident(1, 3), resident(2, 2)]), 2)
+const recorded = (eventId: number, at: string, kind: string, detail: ReplayEvent['detail']): ReplayEvent => ({
+  actor: 'resident', at, change_id: String(eventId), event_id: eventId, kind, detail,
 })
 
-test('busiest room excludes unknown and quiet branches, then falls back to the lowest public id', () => {
+test('recent recorded activity beats a crowded container and census breaks activity ties', () => {
+  const places = [place(1, null), place(2, 1), place(3, 1)]
+  const census = Array.from({ length: 57 }, (_, id) => resident(id, 1)).concat(resident(58, 3))
+  const timeline = [recorded(1, '2026-09-08T11:45:00Z', 'note', { place_id: 2 })]
+  assert.equal(busiestRoom(places, census, timeline, Date.parse('2026-09-08T12:00:00Z')), 2)
+  const tied = timeline.concat(recorded(2, '2026-09-08T11:46:00Z', 'note', { place_id: 3 }))
+  assert.equal(busiestRoom(places, census, tied, Date.parse('2026-09-08T12:00:00Z')), 3)
+})
+
+test('busiest room accepts the window edge and ignores old, future, invalid, duplicate, quiet, and unknown rows', () => {
   const places = [place(1, null), place(2, 1, true), place(3, 2), place(4, 1)]
-  assert.equal(busiestRoom(places, [resident(1, 3), resident(2, 99), resident(3, null)]), 1)
-  assert.equal(busiestRoom(places, []), 1)
+  const timeline = [
+    recorded(1, '2026-09-08T11:30:00Z', 'note', { place_id: 4 }),
+    recorded(1, '2026-09-08T11:59:00Z', 'note', { place_id: 4 }),
+    recorded(2, '2026-09-08T11:29:59Z', 'note', { place_id: 4 }),
+    recorded(3, '2026-09-08T12:00:01Z', 'note', { place_id: 4 }),
+    recorded(4, 'bad date', 'note', { place_id: 4 }),
+    recorded(5, '2026-09-08T11:50:00Z', 'note', { place_id: 3 }),
+    recorded(6, '2026-09-08T11:50:00Z', 'note', { place_id: 99 }),
+  ]
+  assert.equal(busiestRoom(places, [], timeline, Date.parse('2026-09-08T12:00:00Z')), 4)
   const city = layout([{ ...room(1, null), children: Object.freeze([2, 4]) },
     { ...room(2, 1, true), children: Object.freeze([3]) }, room(3, 2), room(4, 1)])
   assert.equal(roomIsPublic(city, 1), true)
   assert.equal(roomIsPublic(city, 3), false)
   assert.equal(roomIsPublic(city, 99), false)
+})
+
+test('applied move destinations count, failed moves do not, and no activity falls back to census then id', () => {
+  const places = [place(1, null), place(2, 1), place(3, 1), place(4, 1)]
+  const timeline = [
+    recorded(1, '2026-09-08T11:50:00Z', 'action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 }),
+    recorded(2, '2026-09-08T11:51:00Z', 'action', { action: 'move', status: 'applied', to_place_id: 4, error: 'denied' }),
+    recorded(3, '2026-09-08T11:52:00Z', 'action', { action: 'move', status: 'noop', to_place_id: 4 }),
+  ]
+  assert.equal(busiestRoom(places, [], timeline, Date.parse('2026-09-08T12:00:00Z')), 3)
+  assert.equal(busiestRoom(places, [resident(1, 4), resident(2, 4)], [], Date.parse('2026-09-08T12:00:00Z')), 4)
+  assert.equal(busiestRoom(places, [], [], Date.parse('2026-09-08T12:00:00Z')), 2)
+  assert.equal(busiestRoom([], [], [], Date.parse('2026-09-08T12:00:00Z')), null)
+})
+
+test('room viewport usability has finite inclusive minimum boundaries', () => {
+  assert.equal(roomViewportUsable(128, 220), true)
+  assert.equal(roomViewportUsable(127.999, 220), false)
+  assert.equal(roomViewportUsable(128, 219.999), false)
+  assert.equal(roomViewportUsable(Number.NaN, 220), false)
+  assert.equal(roomViewportUsable(128, Number.POSITIVE_INFINITY), false)
 })
 
 test('single-room layout fills the viewport and preserves the selected room facts', () => {

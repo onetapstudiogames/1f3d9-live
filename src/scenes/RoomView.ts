@@ -10,12 +10,15 @@ import { TiledFloor } from './TiledFloor.ts'
 import {
   animationProgress, brickCount, placeAnimationsByKind, signScale, wallBricks, type PlaceAnimation,
 } from '../place-animation.ts'
+import { removableOnce } from '../scene-lifecycle.ts'
 
 export class RoomView {
   private plates = new Map<number, {
     group: Phaser.GameObjects.Container; text: Phaser.GameObjects.Text; room: Room; nameOffset: number
   }>()
   private readonly tint: Phaser.GameObjects.Rectangle
+  private readonly removeShutdownListener: () => void
+  private destroyed = false
   private readonly surfaces = new Map<number, {
     paint: Phaser.GameObjects.Graphics; windows: Phaser.GameObjects.Graphics
     building: Phaser.GameObjects.Graphics | null; bricks: ReturnType<typeof wallBricks>; drawn: number
@@ -101,13 +104,14 @@ export class RoomView {
       const group = scene.add.container(x + 12, y + 12, [text]).setDepth(room.depth + 1)
       this.plates.set(room.id, { group, text, room, nameOffset: 0 })
     }
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      for (const surface of this.surfaces.values()) for (const art of surface.art) art.destroy()
-    })
+    this.removeShutdownListener = removableOnce(scene.events, Phaser.Scenes.Events.SHUTDOWN, () => this.destroy())
   }
 
   setPlan(plan: PlacePlan): void { this.plan = plan }
   destroy(): void {
+    if (this.destroyed) return
+    this.destroyed = true
+    this.removeShutdownListener()
     this.tint.destroy()
     for (const plate of this.plates.values()) plate.group.destroy()
     for (const surface of this.surfaces.values()) {

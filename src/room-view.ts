@@ -1,4 +1,4 @@
-import type { ReplayPlace, Resident } from './city/types.ts'
+import type { ReplayEvent, ReplayPlace, Resident } from './city/types.ts'
 import type { NestedLayout, Point, Room } from './ground/nested.ts'
 
 function publicPlaceIds(places: readonly ReplayPlace[]): ReadonlySet<number> {
@@ -20,15 +20,42 @@ function publicPlaceIds(places: readonly ReplayPlace[]): ReadonlySet<number> {
   return result
 }
 
-// The initial room is a presentation choice based only on current, public census facts.
-export function busiestRoom(places: readonly ReplayPlace[], census: readonly Resident[]): number | null {
+const RECENT_ACTIVITY_MS = 30 * 60 * 1_000
+
+function recordedPlaceId(event: ReplayEvent): number | null {
+  const move = event.kind === 'action' && (event.detail.action === 'move' || event.detail.action === 'go_home')
+  if (move) {
+    return event.detail.status === 'applied' && event.detail.error == null &&
+      typeof event.detail.to_place_id === 'number' ? event.detail.to_place_id : null
+  }
+  return typeof event.detail.place_id === 'number' ? event.detail.place_id : null
+}
+
+// The initial room is a presentation choice based only on recent records and the current census.
+export function busiestRoom(places: readonly ReplayPlace[], census: readonly Resident[],
+  timeline: readonly ReplayEvent[], now: number): number | null {
   const publicIds = publicPlaceIds(places)
+  const parents = new Set(places.map(place => place.parent_id).filter((id): id is number => id !== null))
+  const leafIds = new Set([...publicIds].filter(id => !parents.has(id)))
+  const eligibleIds = leafIds.size > 0 ? leafIds : publicIds
   const counts = new Map<number, number>()
   for (const resident of census) {
     const id = resident.current_place_id
-    if (id !== null && publicIds.has(id)) counts.set(id, (counts.get(id) ?? 0) + 1)
+    if (id !== null && eligibleIds.has(id)) counts.set(id, (counts.get(id) ?? 0) + 1)
   }
-  return [...publicIds].sort((left, right) =>
+  const activity = new Map<number, number>()
+  const seen = new Set<number>()
+  if (Number.isFinite(now)) {
+    for (const event of timeline) {
+      const at = Date.parse(event.at)
+      if (!Number.isFinite(at) || at < now - RECENT_ACTIVITY_MS || at > now || seen.has(event.event_id)) continue
+      seen.add(event.event_id)
+      const id = recordedPlaceId(event)
+      if (id !== null && eligibleIds.has(id)) activity.set(id, (activity.get(id) ?? 0) + 1)
+    }
+  }
+  return [...eligibleIds].sort((left, right) =>
+    (activity.get(right) ?? 0) - (activity.get(left) ?? 0) ||
     (counts.get(right) ?? 0) - (counts.get(left) ?? 0) || left - right)[0] ?? null
 }
 
@@ -55,8 +82,12 @@ function projectAxis(value: number, source: readonly [number, number, number, nu
   return target[segment]! + progress * (target[segment + 1]! - target[segment]!)
 }
 
+export function roomViewportUsable(width: number, height: number): boolean {
+  return Number.isFinite(width) && Number.isFinite(height) && width >= 128 && height >= 220
+}
+
 export function singleRoomLayout(source: Room, width: number, height: number): NestedLayout {
-  if (![width, height].every(Number.isFinite) || width < 128 || height < 220) {
+  if (!roomViewportUsable(width, height)) {
     throw new RangeError('A single room needs a finite viewport at least 128 by 220 pixels')
   }
   const roomWidth = width - 16

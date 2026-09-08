@@ -9,6 +9,7 @@ import type { ThingState } from '../things.ts'
 import { ActivityLayer } from './ActivityLayer.ts'
 import type { ActivityLog } from './ActivityLog.ts'
 import { rebaseActiveLooks, visibleLookingIds, type ActivitySnapshot } from '../activity-snapshot.ts'
+import { projectCueAnchors } from '../room-anchors.ts'
 
 export type { ActivitySnapshot } from '../activity-snapshot.ts'
 export type HistoricalAnchor = Readonly<{ x: number; y: number; roomId: number }>
@@ -67,7 +68,8 @@ export class SceneActivity {
   }
 
   update(residents: Readonly<Record<number, ResidentState>>, things: Readonly<Record<number, ThingState>>, layout: NestedLayout,
-    hidden: ReadonlySet<number>, now: number, zoom: number, wallNow?: number): void {
+    hidden: ReadonlySet<number>, now: number, zoom: number, wallNow?: number,
+    anchorRooms?: Readonly<{ source: NestedLayout['rooms'][number]; target: NestedLayout['rooms'][number] }>): void {
     if (Number.isFinite(wallNow)) {
       this.restoredWallNow = undefined
       const expired = new Set(this.activeLooks.filter(row => row.expiresAt <= wallNow!).map(row => row.key))
@@ -76,7 +78,8 @@ export class SceneActivity {
         active: Object.freeze(this.cues.active.filter(cue => !expired.has(cue.key))) })
     }
     this.cues = stepActivityCues(this.cues, [], now)
-    const frames = cueFrame(this.cues, now)
+    const rawFrames = cueFrame(this.cues, now)
+    const frames = anchorRooms ? projectCueAnchors(rawFrames, anchorRooms.source, anchorRooms.target) : rawFrames
     this.activeResidents = Object.freeze([...new Set(frames.flatMap(frame => frame.residentId === null ? [] : [frame.residentId]))])
     this.layer.update(frames, Object.values(residents), Object.values(things), layout, hidden, zoom)
   }

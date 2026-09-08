@@ -4,31 +4,11 @@ import { mkdir, readFile } from 'node:fs/promises'
 const fixtureUrl = '/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
 const removedControlIds = ['rewind', 'normal', 'fast', 'live-now', 'replay-day', 'nearby', 'city', 'follow-stop', 'show-sleepers', 'minimap-toggle', 'minimap-canvas', 'ui-toggle', 'activity-panel', 'activity-filter', 'activity-toggle']
 type Resident = { id: number; current_place_id: number }
-type Place = { id: number; parent_id: number | null; quiet: boolean }
 
 async function fixtureResidents(): Promise<Resident[]> {
   const pages = await Promise.all([1, 2].map(async page =>
     JSON.parse(await readFile(`public/fixtures/residents-presence-page${page}.json`, 'utf8')) as { residents: Resident[] }))
   return pages.flatMap(page => page.residents)
-}
-
-async function fixturePlaces(): Promise<Place[]> {
-  const replay = JSON.parse(await readFile('public/fixtures/replay-24h.json', 'utf8')) as { map: { places: Place[] } }
-  return replay.map.places
-}
-
-function publicPlaceIds(places: Place[]): Set<number> {
-  const byId = new Map(places.map(place => [place.id, place]))
-  return new Set(places.filter(place => {
-    const seen = new Set<number>(); let current: Place | undefined = place
-    while (current) {
-      if (current.quiet || seen.has(current.id)) return false
-      seen.add(current.id)
-      if (current.parent_id === null) return true
-      current = byId.get(current.parent_id)
-    }
-    return false
-  }).map(place => place.id))
 }
 
 async function openFixture(page: Page): Promise<{ external: string[]; errors: string[] }> {
@@ -60,12 +40,9 @@ async function visibleFigures(page: Page): Promise<Array<{ id: number; x: number
 }
 
 test('opens live in the busiest room with only the one-room controls', async ({ page }) => {
+  await page.clock.install({ time: Date.parse('2026-09-07T01:30:42.383Z') })
   const diagnostics = await openFixture(page); await waitUntilReady(page)
-  const places = await fixturePlaces(); const publicIds = publicPlaceIds(places); const counts = new Map<number, number>()
-  for (const resident of await fixtureResidents()) if (publicIds.has(resident.current_place_id)) counts.set(resident.current_place_id, (counts.get(resident.current_place_id) ?? 0) + 1)
-  const busiestRoom = [...publicIds].sort((left, right) => (counts.get(right) ?? 0) - (counts.get(left) ?? 0) || left - right)[0]
-  expect(busiestRoom).toBeDefined()
-  await expect(page.locator('body')).toHaveAttribute('data-live-room', String(busiestRoom))
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '8')
   await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
   await expect(page.locator('select')).toHaveCount(2)
   await expect(page.locator('button')).toHaveCount(1)
@@ -102,18 +79,53 @@ test('resident and place choices control the one room', async ({ page }) => {
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 
-test('pause freezes the frame and pointer navigation does nothing', async ({ page }) => {
+test('pause holds an advancing scene, resume advances it, and pointer navigation does nothing', async ({ page }) => {
   const diagnostics = await openFixture(page); await waitUntilReady(page)
+  const elapsed = () => page.evaluate(() => Number(document.body.dataset['liveElapsed']))
+  const first = await elapsed()
+  await expect.poll(elapsed).toBeGreaterThan(first)
   const pause = page.locator('#pause'); await pause.click()
   await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'true')
   await expect(pause).toHaveAttribute('aria-label', 'Resume')
   const roomBefore = await page.locator('body').getAttribute('data-live-room')
-  const frameBefore = await visibleFigures(page)
+  const frameBefore = await visibleFigures(page); const elapsedBefore = await elapsed()
   const box = await page.locator('#app canvas').boundingBox(); expect(box).not.toBeNull()
   await page.mouse.move(box!.x + box!.width * 0.4, box!.y + box!.height * 0.4); await page.mouse.down()
   await page.mouse.move(box!.x + box!.width * 0.65, box!.y + box!.height * 0.6, { steps: 4 }); await page.mouse.up(); await page.mouse.wheel(0, -180)
   await expect(page.locator('body')).toHaveAttribute('data-live-room', roomBefore!)
   await expect.poll(() => visibleFigures(page)).toEqual(frameBefore)
+  await page.waitForTimeout(250)
+  expect(await elapsed()).toBe(elapsedBefore)
+  await pause.click()
+  await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
+  await expect.poll(elapsed).toBeGreaterThan(elapsedBefore)
+  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
+})
+
+test('a tiny startup window reports its size honestly and recovers when grown', async ({ page }) => {
+  await page.setViewportSize({ width: 127, height: 219 })
+  const diagnostics = await openFixture(page)
+  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
+  await expect(page.locator('#live-status')).toHaveText('This window is too small to draw the room.')
+  await page.setViewportSize({ width: 375, height: 812 })
+  await waitUntilReady(page)
+  await expect(page.locator('#live-status')).toBeEmpty()
+  await expect(page.locator('#app canvas')).toBeVisible()
+  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
+})
+
+test('a ready room survives a shrink and redraws when grown', async ({ page }) => {
+  const diagnostics = await openFixture(page); await waitUntilReady(page)
+  const room = await page.locator('body').getAttribute('data-live-room')
+  await page.setViewportSize({ width: 127, height: 219 })
+  await expect(page.locator('#live-status')).toHaveText('This window is too small to draw the room.')
+  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true')
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await expect(page.locator('#live-status')).toBeEmpty()
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', room!)
+  await expect(page.locator('#app canvas')).toBeVisible()
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 
