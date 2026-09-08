@@ -1,5 +1,6 @@
 import type { NestedLayout, Point } from './ground/nested.ts'
-import { allocateRoomCrowding, type RoomCrowdingEntry, type RoomCrowdingPlacement } from './room-crowding.ts'
+import { allocateRoomCrowdingFrame, type RoomCrowdingEntry, type RoomCrowdingPlacement,
+  type RoomCrowdingState } from './room-crowding.ts'
 import { projectRoomPoint, roomIsPublic } from './room-view.ts'
 
 type Entity = Readonly<{ id: number; placeId: number | null; x: number; y: number; visible: boolean }>
@@ -8,19 +9,21 @@ type Figure = Entity & Readonly<{ walking?: boolean; bubble?: unknown; invention
 export type RoomPlacements = Readonly<Record<string, RoomCrowdingPlacement>>
 
 export function roomFigurePriority(row: Figure, following: number | null): number {
-  if (row.id === following) return 100
-  if (row.bubble) return 80
-  if (row.walking) return 60
-  if (row.inventionUntil || row.agreementUntil || row.transferUntil) return 40
+  const followed = row.id === following
+  if (row.bubble) return followed ? 120 : 110
+  if (row.walking) return followed ? 100 : 80
+  if (row.inventionUntil || row.agreementUntil || row.transferUntil) return followed ? 90 : 60
+  if (followed) return 70
   return 10
 }
 
 // All visual layers consume these copies; simulation positions remain in the recorded room layout.
 export function presentRoom<R extends Figure, T extends Entity>(residents: Readonly<Record<number, R>>,
   things: Readonly<Record<number, T>>, source: NestedLayout | undefined, target: NestedLayout | undefined,
-  hidden: ReadonlySet<number>, previous: RoomPlacements = {}, following: number | null = null,
+  hidden: ReadonlySet<number>, previous: RoomPlacements | RoomCrowdingState = {}, following: number | null = null,
   agreements: ReadonlyMap<number, Point> = new Map()): Readonly<{
     residents: Readonly<Record<number, R>>; things: Readonly<Record<number, T>>; placements: RoomPlacements
+    crowding: RoomCrowdingState; hiddenSpeakerIds: readonly number[]
   }> {
   const project = <E extends Entity>(row: E, point: Point = row): E => {
     const id = row.placeId
@@ -39,11 +42,17 @@ export function presentRoom<R extends Figure, T extends Entity>(residents: Reado
       preferred: row, priority: 0 })),
   ]
   const room = target?.rooms[target.rootId]
-  const placements: RoomPlacements = room ? allocateRoomCrowding(entries, room.standing, previous) : Object.freeze({})
+  const crowding: RoomCrowdingState = room ? allocateRoomCrowdingFrame(entries, room.standing, previous) :
+    Object.freeze({ bandKey: 'no-room', key: 'no-room', grid: Object.freeze([]), placements: Object.freeze({}),
+      metrics: Object.freeze({ gridBuilds: 0, candidateChecks: 0 }) })
+  const placements = crowding.placements
   const placed = <E extends Entity>(rows: readonly E[], kind: 'resident' | 'thing'): Readonly<Record<number, E>> =>
     Object.freeze(Object.fromEntries(rows.map(row => {
       const spot = placements[`${kind}:${row.id}`]
       return [row.id, Object.freeze(spot?.visible ? { ...row, x: spot.x, y: spot.y } : { ...row, visible: false })]
     })))
-  return Object.freeze({ residents: placed(figures, 'resident'), things: placed(objects, 'thing'), placements })
+  const hiddenSpeakerIds = Object.freeze(figures.filter(row => row.visible && row.bubble &&
+    !placements[`resident:${row.id}`]?.visible).map(row => row.id).sort((left, right) => left - right))
+  return Object.freeze({ residents: placed(figures, 'resident'), things: placed(objects, 'thing'), placements,
+    crowding, hiddenSpeakerIds })
 }

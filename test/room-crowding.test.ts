@@ -3,6 +3,10 @@ import test from 'node:test'
 
 import {
   allocateRoomCrowding,
+  allocateRoomCrowdingFrame,
+  ROOM_FIGURE_PITCH,
+  ROOM_FIGURE_SIZE,
+  roomLabelFitsViewport,
   visibleRoomLabels,
   type RoomCrowdingEntry,
   type RoomCrowdingPlacement,
@@ -13,11 +17,11 @@ const entry = (id: string, x: number, y: number, priority = 0,
   Object.freeze({ id, kind, preferred: Object.freeze({ x, y }), priority })
 
 function overlap(left: RoomCrowdingPlacement, right: RoomCrowdingPlacement): boolean {
-  return Math.abs(left.x - right.x) < 32 && Math.abs(left.y - right.y) < 32
+  return Math.abs(left.x - right.x) < ROOM_FIGURE_SIZE && Math.abs(left.y - right.y) < ROOM_FIGURE_SIZE
 }
 
 function overlapWithBob(left: RoomCrowdingPlacement, right: RoomCrowdingPlacement): boolean {
-  return Math.abs(left.x - right.x) < 36 && Math.abs(left.y - right.y) < 36
+  return Math.abs(left.x - right.x) < ROOM_FIGURE_PITCH && Math.abs(left.y - right.y) < ROOM_FIGURE_PITCH
 }
 
 test('allocates colliding projected residents and things deterministically without sprite overlap', () => {
@@ -49,6 +53,37 @@ test('keeps a stable seat offset while a projected resident moves slightly', () 
     assert.equal(moved[id]!.x, first[id]!.x + 3)
     assert.equal(moved[id]!.y, first[id]!.y + 2)
   }
+})
+
+test('returns to the preferred projection as soon as the blocking crowd leaves', () => {
+  const band = { x: 0, y: 0, width: 160, height: 96 }
+  const crowded = allocateRoomCrowding([entry('blocker', 48, 48, 2), entry('moved', 48, 48, 1)], band)
+  assert.notDeepEqual({ x: crowded.moved!.x, y: crowded.moved!.y }, { x: 48, y: 48 })
+  const clear = allocateRoomCrowding([entry('moved', 48, 48, 1)], band, crowded)
+  assert.deepEqual({ x: clear.moved!.x, y: clear.moved!.y, offsetX: clear.moved!.offsetX, offsetY: clear.moved!.offsetY },
+    { x: 48, y: 48, offsetX: 0, offsetY: 0 })
+})
+
+test('unchanged paused input reuses the frame state and does no allocation work', () => {
+  const entries = Object.freeze([entry('a', 48, 48), entry('b', 48, 48)])
+  const band = Object.freeze({ x: 0, y: 0, width: 160, height: 96 })
+  const first = allocateRoomCrowdingFrame(entries, band)
+  const paused = allocateRoomCrowdingFrame(entries, band, first)
+  assert.equal(paused, first)
+  assert.equal(paused.placements, first.placements)
+  assert.equal(first.metrics.gridBuilds, 1)
+  assert.ok(first.metrics.candidateChecks > 0)
+})
+
+test('changed residents reuse the band grid while a resized band builds a new grid', () => {
+  const band = Object.freeze({ x: 0, y: 0, width: 160, height: 96 })
+  const first = allocateRoomCrowdingFrame([entry('a', 48, 48)], band)
+  const moved = allocateRoomCrowdingFrame([entry('a', 50, 48), entry('b', 50, 48)], band, first)
+  assert.equal(moved.grid, first.grid)
+  assert.equal(moved.metrics.gridBuilds, 0)
+  const resized = allocateRoomCrowdingFrame([entry('a', 50, 48)], { ...band, width: 196 }, moved)
+  assert.notEqual(resized.grid, moved.grid)
+  assert.equal(resized.metrics.gridBuilds, 1)
 })
 
 test('375px viewport overflow stays bounded and hides lower-priority figures honestly', () => {
@@ -90,4 +125,19 @@ test('label allocation keeps priority plates and removes collisions and invalid 
     { id: 'b', x: 0, y: 0, width: 20, height: 12, priority: 1 },
     { id: 'a', x: 0, y: 0, width: 20, height: 12, priority: 1 },
   ])], ['a'])
+})
+
+test('label viewport bounds accept exact edges and harmless measurement roundoff only', () => {
+  const exact = [
+    { x: 0, y: 4, width: 20, height: 12 },
+    { x: 80, y: 4, width: 20, height: 12 },
+    { x: 4, y: 0, width: 20, height: 12 },
+    { x: 4, y: 88, width: 20, height: 12 },
+  ]
+  assert.ok(exact.every(box => roomLabelFitsViewport(box, 100, 100)))
+  assert.equal(roomLabelFitsViewport({ x: -0.0000005, y: 0, width: 100.000001, height: 100 }, 100, 100), true)
+  assert.equal(roomLabelFitsViewport({ x: -0.01, y: 0, width: 20, height: 12 }, 100, 100), false)
+  assert.equal(roomLabelFitsViewport({ x: 81, y: 0, width: 20, height: 12 }, 100, 100), false)
+  assert.equal(roomLabelFitsViewport({ x: 0, y: 0, width: 20, height: 101 }, 100, 100), false)
+  assert.equal(roomLabelFitsViewport({ x: Number.NaN, y: 0, width: 20, height: 12 }, 100, 100), false)
 })

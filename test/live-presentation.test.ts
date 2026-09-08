@@ -1,40 +1,42 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { animationDelta, eventsAfterCensus, readCensusAtCompletion, roomStatus } from '../src/live-presentation.ts'
+import { animationDelta, eventsAfterMarker, roomPictureSettled, roomStatus } from '../src/live-presentation.ts'
 
 const replayEvent = (changeId: string, at: string): ReplayEvent => ({
   actor: 'author', at, change_id: changeId, event_id: Number(changeId),
   kind: 'note', detail: { note_id: Number(changeId), place_id: 1 }, line: changeId, line_cut: false,
 })
 
-test('records census completion when its promise resolves independently of slower parallel work', async () => {
-  let resolveCensus!: (value: { residents: number }) => void
-  let resolveReplay!: () => void
-  let clock = 10
-  const censusRead = new Promise<{ residents: number }>(resolve => { resolveCensus = resolve })
-  const replayRead = new Promise<void>(resolve => { resolveReplay = resolve })
-  const resultPromise = readCensusAtCompletion(censusRead, () => clock)
-
-  clock = 25
-  resolveCensus({ residents: 3 })
-  const result = await resultPromise
-  clock = 90
-  resolveReplay()
-  await replayRead
-
-  assert.deepEqual(result, { census: { residents: 3 }, completedAt: 25 })
+test('the server checkpoint retains changes recorded during census pagination, regardless of client time', () => {
+  const events = [
+    replayEvent('10', '2026-09-08T00:00:00Z'),
+    replayEvent('11', '2026-09-08T00:00:01Z'),
+    replayEvent('12', '2020-01-01T00:00:00Z'),
+    replayEvent('13', '2030-01-01T00:00:00Z'),
+  ]
+  assert.deepEqual(eventsAfterMarker(events, 10).map(event => event.change_id), ['11', '12', '13'])
+  assert.deepEqual(eventsAfterMarker(events, 13), [])
 })
 
-test('keeps only events strictly after census completion and ignores invalid timestamps', () => {
-  const events = [
-    replayEvent('1', new Date(999).toISOString()),
-    replayEvent('2', new Date(1_000).toISOString()),
-    replayEvent('3', new Date(1_001).toISOString()),
-    replayEvent('4', 'not-a-date'),
-  ]
+test('known change IDs never apply twice, including duplicate pages and changes already in the initial snapshot', () => {
+  const known = replayEvent('10', '2026-09-08T00:00:01Z')
+  const duringCensus = replayEvent('11', known.at)
+  const delivered = eventsAfterMarker([duringCensus, known, duringCensus], 10)
+  assert.deepEqual(delivered, [duringCensus])
+  assert.deepEqual(eventsAfterMarker([known, duringCensus], 11), [])
+  assert.deepEqual(eventsAfterMarker([replayEvent('invalid', known.at), replayEvent('-1', known.at)], 10), [])
+})
 
-  assert.deepEqual(eventsAfterCensus(events, 1_000).map(event => event.change_id), ['3'])
+test('capture readiness requires the first poll, the room outline merge, and completed picture reads', () => {
+  const complete = { ready: true, firstPollMerged: true, needsOutline: true, outlineMerged: true,
+    pendingReads: 0, pendingOutline: false }
+  assert.equal(roomPictureSettled(complete), true)
+  for (const change of [{ ready: false }, { firstPollMerged: false }, { outlineMerged: false },
+    { pendingReads: 1 }, { pendingOutline: true }]) {
+    assert.equal(roomPictureSettled({ ...complete, ...change }), false)
+  }
+  assert.equal(roomPictureSettled({ ...complete, needsOutline: false, outlineMerged: false }), true)
 })
 
 test('clamps valid animation deltas while readiness, pause, and jump are the only gates', () => {

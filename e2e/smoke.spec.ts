@@ -102,8 +102,8 @@ test('pause holds an advancing scene, resume advances it, and pointer navigation
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 
-test('a tiny startup window reports its size honestly and recovers when grown', async ({ page }) => {
-  await page.setViewportSize({ width: 127, height: 219 })
+test('a tiny window reports its size honestly and redraws after each recovery', async ({ page }) => {
+  await page.setViewportSize({ width: 136, height: 300 })
   const diagnostics = await openFixture(page)
   await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
   await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
@@ -112,20 +112,18 @@ test('a tiny startup window reports its size honestly and recovers when grown', 
   await waitUntilReady(page)
   await expect(page.locator('#live-status')).toBeEmpty()
   await expect(page.locator('#app canvas')).toBeVisible()
-  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
-})
-
-test('a ready room survives a shrink and redraws when grown', async ({ page }) => {
-  const diagnostics = await openFixture(page); await waitUntilReady(page)
-  const room = await page.locator('body').getAttribute('data-live-room')
-  await page.setViewportSize({ width: 127, height: 219 })
+  await expect.poll(() => visibleFigures(page)).not.toEqual([])
+  const firstRevision = Number(await page.locator('body').getAttribute('data-live-layout-revision'))
+  expect(firstRevision).toBeGreaterThan(0)
+  await page.setViewportSize({ width: 136, height: 300 })
   await expect(page.locator('#live-status')).toHaveText('This window is too small to draw the room.')
   await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true')
   await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
   await page.setViewportSize({ width: 1280, height: 800 })
   await expect(page.locator('#live-status')).toBeEmpty()
-  await expect(page.locator('body')).toHaveAttribute('data-live-room', room!)
   await expect(page.locator('#app canvas')).toBeVisible()
+  await expect.poll(() => visibleFigures(page)).not.toEqual([])
+  await expect.poll(async () => Number(await page.locator('body').getAttribute('data-live-layout-revision'))).toBeGreaterThan(firstRevision)
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 

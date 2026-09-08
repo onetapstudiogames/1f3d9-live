@@ -1,5 +1,6 @@
 import type { ReplayEvent, ReplayPlace, Resident } from './city/types.ts'
 import type { NestedLayout, Point, Room } from './ground/nested.ts'
+import { ROOM_FIGURE_SIZE } from './room-crowding.ts'
 
 function publicPlaceIds(places: readonly ReplayPlace[]): ReadonlySet<number> {
   const byId = new Map(places.map(place => [place.id, place]))
@@ -24,18 +25,19 @@ const RECENT_ACTIVITY_MS = 30 * 60 * 1_000
 
 function recordedPlaceId(event: ReplayEvent): number | null {
   const move = event.kind === 'action' && (event.detail.action === 'move' || event.detail.action === 'go_home')
-  if (move) {
-    return event.detail.status === 'applied' && event.detail.error == null &&
-      typeof event.detail.to_place_id === 'number' ? event.detail.to_place_id : null
+  if (move && event.detail.status === 'applied' && event.detail.error == null &&
+      typeof event.detail.to_place_id === 'number') {
+    return event.detail.to_place_id
   }
   return typeof event.detail.place_id === 'number' ? event.detail.place_id : null
 }
 
 // The initial room is a presentation choice based only on recent records and the current census.
 export function busiestRoom(places: readonly ReplayPlace[], census: readonly Resident[],
-  timeline: readonly ReplayEvent[], now: number): number | null {
+  timeline: readonly ReplayEvent[]): number | null {
   const publicIds = publicPlaceIds(places)
-  const parents = new Set(places.map(place => place.parent_id).filter((id): id is number => id !== null))
+  const parents = new Set(places.filter(place => publicIds.has(place.id)).map(place => place.parent_id)
+    .filter((id): id is number => id !== null))
   const leafIds = new Set([...publicIds].filter(id => !parents.has(id)))
   const eligibleIds = leafIds.size > 0 ? leafIds : publicIds
   const counts = new Map<number, number>()
@@ -45,14 +47,13 @@ export function busiestRoom(places: readonly ReplayPlace[], census: readonly Res
   }
   const activity = new Map<number, number>()
   const seen = new Set<number>()
-  if (Number.isFinite(now)) {
-    for (const event of timeline) {
-      const at = Date.parse(event.at)
-      if (!Number.isFinite(at) || at < now - RECENT_ACTIVITY_MS || at > now || seen.has(event.event_id)) continue
-      seen.add(event.event_id)
-      const id = recordedPlaceId(event)
-      if (id !== null && eligibleIds.has(id)) activity.set(id, (activity.get(id) ?? 0) + 1)
-    }
+  const newestRecordedAt = Math.max(...timeline.map(event => Date.parse(event.at)).filter(Number.isFinite))
+  for (const event of timeline) {
+    const at = Date.parse(event.at)
+    if (!Number.isFinite(at) || at < newestRecordedAt - RECENT_ACTIVITY_MS || seen.has(event.event_id)) continue
+    seen.add(event.event_id)
+    const id = recordedPlaceId(event)
+    if (id !== null && eligibleIds.has(id)) activity.set(id, (activity.get(id) ?? 0) + 1)
   }
   return [...eligibleIds].sort((left, right) =>
     (activity.get(right) ?? 0) - (activity.get(left) ?? 0) ||
@@ -82,18 +83,27 @@ function projectAxis(value: number, source: readonly [number, number, number, nu
   return target[segment]! + progress * (target[segment + 1]! - target[segment]!)
 }
 
+const ROOM_OUTER_INSET = 8
+const STANDING_HORIZONTAL_INSET = 48
+const STANDING_TOP_INSET = 100
+const STANDING_VERTICAL_RESERVE = 170
+const MIN_ROOM_VIEW_WIDTH = ROOM_OUTER_INSET * 2 + STANDING_HORIZONTAL_INSET * 2 + ROOM_FIGURE_SIZE
+const MIN_ROOM_VIEW_HEIGHT = ROOM_OUTER_INSET * 2 + STANDING_VERTICAL_RESERVE + ROOM_FIGURE_SIZE
+
 export function roomViewportUsable(width: number, height: number): boolean {
-  return Number.isFinite(width) && Number.isFinite(height) && width >= 128 && height >= 220
+  return Number.isFinite(width) && Number.isFinite(height) &&
+    width >= MIN_ROOM_VIEW_WIDTH && height >= MIN_ROOM_VIEW_HEIGHT
 }
 
 export function singleRoomLayout(source: Room, width: number, height: number): NestedLayout {
   if (!roomViewportUsable(width, height)) {
-    throw new RangeError('A single room needs a finite viewport at least 128 by 220 pixels')
+    throw new RangeError(`A single room needs a finite viewport at least ${MIN_ROOM_VIEW_WIDTH} by ${MIN_ROOM_VIEW_HEIGHT} pixels`)
   }
-  const roomWidth = width - 16
-  const roomHeight = height - 16
-  const x = 8; const y = 8
-  const standing = Object.freeze({ x: x + 48, y: y + 100, width: roomWidth - 96, height: roomHeight - 170 })
+  const roomWidth = width - ROOM_OUTER_INSET * 2
+  const roomHeight = height - ROOM_OUTER_INSET * 2
+  const x = ROOM_OUTER_INSET; const y = ROOM_OUTER_INSET
+  const standing = Object.freeze({ x: x + STANDING_HORIZONTAL_INSET, y: y + STANDING_TOP_INSET,
+    width: roomWidth - STANDING_HORIZONTAL_INSET * 2, height: roomHeight - STANDING_VERTICAL_RESERVE })
   const frame: Room = { ...source, parentId: null, depth: 0, x, y, width: roomWidth, height: roomHeight,
     door: Object.freeze({ x, y }), standing, children: Object.freeze([]), notch: null, shelf: null }
   const door = projectRoomPoint(source.door, source, frame)!

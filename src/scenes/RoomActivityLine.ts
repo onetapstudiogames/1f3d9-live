@@ -1,11 +1,6 @@
 import type { ReplayEvent } from '../city/types.ts'
 import { activityReduce, emptyActivity, type ActivityContext, type ActivityEntry, type ActivityState } from '../activity.ts'
 
-export function activityEntryMatchesRoom(entry: ActivityEntry, roomId: number): boolean {
-  if (entry.roomId === roomId || entry.anchorRoomId === roomId) return true
-  return entry.kind === 'move' && entry.entities.some(entity => entity.type === 'place' && entity.id === roomId)
-}
-
 function compareActivityEntries(left: ActivityEntry, right: ActivityEntry): number {
   return left.time - right.time || left.changeId - right.changeId
 }
@@ -17,6 +12,7 @@ export class RoomActivityLine {
   private historyLimit = 100
   private latestByRoom = new Map<number, ActivityEntry>()
   private selectedRoomId: number | null = null
+  private unshownSpeech: string | null = null
 
   constructor(element: HTMLElement, context: ActivityContext) {
     this.element = element
@@ -26,6 +22,14 @@ export class RoomActivityLine {
   selectRoom(roomId: number | null): void {
     if (roomId === this.selectedRoomId) return
     this.selectedRoomId = roomId
+    this.unshownSpeech = null
+    this.renderLatest()
+  }
+
+  setUnshownSpeech(text: string | null): void {
+    const next = text && text.trim() ? text : null
+    if (next === this.unshownSpeech) return
+    this.unshownSpeech = next
     this.renderLatest()
   }
 
@@ -56,6 +60,7 @@ export class RoomActivityLine {
   snapshot(): ActivityState { return this.state }
 
   restore(state: ActivityState): void {
+    this.unshownSpeech = null
     this.state = state
     this.historyLimit = Math.max(100, state.entries.length)
     this.rebuildLatest(state.entries)
@@ -64,6 +69,7 @@ export class RoomActivityLine {
   }
 
   reset(rows: readonly ReplayEvent[] = [], recordedNow = Number.NEGATIVE_INFINITY): void {
+    this.unshownSpeech = null
     this.historyLimit = Math.max(100, rows.length)
     this.state = activityReduce(emptyActivity(), rows, recordedNow, this.context, this.historyLimit)
     this.rebuildLatest(this.state.entries)
@@ -73,6 +79,7 @@ export class RoomActivityLine {
 
   destroy(): void {
     this.selectedRoomId = null
+    this.unshownSpeech = null
     this.clear()
   }
 
@@ -129,7 +136,7 @@ export class RoomActivityLine {
   private renderLatest(): void {
     this.clear()
     if (!this.selectedRoomIsPublic() || this.selectedRoomId === null) return
-    this.element.textContent = this.latestByRoom.get(this.selectedRoomId)?.text ?? ''
+    this.element.textContent = this.unshownSpeech ?? this.latestByRoom.get(this.selectedRoomId)?.text ?? ''
   }
 
   private clear(): void { this.element.textContent = '' }

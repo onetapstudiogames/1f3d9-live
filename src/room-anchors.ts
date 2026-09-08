@@ -1,9 +1,18 @@
 import type { CueFrame } from './activity-cues.ts'
 import { floatFrame } from './giving.ts'
 import type { HandoverState, HandoverStep } from './handovers.ts'
-import type { Room } from './ground/nested.ts'
+import type { NestedLayout, Room } from './ground/nested.ts'
 import type { ResidentState } from './replay/simulation.ts'
-import { projectRoomPoint } from './room-view.ts'
+import { projectRoomPoint, roomIsPublic } from './room-view.ts'
+
+export function roomAnchorPair(sourceLayout: NestedLayout | undefined, displayLayout: NestedLayout | undefined,
+  selectedId: number | null): Readonly<{ source: Room; target: Room }> | undefined {
+  if (!sourceLayout || !displayLayout || selectedId === null || !Number.isSafeInteger(selectedId)) return undefined
+  const source = sourceLayout.rooms[selectedId]; const target = displayLayout.rooms[selectedId]
+  if (!source || !target || source.id !== selectedId || target.id !== selectedId ||
+      !roomIsPublic(sourceLayout, selectedId) || !roomIsPublic(displayLayout, selectedId)) return undefined
+  return Object.freeze({ source, target })
+}
 
 export function projectCueAnchors(frames: readonly CueFrame[], source: Room, target: Room): readonly CueFrame[] {
   return Object.freeze(frames.map(frame => {

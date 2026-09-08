@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ActivityContext, ActivityEntry } from '../src/activity.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { activityEntryMatchesRoom, RoomActivityLine } from '../src/scenes/RoomActivityLine.ts'
+import { RoomActivityLine } from '../src/scenes/RoomActivityLine.ts'
 
 const context: ActivityContext = {
   resident: name => ({ type: 'resident', id: 1, name, hasDrawing: false }),
@@ -15,19 +15,22 @@ const entry = (key: string, roomId?: number | null, anchorRoomId?: number | null
   entities: Object.freeze([]), roomId, anchorRoomId,
 })
 
-test('matches direct and anchored room activity, plus either end of a move', () => {
-  assert.equal(activityEntryMatchesRoom(entry('1', 2), 2), true)
-  assert.equal(activityEntryMatchesRoom(entry('2', null, 2), 2), true)
+test('presents direct, anchored, and both endpoints of stored room activity', () => {
+  const line = { textContent: '' } as HTMLElement
+  const log = new RoomActivityLine(line, context)
   const move: ActivityEntry = Object.freeze({ ...entry('3', 3, 3), kind: 'move',
     entities: Object.freeze([
       { type: 'resident' as const, id: 1, name: 'walker', hasDrawing: false },
       { type: 'place' as const, id: 2, name: 'room 2', hasDrawing: false },
       { type: 'place' as const, id: 3, name: 'room 3', hasDrawing: false },
     ]) })
-  assert.equal(activityEntryMatchesRoom(move, 2), true)
-  assert.equal(activityEntryMatchesRoom(move, 3), true)
-  assert.equal(activityEntryMatchesRoom(move, 4), false)
-  assert.equal(activityEntryMatchesRoom(entry('4'), 2), false)
+  log.appendEntries([entry('1', 2), entry('2', null, 4), move])
+  for (const [roomId, text] of [[2, 'event 3'], [3, 'event 3'], [4, 'event 2']] as const) {
+    log.selectRoom(roomId)
+    assert.equal(line.textContent, text)
+  }
+  log.selectRoom(5)
+  assert.equal(line.textContent, '')
 })
 
 test('renders the newest stored activity when selecting, restoring, and resetting rooms', () => {
@@ -113,6 +116,7 @@ test('never presents activity for quiet, quiet-descendant, unknown, or null sele
   assert.equal(line.textContent, 'event 1')
   for (const roomId of [4, 5, 99, null]) {
     log.selectRoom(roomId)
+    log.setUnshownSpeech('private: words')
     assert.equal(line.textContent, '')
   }
 })
@@ -135,6 +139,40 @@ test('uses wall time before change id for live presence, restore, and out-of-ord
   restored.restore(log.snapshot())
   restored.selectRoom(2)
   assert.equal(line.textContent, 'looking')
+})
+
+test('shows unshown speech as a temporary fallback and restores activity when it clears or the room changes', () => {
+  const line = { textContent: '' } as HTMLElement
+  const log = new RoomActivityLine(line, context)
+  log.appendEntries([entry('1', 2), entry('2', 3)])
+  log.selectRoom(2)
+
+  log.setUnshownSpeech('speaker: exact words')
+  assert.equal(line.textContent, 'speaker: exact words')
+  log.setUnshownSpeech(null)
+  assert.equal(line.textContent, 'event 1')
+  log.setUnshownSpeech('speaker: exact words')
+  log.selectRoom(3)
+  assert.equal(line.textContent, 'event 2')
+})
+
+test('does not rewrite the line for unchanged unshown speech', () => {
+  let value = ''
+  let writes = 0
+  const line = {} as HTMLElement
+  Object.defineProperty(line, 'textContent', {
+    get: () => value,
+    set: next => { value = String(next); writes += 1 },
+  })
+  const log = new RoomActivityLine(line, context)
+  log.selectRoom(2)
+  log.setUnshownSpeech('speaker: words')
+  const settledWrites = writes
+
+  log.setUnshownSpeech('speaker: words')
+  assert.equal(writes, settledWrites)
+  log.appendEntries([entry('1', 2)])
+  assert.ok(writes > settledWrites)
 })
 
 test('reduces replay events with shared wording and returns all additions for scene effects', () => {

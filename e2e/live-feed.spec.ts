@@ -4,6 +4,33 @@ import { readFile } from 'node:fs/promises'
 const fixtureUrl = '/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
 const fixtureOrigin = 'http://localhost:4173'
 
+async function repeatRecordedChange(page: Page): Promise<{ repeated: Promise<void> }> {
+  const source = JSON.parse(await readFile('public/fixtures/changes-live.json', 'utf8')) as {
+    changes: Array<{ change_id: string }>
+  }
+  const change = source.changes.find(row => row.change_id === '100297')
+  if (!change) throw new Error('The fixture is missing recorded change 100297.')
+  let reads = 0; let secondRead!: () => void
+  const repeated = new Promise<void>(resolve => { secondRead = resolve })
+  await page.route('**/fixtures/changes-live.json', async route => {
+    reads += 1
+    const firstPage = reads === 1
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      change_marker: '100298', changes: [change], returned_items: 1, unchanged: false,
+      has_more: firstPage, next_since: firstPage ? '100297' : '100298',
+    }) })
+    if (reads === 2) secondRead()
+  })
+  return { repeated }
+}
+
+async function expectDeliveredOnce(page: Page, repeated: Promise<void>): Promise<void> {
+  await expect.poll(() => page.evaluate(() => JSON.parse(document.body.dataset['liveDeliveryCounts'] ?? '{}')['100297'] ?? 0),
+    { timeout: 30_000 }).toBe(1)
+  await repeated
+  await expect.poll(() => page.evaluate(() => JSON.parse(document.body.dataset['liveDeliveryCounts'] ?? '{}')['100297'] ?? 0)).toBe(1)
+}
+
 async function keepFixtureOffline(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -43,11 +70,9 @@ test('a transient initial census failure retries the whole startup read', async 
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 
-test('a saved change arriving before census completes is excluded by the startup cutoff', async ({ page }) => {
-  const beforeChange = new Date('2026-09-07T15:07:20.000Z')
-  const afterChange = new Date('2026-09-07T15:07:30.000Z')
-  await page.clock.install({ time: beforeChange })
+test('a change beyond the replay checkpoint is delivered once after a held census', async ({ page }) => {
   const diagnostics = await keepFixtureOffline(page)
+  const { repeated } = await repeatRecordedChange(page)
   let releaseCensus!: () => void
   let censusRequested!: () => void
   const held = new Promise<void>(resolve => { releaseCensus = resolve })
@@ -60,21 +85,16 @@ test('a saved change arriving before census completes is excluded by the startup
 
   await page.goto(fixtureUrl)
   await requested
-  await page.clock.setFixedTime(afterChange)
   releaseCensus()
 
   await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
-  await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true', { timeout: 30_000 })
-  await expect(page.locator('body')).toHaveAttribute('data-live-delivered-marker', '98985')
-  await expect(page.locator('#room-activity')).not.toBeEmpty()
+  await expectDeliveredOnce(page, repeated)
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 
-test('a saved change arriving after census completes is delivered when replay startup is slow', async ({ page }) => {
-  const beforeChange = new Date('2026-09-07T15:07:20.000Z')
-  const afterChange = new Date('2026-09-07T15:07:30.000Z')
-  await page.clock.install({ time: beforeChange })
+test('a change beyond the replay checkpoint is delivered once after a held replay', async ({ page }) => {
   const diagnostics = await keepFixtureOffline(page)
+  const { repeated } = await repeatRecordedChange(page)
   let releaseReplay!: () => void
   let replayRequested!: () => void
   const held = new Promise<void>(resolve => { releaseReplay = resolve })
@@ -91,10 +111,9 @@ test('a saved change arriving after census completes is delivered when replay st
   await requested
   await (await censusResponse).finished()
   await page.evaluate(async () => { await Promise.resolve(); await Promise.resolve() })
-  await page.clock.setFixedTime(afterChange)
   releaseReplay()
 
   await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
-  await expect(page.locator('body')).toHaveAttribute('data-live-delivered-marker', '100297', { timeout: 30_000 })
+  await expectDeliveredOnce(page, repeated)
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { CueFrame } from '../src/activity-cues.ts'
-import type { Room } from '../src/ground/nested.ts'
+import type { NestedLayout, Room } from '../src/ground/nested.ts'
 import type { HandoverState, HandoverStep } from '../src/handovers.ts'
 import type { ResidentState } from '../src/replay/simulation.ts'
-import { projectCueAnchors, projectRoomHandovers, visibleFigureMidpoint } from '../src/room-anchors.ts'
+import { projectCueAnchors, projectRoomHandovers, roomAnchorPair, visibleFigureMidpoint } from '../src/room-anchors.ts'
 
 const room = (id: number, x: number, y: number): Room => ({ id, parentId: 1, name: `room ${id}`, quiet: false, depth: 1,
   x, y, width: 240, height: 170, door: { x: x + 120, y: y + 170 },
@@ -24,6 +24,20 @@ test('projects only explicit anchors from the selected source room without mutat
   assert.deepEqual(projected[0]?.anchor, { x: 68, y: 78, roomId: 2 })
   assert.equal(projected[1], other); assert.equal(projected[2], entity)
   assert.deepEqual(selected.anchor, { x: 848, y: 548, roomId: 2 })
+})
+
+test('room anchor pairs require the selected public room in both current layouts', () => {
+  const sourceRoom = Object.freeze({ ...room(2, 800, 500), parentId: null })
+  const targetRoom = Object.freeze({ ...room(2, 8, 8), parentId: null })
+  const source = layout(sourceRoom); const display = layout(targetRoom)
+  assert.deepEqual(roomAnchorPair(source, display, 2), { source: sourceRoom, target: targetRoom })
+  assert.equal(roomAnchorPair(undefined, display, 2), undefined)
+  assert.equal(roomAnchorPair(source, undefined, 2), undefined)
+  assert.equal(roomAnchorPair(source, display, null), undefined)
+  assert.equal(roomAnchorPair(layout(Object.freeze({ ...sourceRoom, id: 3 })), display, 2), undefined)
+  assert.equal(roomAnchorPair(source, layout(Object.freeze({ ...targetRoom, id: 3 })), 2), undefined)
+  assert.equal(roomAnchorPair(layout(Object.freeze({ ...sourceRoom, quiet: true })), display, 2), undefined)
+  assert.equal(roomAnchorPair(source, layout(Object.freeze({ ...targetRoom, quiet: true })), 2), undefined)
 })
 
 test('handover carry follows the visible projected carrier and hides an off-room carrier', () => {
@@ -64,4 +78,8 @@ function handoverState(mode: 'gift' | 'effect'): HandoverState {
 
 function handoverFrame(state: HandoverState, motions: HandoverStep['motions']): HandoverStep {
   return { state, floorEvents: [], motions, carryThingIds: [9], pending: true }
+}
+
+function layout(value: Room): NestedLayout {
+  return Object.freeze({ rooms: Object.freeze({ [value.id]: value }), rootId: value.id, width: value.width, height: value.height })
 }

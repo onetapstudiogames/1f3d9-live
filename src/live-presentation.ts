@@ -1,17 +1,21 @@
 import type { ReplayEvent } from './city/types.ts'
 
-export async function readCensusAtCompletion<T>(read: Promise<T>, now: () => number = Date.now): Promise<{
-  census: T
-  completedAt: number
-}> {
-  return read.then(census => Object.freeze({ census, completedAt: now() }))
+// Census pages have no per-resident change marker. Only the replay/delivered change ID
+// proves a row is already covered; elapsed browser time can never prove that.
+export function eventsAfterMarker(events: readonly ReplayEvent[], deliveredMarker: number): readonly ReplayEvent[] {
+  const seen = new Set<string>()
+  return Object.freeze(events.filter(event => {
+    const id = Number(event.change_id)
+    if (!Number.isSafeInteger(id) || id <= deliveredMarker || seen.has(event.change_id)) return false
+    seen.add(event.change_id)
+    return true
+  }).sort((left, right) => Number(left.change_id) - Number(right.change_id)))
 }
 
-export function eventsAfterCensus(events: readonly ReplayEvent[], completedAt: number): readonly ReplayEvent[] {
-  return Object.freeze(events.filter(event => {
-    const recordedAt = Date.parse(event.at)
-    return Number.isFinite(recordedAt) && recordedAt > completedAt
-  }))
+export function roomPictureSettled(state: { ready: boolean; firstPollMerged: boolean; needsOutline: boolean;
+  outlineMerged: boolean; pendingReads: number; pendingOutline: boolean }): boolean {
+  return state.ready && state.firstPollMerged && (!state.needsOutline || state.outlineMerged)
+    && state.pendingReads === 0 && !state.pendingOutline
 }
 
 export function animationDelta(delta: number, state: {
