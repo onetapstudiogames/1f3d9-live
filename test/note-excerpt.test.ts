@@ -20,3 +20,9 @@ test('honors an upstream line cut while leaving complete short lines unchanged',
   assert.equal(noteExcerpt('complete', false), 'complete')
   assert.equal(noteExcerpt('', true), '…')
 })
+
+test('the cap preserves a complete skin-tone and ZWJ emoji grapheme', () => {
+  const prefix = 'a'.repeat(199)
+  assert.equal(noteExcerpt(`${prefix}👩🏽‍💻tail`), `${prefix}👩🏽‍💻…`)
+  assert.equal(noteExcerpt(`${prefix}étail`), `${prefix}é…`)
+})

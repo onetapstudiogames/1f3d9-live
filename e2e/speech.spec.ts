@@ -19,6 +19,8 @@ async function keepFixtureOffline(page: Page): Promise<{ external: string[]; err
 }
 
 test('a recorded long note stays whole beside its speaker through layout and room changes', async ({ page }) => {
+  // This fixture needs a room short enough to require pages, independently of project defaults.
+  await page.setViewportSize({ width: 1280, height: 640 })
   await page.clock.install({ time: new Date('2026-09-07T13:54:04.254Z') })
   const diagnostics = await keepFixtureOffline(page)
   const note = JSON.parse(await readFile('public/fixtures/notes/note-13243.json', 'utf8')) as {
@@ -52,6 +54,10 @@ test('a recorded long note stays whole beside its speaker through layout and roo
 
   const card = page.locator('.room-speech-card[data-note-id="13243"]')
   await expect(card).toBeVisible({ timeout: 30_000 })
+  // Finish the held read before pausing; jumping ahead during it can fire its timeout.
+  // Then assertions cannot consume a page's hold between manual samples.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000))
+  await expect(card).toHaveAttribute('data-page', '0')
   await expect(card).toHaveAttribute('data-side', /^(above|below)$/)
   const pages = new Map<number, string>()
   const checkedPages = new Set<number>()
@@ -80,7 +86,7 @@ test('a recorded long note stays whole beside its speaker through layout and roo
       checkedPages.add(frame.page)
     }
     if (frame.complete) break
-    await page.clock.fastForward(100)
+    await page.clock.runFor(100)
   }
   await expect(card).toHaveAttribute('data-complete', 'true')
   const pageCount = Number(await card.getAttribute('data-page-count'))
@@ -90,6 +96,7 @@ test('a recorded long note stays whole beside its speaker through layout and roo
 
   const initial = await card.boundingBox(); expect(initial).not.toBeNull()
   await page.setViewportSize({ width: 560, height: 720 })
+  await page.clock.runFor(100)
   await expect.poll(async () => card.boundingBox()).not.toEqual(initial)
   const resized = await card.boundingBox(); expect(resized).not.toBeNull()
   expect(resized!.x).toBeGreaterThanOrEqual(0)
@@ -98,8 +105,10 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   const otherRoom = await page.locator('#place-picker option:not([value=""]):not([value="782"])').first().getAttribute('value')
   expect(otherRoom).not.toBeNull()
   await page.locator('#place-picker').selectOption(otherRoom!)
+  await page.clock.runFor(100)
   await expect(card).toBeHidden()
   await page.locator('#place-picker').selectOption('782')
+  await page.clock.runFor(100)
   await expect(card).toBeVisible()
   await expect(card).toHaveAttribute('data-note-id', '13243')
 

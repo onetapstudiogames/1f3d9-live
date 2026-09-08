@@ -9,10 +9,9 @@ import { bubbleShape } from '../speech.ts'
 import { BubbleView } from './BubbleView.ts'
 import { residentBobOffset } from '../resident-bob.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
-import { lockCells } from '../laws.ts'
 import { reappearanceAlpha } from '../viewer.ts'
 import { ROOM_RESIDENT_SIZE, roomFigureStyle, roomNameStyle, roomTextResolution } from '../room-appearance.ts'
-import { residentOverlayDistance, residentOverlayRects } from '../resident-overlays.ts'
+import { RESIDENT_LOCK_RECTS, RESIDENT_SLEEP_RECTS, residentOverlayDistance, residentOverlayRects } from '../resident-overlays.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
 export type ResidentLabelBounds = Readonly<{ x: number; y: number; width: number; height: number }>
@@ -54,10 +53,8 @@ export class ResidentView {
     }
     this.bubble = new BubbleView(resident.id)
     this.zzz = scene.add.graphics().setDepth(102).setVisible(false)
-    this.zzz.fillStyle(0xe9dfb9, 1)
-    for (const [x, y] of [[0, 0], [6, -7], [12, -14]] as const) {
-      this.zzz.fillRect(x, y, 6, 2).fillRect(x + 2, y + 2, 2, 2).fillRect(x, y + 4, 6, 2)
-    }
+    for (const cell of RESIDENT_SLEEP_RECTS) this.zzz.fillStyle(cell.color, cell.alpha)
+      .fillRect(cell.x, cell.y, cell.width, cell.height)
   }
 
   update(resident: ResidentState, now: number, asleep = false, places: readonly ReplayPlace[] = [],
@@ -78,12 +75,15 @@ export class ResidentView {
     this.name.setPosition(resident.x, resident.y + ROOM_RESIDENT_SIZE / 2 + 5).setVisible(this.nameAllowed)
     const alpha = sparkleAlpha(resident.sparkle, now)
     this.sparkle.setPosition(resident.x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
-    this.zzz.setPosition(resident.x + ROOM_RESIDENT_SIZE / 2 - 3, resident.y - ROOM_RESIDENT_SIZE / 2).setVisible(sleeping && resident.visible)
+    this.zzz.setPosition(resident.x + ROOM_RESIDENT_SIZE / 2 - residentOverlayDistance(3),
+      resident.y - ROOM_RESIDENT_SIZE / 2).setVisible(sleeping && resident.visible)
     const blocked = resident.visible ? resident.blockedAttempt : null
     if (blocked) {
       this.lock ??= this.sprite.scene.add.graphics().setDepth(204)
-      this.lock.clear().setPosition(resident.x - 5, resident.y - ROOM_RESIDENT_SIZE / 2 - 20)
-      for (const cell of lockCells()) this.lock.fillStyle(cell.color).fillRect(cell.x, cell.y, cell.width, cell.height)
+      this.lock.clear().setPosition(resident.x + residentOverlayDistance(-5),
+        resident.y - ROOM_RESIDENT_SIZE / 2 + residentOverlayDistance(-20))
+      for (const cell of RESIDENT_LOCK_RECTS) this.lock.fillStyle(cell.color, cell.alpha)
+        .fillRect(cell.x, cell.y, cell.width, cell.height)
     } else if (this.lock) {
       this.lock.destroy(); this.lock = null
     }

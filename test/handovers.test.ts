@@ -6,7 +6,7 @@ import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { blocksLiveHandoverDelivery, createHandovers, stepHandovers } from '../src/handovers.ts'
-import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
+import { blocksLiveDelivery, createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
 import { createThings, stepThings } from '../src/things.ts'
 
 const rooms = {
@@ -73,7 +73,7 @@ test('a notice may arrive before its action without holding the replay clock', (
   assert.deepEqual(first.floorEvents, [])
 })
 
-test('a carry queued behind a speech card does not block live delivery', () => {
+test('a carry queued behind speech waits at the resident gate without claiming active handover motion', () => {
   const note = { ...row('32', 'note', { place_id: 2 }), line: 'keep reading' }
   const notice = row('33', 'thing_moved', { mode: 'carry', thing_id: 47, action_id: 10, resident_id: 7, from_place_id: 2, place_id: 1 })
   const action = row('34', 'action', { mode: 'carry', action: 'move', status: 'applied', thing_id: 47, action_id: 10, from_place_id: 2, to_place_id: 1 })
@@ -84,6 +84,7 @@ test('a carry queued behind a speech card does not block live delivery', () => {
   assert.equal(frame.pending, true)
   assert.deepEqual(frame.motions, [])
   assert.equal(blocksLiveHandoverDelivery(frame), false)
+  assert.equal(blocksLiveDelivery(residents), true)
 })
 
 test('an active carried walk and transfer float block live delivery', () => {

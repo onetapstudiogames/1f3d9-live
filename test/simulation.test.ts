@@ -342,12 +342,11 @@ test('expired bubble releases the next queued note and state remains immutable',
   assert.equal(state.residents[7]!.bubble, null)
 })
 
-test('a held speech card and its waiting records do not block a later resident change', () => {
+test('a lone held speech card does not block a later resident change', () => {
   let state = createResidents(replay(), census, layout)
   const longCard = event('note', { place_id: 2 }, 'A long card remains visible while the live feed advances.')
-  const waitingMove = { ...event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 }),
-    change_id: '2', event_id: 2 }
-  state = stepResidents(state, [longCard, waitingMove], 0, 1_000, layout)
+  state = stepResidents(state, [longCard], 0, 1_000, layout)
+  assert.equal(state.residents[7]!.queue.length, 0)
   assert.equal(state.pending, true)
   assert.equal(blocksLiveDelivery(state), false)
 
@@ -365,6 +364,27 @@ test('a held speech card and its waiting records do not block a later resident c
   assert.equal(state.residents[7]!.bubble?.text, longCard.line)
   assert.equal(state.residents[8]!.bubble?.text, 'later')
   assert.deepEqual(delivered, ['3'])
+})
+
+test('a queued earlier note holds the next live batch until it appears in recorded order', () => {
+  const first = event('note', { place_id: 2 }, 'first card')
+  const earlier = { ...event('note', { place_id: 2 }, 'earlier queued note'), change_id: '2', event_id: 2 }
+  const later = { ...event('note', { place_id: 2 }, 'later other resident'), actor: 'still', change_id: '3', event_id: 3 }
+  const holding = stepResidents(createResidents(replay(), census, layout), [first, earlier], 0, 1_000, layout)
+  assert.equal(holding.residents[7]!.bubble?.text, first.line)
+  assert.equal(holding.residents[7]!.queue[0]?.event.change_id, '2')
+  assert.equal(holding.residents[8]!.bubble, null)
+  assert.equal(blocksLiveDelivery(holding), true)
+
+  const released = stepResidents(holding, [], 0, holding.residents[7]!.bubble!.expiresAt, layout)
+  assert.equal(released.residents[7]!.bubble?.text, earlier.line)
+  assert.equal(released.residents[7]!.queue.length, 0)
+  assert.equal(blocksLiveDelivery(released), false)
+  const delivered = stepResidents(released, [later], 0, released.residents[7]!.bubble!.startedAt + 1, layout)
+  assert.equal(delivered.residents[7]!.bubble?.text, earlier.line)
+  assert.equal(delivered.residents[8]!.bubble?.text, later.line)
+  assert.deepEqual([...released.startedEvents!, ...delivered.startedEvents!].map(row => row.change_id), ['2', '3'])
+  assert.equal(holding.residents[7]!.queue.length, 1)
 })
 
 test('active walks and effects still block live delivery', () => {

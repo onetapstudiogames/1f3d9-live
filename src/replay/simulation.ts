@@ -618,11 +618,10 @@ function isPending(resident: ResidentState): boolean {
     || resident.blockedAttempt != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
 }
 
-// Live feed delivery waits only for presentation that is already changing the
-// recorded picture. Speech and queued turns keep their per-resident order, but
-// cannot prevent a different resident's newly recorded turn from entering.
+// A visible card alone does not hold live delivery. Earlier queued turns must
+// start before the next batch, so different residents cannot speak out of order.
 export function blocksLiveDelivery(state: Simulation): boolean {
-  return Object.values(state.residents).some(resident => resident.walking || resident.sparkle !== null
+  return Object.values(state.residents).some(resident => resident.queue.length > 0 || resident.walking || resident.sparkle !== null
     || resident.showingNotice != null || resident.blockedAttempt != null || resident.transferUntil !== null
     || resident.inventionUntil != null || resident.agreementUntil != null)
 }
