@@ -9,11 +9,11 @@ const replay = JSON.parse(readFileSync(new URL('./fixtures/replay-24h.json', imp
 const census = ['page1', 'page2'].flatMap(page =>
   (JSON.parse(readFileSync(new URL(`./fixtures/residents-presence-${page}.json`, import.meta.url), 'utf8')) as { residents: Resident[] }).residents)
 
-test('saved day duration stays pinned for fast-forward and the original benchmark speeds', () => {
+test('saved day duration stays pinned with full-size resident world geometry', () => {
   const measured = [60, 120, 300].map(speed => measureReplay(replay, census, speed))
   assert.deepEqual(measured.map(row => row.walkCount), [615, 615, 615])
-  // The 15-second speech ceiling shortens slow replay holds without removing any walk.
-  assert.deepEqual(measured.map(row => Number((row.dayDurationMs / 60_000).toFixed(2))), [107.96, 56.1, 25.29])
+  // Larger 72px world slots change route distances; the speech ceiling still shortens slow holds without removing walks.
+  assert.deepEqual(measured.map(row => Number((row.dayDurationMs / 60_000).toFixed(2))), [108.45, 56.48, 25.22])
   assert.ok(measured[1]!.dayDurationMs < 60 * 60_000)
   assert.ok(measured[2]!.dayDurationMs < measured[1]!.dayDurationMs / 2)
 })

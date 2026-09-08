@@ -2,6 +2,7 @@ import { positionBubbleCard, type BubblePoint, type BubbleSize } from '../bubble
 import { ROOM_RESIDENT_SIZE } from '../room-appearance.ts'
 import { pagedBubbleFrame, speechPagePlan, type BubbleShape, type PagedBubbleFrame, type SpeechBubble,
   type SpeechPageMoment } from '../speech.ts'
+import { speechPauseAt } from '../speech-pause.ts'
 
 const FONT = '14px Consolas, "Liberation Mono", monospace'
 let measurementContext: CanvasRenderingContext2D | null | undefined
@@ -45,6 +46,9 @@ export class BubbleView {
     now: number, opacity = 1): PagedBubbleFrame | null {
     if (!bubble) {
       setStyle(this.card, 'display', 'none')
+      this.lastBubble = null
+      this.lastFrame = null
+      this.lastPlan = null
       return null
     }
     const availableWidth = Math.max(1, viewport.width - 16)
@@ -81,6 +85,11 @@ export class BubbleView {
     if (bubble.noteId === undefined) deleteDataset(this.card, 'noteId')
     else setDataset(this.card, 'noteId', String(bubble.noteId))
     return frame
+  }
+
+  pauseAt(now: number): number {
+    if (this.card.style.display === 'none') return now
+    return speechPauseAt(this.lastBubble, this.lastPlan, now)
   }
 
   destroy(): void { this.card.remove() }

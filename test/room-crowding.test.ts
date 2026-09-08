@@ -155,3 +155,17 @@ test('label viewport bounds accept exact edges and harmless measurement roundoff
   assert.equal(roomLabelFitsViewport({ x: 0, y: 0, width: 20, height: 101 }, 100, 100), false)
   assert.equal(roomLabelFitsViewport({ x: Number.NaN, y: 0, width: 20, height: 12 }, 100, 100), false)
 })
+test('diagonal route reservations keep clear neighbors seated and reject seats on the walk', () => {
+  const band = { x: 0, y: 0, width: 500, height: 500 }
+  const routes = [{ points: [{ x: 60, y: 60 }, { x: 420, y: 420 }], radius: ROOM_FIGURE_PITCH / 2 }]
+  const entries = [
+    { id: 'resident:1', kind: 'resident' as const, preferred: { x: 100, y: 340 }, priority: 10 },
+    { id: 'resident:2', kind: 'resident' as const, preferred: { x: 240, y: 240 }, priority: 10 },
+  ]
+  const frame = allocateRoomCrowdingFrame(entries, band, {}, [], routes)
+  assert.equal(frame.placements['resident:1']!.x, 100)
+  assert.equal(frame.placements['resident:1']!.y, 340)
+  const moved = frame.placements['resident:2']!
+  assert.ok(!moved.visible || Math.abs(moved.x - moved.y) >= ROOM_FIGURE_PITCH * 2)
+  assert.equal(allocateRoomCrowdingFrame(entries, band, frame, [], routes), frame)
+})

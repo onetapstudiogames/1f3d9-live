@@ -8,10 +8,15 @@ import { nestedLayout } from '../src/ground/nested.ts'
 import { blocksLiveHandoverDelivery, createHandovers, stepHandovers } from '../src/handovers.ts'
 import { blocksLiveDelivery, createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
 import { createThings, stepThings } from '../src/things.ts'
+import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
+
+const RESIDENT_CLEARANCE = 16
+// Leave a third footprint of search room so either hashed first placement still leaves a second seat.
+const TWO_RESIDENT_STANDING_WIDTH = ROOM_RESIDENT_SIZE * 3 + RESIDENT_CLEARANCE * 4
 
 const rooms = {
   1: { id: 1, parentId: null, name: 'world', quiet: false, depth: 0, x: 0, y: 0, width: 300, height: 200, door: { x: 290, y: 100 }, standing: { x: 20, y: 20, width: 240, height: 140 }, children: [2, 3] },
-  2: { id: 2, parentId: 1, name: 'room', quiet: false, depth: 1, x: 400, y: 0, width: 220, height: 180, door: { x: 400, y: 90 }, standing: { x: 420, y: 20, width: 160, height: 120 }, children: [] },
+  2: { id: 2, parentId: 1, name: 'room', quiet: false, depth: 1, x: 400, y: 0, width: TWO_RESIDENT_STANDING_WIDTH + 40, height: 180, door: { x: 400, y: 90 }, standing: { x: 420, y: 20, width: TWO_RESIDENT_STANDING_WIDTH, height: 120 }, children: [] },
   3: { id: 3, parentId: 1, name: 'quiet', quiet: true, depth: 1, x: 400, y: 240, width: 220, height: 180, door: { x: 400, y: 330 }, standing: { x: 420, y: 260, width: 160, height: 120 }, children: [] },
 } as const
 const layout = { rooms, rootId: 1, roots: [1], width: 640, height: 440 } as unknown as NestedLayout

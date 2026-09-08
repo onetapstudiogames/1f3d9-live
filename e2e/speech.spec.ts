@@ -2,7 +2,6 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
 const fixtureUrl = '/?replay=/fixtures/replay-places.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
-const fixtureOrigin = 'http://localhost:4173'
 const cardSelector = '.room-speech-card[data-note-id="13243"]'
 
 type SpeechSample = {
@@ -46,6 +45,7 @@ async function startSampling(page: Page): Promise<void> {
 
 async function keepFixtureOffline(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
+  const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())

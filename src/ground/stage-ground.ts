@@ -1,4 +1,6 @@
 // Pure presentation helpers salvaged from the city's former live stage.
+import { ROOM_RESIDENT_SIZE, ROOM_THING_SIZE } from '../room-appearance.ts'
+
 export type StageStandingEntry = Readonly<{ key: string; kind: 'resident' | 'thing' }>
 export type StageStandingSpot = Readonly<{ key: string; kind: 'resident' | 'thing'; x: number; y: number; width: number; height: number }>
 export type StageGroundRect = Readonly<{ x: number; y: number; width: number; height: number }>
@@ -12,9 +14,10 @@ export function stageFindFreeSpots(
 ): Readonly<Record<string, StageStandingSpot>> {
   if (![room.x, room.y, room.width, room.height].every(Number.isFinite) ||
       room.width <= 0 || room.height <= 0) return Object.freeze({})
-  const spriteSize = 32
-  const clearance = spriteSize / 2
-  const searchAreas = [room, ...extraGround].flatMap(area => {
+  const sizeFor = (kind: StageStandingEntry['kind']): number =>
+    kind === 'resident' ? ROOM_RESIDENT_SIZE : ROOM_THING_SIZE
+  const clearance = ROOM_THING_SIZE / 2
+  const searchAreasFor = (spriteSize: number) => [room, ...extraGround].flatMap(area => {
     if (![area.x, area.y, area.width, area.height].every(Number.isFinite) ||
         area.width <= 0 || area.height <= 0) return []
     const minimumX = Math.ceil(area.x + clearance)
@@ -26,7 +29,6 @@ export function stageFindFreeSpots(
     if (xSpan <= 0 || ySpan <= 0) return []
     return [Object.freeze({ minimumX, minimumY, maximumX, maximumY, xSpan, ySpan, candidateCount: xSpan * ySpan })]
   })
-  if (!searchAreas.length) return Object.freeze({})
   const hash = (value: string): number => {
     let result = 2166136261
     for (let index = 0; index < value.length; index += 1) {
@@ -41,7 +43,7 @@ export function stageFindFreeSpots(
   const overlaps = (left: StageGroundRect, right: StageGroundRect): boolean =>
     left.x < right.x + right.width + clearance && left.x + left.width + clearance > right.x &&
     left.y < right.y + right.height + clearance && left.y + left.height + clearance > right.y
-  const bucketSize = spriteSize + clearance
+  const bucketSize = Math.max(ROOM_RESIDENT_SIZE, ROOM_THING_SIZE) + clearance
   const occupiedByBucket = new Map<number, Map<number, StageStandingSpot[]>>()
   const bucketCoordinate = (value: number): number => Math.floor(value / bucketSize)
   const addOccupied = (spot: StageStandingSpot): void => {
@@ -74,6 +76,8 @@ export function stageFindFreeSpots(
   }
   const result: Record<string, StageStandingSpot> = {}
   for (const entry of ordered) {
+    const spriteSize = sizeFor(entry.kind)
+    const searchAreas = searchAreasFor(spriteSize)
     const spot = previous[entry.key]
     if (!spot || spot.kind !== entry.kind ||
         ![spot.x, spot.y, spot.width, spot.height].every(Number.isFinite) ||
@@ -86,6 +90,9 @@ export function stageFindFreeSpots(
   }
   for (const entry of ordered) {
     if (result[entry.key]) continue
+    const spriteSize = sizeFor(entry.kind)
+    const searchAreas = searchAreasFor(spriteSize)
+    if (!searchAreas.length) continue
     const candidateCount = searchAreas.reduce((sum, area) => sum + area.candidateCount, 0)
     const firstCandidate = hash(entry.key) % candidateCount
     const candidateRectAt = (candidateIndex: number): StageGroundRect => {

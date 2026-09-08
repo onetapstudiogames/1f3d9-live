@@ -125,6 +125,8 @@ export class ResidentView {
     this.name.setVisible(this.nameAllowed && visible)
   }
 
+  speechPauseAt(now: number): number { return this.bubble.pauseAt(now) }
+
   destroy(): void {
     this.sprite.destroy()
     this.name.destroy()

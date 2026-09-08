@@ -15,6 +15,8 @@ import { showingNoticeFor, type ShowingMoment } from '../showing.ts'
 import { blockedAttemptFor, blockedAttemptDuration, type BlockMoment } from '../laws.ts'
 import { IDLE_WALK_SPEED, idleDestination, idleSegmentClear, nextIdleAt } from './idle.ts'
 import { residentReservationFootprint } from '../resident-footprint.ts'
+import { ROOM_RESIDENT_SIZE } from '../room-appearance.ts'
+import { roomNoteMayStart } from '../room-speech-queue.ts'
 
 export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
@@ -67,6 +69,12 @@ export type Simulation = Readonly<{
   startedInventions?: readonly StartedInvention[]
   startedHandshakes?: readonly StartedHandshake[]
   startedEvents?: readonly ReplayEvent[]
+}>
+
+export type StepResidentsOptions = Readonly<{
+  startMove?: (resident: ResidentState, event: ReplayEvent, all: Readonly<Record<number, ResidentState>>) => ResidentState | null | undefined
+  advanceMove?: (resident: ResidentState, deltaMs: number) => ResidentState | undefined
+  allowStarts?: boolean
 }>
 
 export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): Readonly<Record<number, number>> {
@@ -164,6 +172,7 @@ export function stepResidents(
   speed: number = BASE_SPEED,
   agreementPairs: ReadonlyMap<string, AgreementPair> = new Map(),
   canDraw?: (resident: ResidentState) => boolean,
+  options: StepResidentsOptions = {},
 ): Simulation {
   const residents: Record<number, ResidentState> = Object.fromEntries(
     Object.entries(state.residents).map(([id, resident]) => [id, { ...resident, queue: [...resident.queue], path: [...resident.path] }]),
@@ -203,11 +212,12 @@ export function stepResidents(
     if (resident.blockedAttempt && nowMs >= resident.blockedAttempt.expiresAt) resident = { ...resident, blockedAttempt: null }
     if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
     if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
-    if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
+    if (resident.walking) resident = options.advanceMove?.(resident, elapsed) ?? advanceWalk(resident, elapsed, layout)
     if (!resident.walking && !resident.bubble && !resident.sparkle && !resident.showingNotice && !resident.blockedAttempt
-      && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null) {
+      && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null
+      && options.allowStarts !== false) {
       if (resident.queue.length > 0 && resident.ambientWalking) resident = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null }
-      resident = startNext(resident, residents, nowMs, layout, issues, speed, holdSpeed, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs, startedEvents)
+      resident = startNext(resident, residents, nowMs, layout, issues, speed, holdSpeed, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs, startedEvents, options)
     }
     residents[id] = resident
   }
@@ -330,6 +340,7 @@ function startNext(
   agreementCandidates: AgreementCandidate[],
   agreementPairs: ReadonlyMap<string, AgreementPair>,
   startedEvents: ReplayEvent[],
+  options: StepResidentsOptions,
 ): ResidentState {
   let next = resident
   if (!next.queue.length) return next
@@ -337,8 +348,10 @@ function startNext(
   // a note that anchors an otherwise unplaced figure. Existing words finish normally.
   if (Object.values(all).some(row => row.agreementUntil != null && row.agreementUntil > nowMs)) return next
   while (next.queue.length) {
+    const beforeEvent = next
     const queued = next.queue[0]!
     const event = queued.event
+    if (event.kind === 'note' && !roomNoteMayStart(event, { ...all, [next.id]: next }, nowMs)) return next
     const queue = next.queue.slice(1)
     next = { ...next, lastActivityId: event.change_id }
     startedEvents.push(event)
@@ -376,6 +389,14 @@ function startNext(
     const isApplied = event.kind === 'action' && (detail.action === 'move' || detail.action === 'go_home') && detail.status === 'applied' && !('error' in detail && detail.error != null)
     const isNoopAnchor = event.kind === 'action' && (detail.action === 'move' || detail.action === 'go_home') && detail.status === 'noop' &&
       validPlace(detail.from_place_id) && detail.from_place_id === detail.to_place_id
+    const walk = isApplied ? appliedMove(event) : null
+    if (walk && options.startMove) {
+      const consumed = { ...next, queue }
+      const custom = options.startMove(consumed, event, { ...all, [next.id]: consumed })
+      // A busy doorway holds this recorded turn; it has not started or been drawn yet.
+      if (custom === null) { startedEvents.pop(); return beforeEvent }
+      if (custom) return custom
+    }
     if (isNoopAnchor && next.placeId !== detail.from_place_id && layout.rooms[detail.from_place_id]) {
       const source = freeDestination(next.id, detail.from_place_id, all, layout, reservations)
       if (source) {
@@ -413,7 +434,6 @@ function startNext(
         next = { ...next, placeId: fromId, x: source.x, y: source.y, relocatedAt: nowMs, visible: placeVisible(layout, fromId) }
       }
       // A same-room applied move only anchors the figure; appliedMove says when there is a real walk.
-      const walk = appliedMove(event)
       if (!walk) {
         next = { ...next, queue }
         continue
@@ -573,7 +593,7 @@ function freeDestination(id: number, placeId: number, all: Readonly<Record<numbe
   ]
   const spots = stageFindFreeSpots(entries, room.standing, previous, [], residentObstacles)
   const spot = spots[`resident:${String(id)}`]
-  return spot ? Object.freeze({ x: spot.x + 16, y: spot.y + 16 }) : null
+  return spot ? Object.freeze({ x: spot.x + ROOM_RESIDENT_SIZE / 2, y: spot.y + ROOM_RESIDENT_SIZE / 2 }) : null
 }
 
 function placeStationary(residents: Record<number, ResidentState>, layout: NestedLayout, reservations: ThingReservations): void {
@@ -589,7 +609,7 @@ function placeStationary(residents: Record<number, ResidentState>, layout: Neste
     const spots = stageFindFreeSpots(entries, room.standing, previous)
     for (const item of Object.values(residents).filter(value => value.placeId === placeId)) {
       const spot = spots[`resident:${String(item.id)}`]
-      if (spot) residents[item.id] = { ...item, x: spot.x + 16, y: spot.y + 16, visible: placeVisible(layout, placeId) }
+      if (spot) residents[item.id] = { ...item, x: spot.x + ROOM_RESIDENT_SIZE / 2, y: spot.y + ROOM_RESIDENT_SIZE / 2, visible: placeVisible(layout, placeId) }
     }
   }
 }

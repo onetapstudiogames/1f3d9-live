@@ -1,3 +1,5 @@
+import { ROOM_RESIDENT_SIZE } from '../room-appearance.ts'
+
 export type Point = Readonly<{ x: number; y: number }>
 
 export type Place = Readonly<{
@@ -35,7 +37,7 @@ export const ROOM_PADDING = 48
 export const ROOM_GAP = 32
 const MINIMUM_WIDTH = 240
 const MINIMUM_HEIGHT = 170
-const STANDING_PITCH = 48
+const STANDING_PITCH = ROOM_RESIDENT_SIZE + 16
 
 type PlannedChild = Readonly<{ id: number; x: number; y: number; row: number; top: number; bottom: number;
   laneAbove: number; laneBelow: number }>
@@ -92,7 +94,7 @@ export function nestedLayout(
     const standingWidth = columns * STANDING_PITCH
     const standingRows = Math.ceil(slots / columns)
     const standingHeight = Math.max(90, 26 + standingRows * STANDING_PITCH)
-    // The free-spot helper keeps 16px at both edges around a 32px sprite.
+    // The free-spot helper keeps 16px at both edges around each full figure footprint.
     const standingOuterWidth = Math.max(MINIMUM_WIDTH, standingWidth + ROOM_PADDING + 16)
     if (!children.length) {
       const [width, height] = variedSize(id, standingOuterWidth, Math.max(MINIMUM_HEIGHT, standingHeight + ROOM_PADDING + 32))

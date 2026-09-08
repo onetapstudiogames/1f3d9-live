@@ -3,7 +3,7 @@ import { fetchReplay, fetchCensus, createDrawingLoader, createThingLoader, creat
 import type { PlaceOutline, ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
 import { createClock, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
-import { blocksLiveDelivery, createResidents, prepareLiveResidents, stepResidents, stepIdleResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
+import { blocksLiveDelivery, createResidents, prepareLiveResidents, stepResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
 import { RoomView } from './RoomView.ts'
 import { ResidentView, addDrawingTexture } from './ResidentView.ts'
 import { sleepingResidents } from '../sleep.ts'
@@ -43,6 +43,9 @@ import { removableOnce } from '../scene-lifecycle.ts'
 import { hiddenRoomSpeech } from '../room-speech.ts'
 import { positionSpeechLayer } from './BubbleView.ts'
 import { RoomCanvas } from './RoomCanvas.ts'
+import { RoomMotion } from './RoomMotion.ts'
+import { startupMoveSuppressions } from '../startup-moves.ts'
+import { pauseAdvance } from '../speech-pause.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -91,6 +94,8 @@ export class CityScene extends Phaser.Scene {
   private rooms?: RoomView
   private displayLayout?: NestedLayout
   private roomCrowding?: RoomCrowdingState
+  private readonly roomMotion = new RoomMotion()
+  private startupMoves: ReadonlySet<string> = new Set()
   private canvas?: RoomCanvas
   private get viewport(): Readonly<{ width: number; height: number }> {
     return this.canvas?.frame ?? { width: 0, height: 0 }
@@ -124,6 +129,7 @@ export class CityScene extends Phaser.Scene {
   private cursor = 0
   private elapsed = 0
   private paused = false
+  private pauseDeadline: number | null = null
   private following: number | null = null
   private viewPlaceId: number | null = null
   private readIssues: string[] = []
@@ -258,8 +264,10 @@ export class CityScene extends Phaser.Scene {
   }
   update(_time: number, delta: number): void {
     if (!this.clock || !this.residents || !this.layout || !this.replay) return
-    const elapsed = animationDelta(delta, { ready: document.body.dataset['liveReady'] === 'true', paused: this.paused,
-      jumping: this.jumpingLive, readFailed: this.liveReadError, presenceLost: this.presenceLost })
+    this.configureRoomMotion()
+    const pauseFrame = pauseAdvance(animationDelta(delta, { ready: document.body.dataset['liveReady'] === 'true', paused: this.paused,
+      jumping: this.jumpingLive, readFailed: this.liveReadError, presenceLost: this.presenceLost }), this.elapsed, this.pauseDeadline)
+    const elapsed = pauseFrame.delta
     if (elapsed > 0) {
       if (this.backward) {
         const frame = this.history.rewind(elapsed)
@@ -269,7 +277,7 @@ export class CityScene extends Phaser.Scene {
       this.elapsed += elapsed
       if (this.mode === 'live') {
         this.placeAnimations = stepPlaceAnimations(this.placeAnimations, [], this.elapsed)
-        if (!blocksLiveDelivery(this.residents) && !this.things?.pending
+        if (this.pauseDeadline === null && !blocksLiveDelivery(this.residents) && !this.things?.pending
           && (!this.handoverFrame || !blocksLiveHandoverDelivery(this.handoverFrame)) && this.liveQueue.length) {
           const firstAt = Date.parse(this.liveQueue[0]!.at)
           const incoming = this.liveQueue.filter(row => Date.parse(row.at) === firstAt)
@@ -306,14 +314,15 @@ export class CityScene extends Phaser.Scene {
         && !this.handoverFrame?.pending && !this.placeAnimations.length && this.cursor >= this.timeline.length
       if (finished) this.enterLiveMode()
       }
-      this.residents = stepIdleResidents(this.residents, elapsed, this.elapsed, this.layout, this.sleepers, row => this.isResidentDrawn(row))
+      this.roomMotion.idle(this.residents.residents, elapsed, this.elapsed, this.sleepers)
       this.history.record(this.presentationState())
       }
     }
+    if (pauseFrame.paused) { this.paused = true; this.pauseDeadline = null }
     this.updateFollowCamera()
     this.updateRooms()
-    if (!this.backward && !this.history.rewound) void this.readLooking()
-    this.lookingAwake = this.activity?.activeLookingIds(Date.now()) ?? new Set()
+    if (!this.paused && !this.backward && !this.history.rewound) void this.readLooking()
+    if (!this.paused) this.lookingAwake = this.activity?.activeLookingIds(Date.now()) ?? new Set()
     if (!this.backward && !this.history.rewound) this.updateOutlines()
     this.prepareRoomPresentation()
     this.drawThings()
@@ -322,7 +331,7 @@ export class CityScene extends Phaser.Scene {
     this.drawHandovers()
     this.activity?.update(this.roomResidents,
       this.roomThings, this.displayLayout ?? this.layout, this.displayHiddenRooms(), this.elapsed, 1,
-      this.mode === 'live' && !this.backward && !this.history.rewound ? Date.now() : undefined,
+      this.mode === 'live' && !this.paused && !this.backward && !this.history.rewound ? Date.now() : undefined,
       roomAnchorPair(this.layout, this.displayLayout, this.viewPlaceId))
     this.inventionLayer?.update(this.inventions, { ...this.residents, residents: this.roomResidents }, this.displayHiddenRooms(), 1)
     if (this.fixtureMode) document.body.dataset['liveInventions'] = String(this.inventions.moments.length)
@@ -351,6 +360,7 @@ export class CityScene extends Phaser.Scene {
       if (!page.hasMore) {
         const known = new Set(this.liveHistory.map(row => row.change_id))
         const completed = this.liveCatchup.filter(row => !known.has(row.change_id))
+        if (!this.liveCaughtUp) this.startupMoves = startupMoveSuppressions(completed, this.census)
         this.liveHistory = Object.freeze([...this.liveHistory, ...completed])
         if (this.mode === 'live') this.liveQueue = Object.freeze([...this.liveQueue,
           ...eventsAfterMarker(completed, this.liveDeliveredMarker)])
@@ -453,7 +463,10 @@ export class CityScene extends Phaser.Scene {
   }
   private applyEvents(events: readonly ReplayFile['timeline'][number][], elapsed: number): void {
     if (!this.layout || !this.residents || !this.things || !this.handovers || !this.clock) return
-    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed, this.agreementPairs, row => this.isResidentDrawn(row))
+    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed, this.agreementPairs, row => this.isResidentDrawn(row), {
+      startMove: (resident, event, all) => this.roomMotion.start(resident, event, all),
+      advanceMove: (resident, delta) => this.roomMotion.advance(resident, delta), allowStarts: this.pauseDeadline === null,
+    })
     this.agreementLayer.add(this.residents.startedHandshakes ?? [])
     this.inventions = stepInventions(this.inventions, this.residents.startedInventions ?? [], this.residents,
       this.contentsHidden, this.elapsed)
@@ -473,6 +486,7 @@ export class CityScene extends Phaser.Scene {
     this.activity?.consume([...started, ...events.filter(event => !event.actor)], this.clock.time, this.elapsed, represented)
   }
   private observeLooking(census: readonly Resident[]): void {
+    if (this.paused) { this.presenceReadAt = Date.now(); return }
     const places = new Map(Object.values(this.residents?.residents ?? {}).flatMap(row => row.placeId === null ? [] : [[row.id, row.placeId] as const]))
     this.activity?.observeLooking(census, Date.now(), !this.presenceLost && this.mode === 'live' && !this.paused && !this.backward
       && !this.history.rewound && this.liveQueue.length === 0, places, this.contentsHidden, this.elapsed)
@@ -607,11 +621,18 @@ export class CityScene extends Phaser.Scene {
     if (!this.readIssues.includes(message)) this.readIssues.push(message)
   }
   private prepareRoomPresentation(): void {
+    this.configureRoomMotion()
     const frame = presentRoom(this.residents?.residents ?? {}, this.things?.things ?? {}, this.layout,
-      this.displayLayout, this.displayHiddenRooms(), this.roomCrowding, this.following, this.agreementLayer.project(this.elapsed))
+      this.displayLayout, this.displayHiddenRooms(), this.roomCrowding, this.following, this.agreementLayer.project(this.elapsed),
+      this.roomMotion.presentation(this.viewPlaceId))
     this.roomCrowding = frame.crowding
     this.roomResidents = frame.residents
     this.roomThings = frame.things
+    this.roomMotion.remember(frame.residents, frame.things)
+  }
+  private configureRoomMotion(): void {
+    if (this.layout) this.roomMotion.configure(this.layout, this.things?.things ?? {}, this.viewport,
+      this.viewPlaceId, this.following, this.contentsHidden, this.startupMoves)
   }
   private drawResidents(): void {
     const state = this.roomResidents
@@ -681,7 +702,15 @@ export class CityScene extends Phaser.Scene {
       this.showRoom(id)
       this.updateHud()
     }
-    const toggle = (): void => { this.paused = !this.paused; this.updateHud() }
+    const toggle = (): void => {
+      if (this.paused || this.pauseDeadline !== null) { this.paused = false; this.pauseDeadline = null }
+      else {
+        const deadline = Math.max(this.elapsed, ...[...this.figures.values()].map(figure => figure.speechPauseAt(this.elapsed)))
+        if (deadline <= this.elapsed) this.paused = true
+        else this.pauseDeadline = deadline
+      }
+      this.updateHud()
+    }
     resident.addEventListener('change', follow); place.addEventListener('change', stay); pause.addEventListener('click', toggle)
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       resident.removeEventListener('change', follow); place.removeEventListener('change', stay); pause.removeEventListener('click', toggle)
@@ -752,12 +781,14 @@ export class CityScene extends Phaser.Scene {
       document.body.dataset['liveDeliveredMarker'] = String(this.liveDeliveredMarker)
       document.body.dataset['liveElapsed'] = String(this.elapsed)
       document.body.dataset['liveDeliveryCounts'] = JSON.stringify(this.liveDeliveryCounts)
+      document.body.dataset['liveMotion'] = JSON.stringify(this.roomMotion.diagnostics())
     }
     document.body.dataset['liveShowSleepers'] = 'true'
     const pause = document.querySelector<HTMLButtonElement>('#pause')!
-    pause.disabled = !ready; pause.textContent = this.paused ? 'Resume' : 'Pause'
-    pause.setAttribute('aria-label', this.paused ? 'Resume' : 'Pause')
-    pause.setAttribute('aria-pressed', String(this.paused))
+    const holding = this.paused || this.pauseDeadline !== null
+    pause.disabled = !ready; pause.textContent = holding ? 'Resume' : 'Pause'
+    pause.setAttribute('aria-label', holding ? 'Resume' : 'Pause')
+    pause.setAttribute('aria-pressed', String(holding))
     const room = this.viewPlaceId === null ? undefined : this.layout?.rooms[this.viewPlaceId]
     document.body.dataset['liveLayoutRevision'] = String(this.layoutRevision)
     const { needsOutline, quiet } = roomPictureAccess(this.layout, this.viewPlaceId, this.contentsHidden)

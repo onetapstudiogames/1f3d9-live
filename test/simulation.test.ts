@@ -5,6 +5,7 @@ import test from 'node:test'
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
 import { roomContains } from '../src/ground/room-shape.ts'
+import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
 import { blocksLiveDelivery, createResidents, retimeResidentWalks, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
 import type { ThingReservations } from '../src/things.ts'
 import { followActivity, reappearanceAlpha } from '../src/viewer.ts'
@@ -365,7 +366,7 @@ test('a lone held speech card does not block a later resident change', () => {
   assert.equal(state.pending, true)
   assert.equal(blocksLiveDelivery(state), false)
 
-  const laterChange = { ...event('note', { place_id: 2 }, 'later'), actor: 'still', change_id: '3', event_id: 3 }
+  const laterChange = { ...event('action', { action: 'use', status: 'noop', place_id: 2 }), actor: 'still', change_id: '3', event_id: 3 }
   let queued: readonly ReplayEvent[] = [laterChange]
   const delivered: string[] = []
   if (!blocksLiveDelivery(state)) {
@@ -377,7 +378,8 @@ test('a lone held speech card does not block a later resident change', () => {
   if (!blocksLiveDelivery(state) && queued.length) delivered.push(...queued.map(row => row.change_id))
 
   assert.equal(state.residents[7]!.bubble?.text, longCard.line)
-  assert.equal(state.residents[8]!.bubble?.text, 'later')
+  assert.equal(state.residents[8]!.lastActivityId, '3')
+  assert.deepEqual(state.startedEvents?.map(row => row.change_id), ['3'])
   assert.deepEqual(delivered, ['3'])
 })
 
@@ -397,8 +399,13 @@ test('a queued earlier note holds the next live batch until it appears in record
   assert.equal(blocksLiveDelivery(released), false)
   const delivered = stepResidents(released, [later], 0, released.residents[7]!.bubble!.startedAt + 1, layout)
   assert.equal(delivered.residents[7]!.bubble?.text, earlier.line)
-  assert.equal(delivered.residents[8]!.bubble?.text, later.line)
-  assert.deepEqual([...released.startedEvents!, ...delivered.startedEvents!].map(row => row.change_id), ['2', '3'])
+  assert.equal(delivered.residents[8]!.bubble, null)
+  assert.equal(delivered.residents[8]!.queue[0]?.event.change_id, '3')
+  assert.equal(blocksLiveDelivery(delivered), true)
+  const finished = stepResidents(delivered, [], 0, delivered.residents[7]!.bubble!.expiresAt, layout)
+  assert.equal(finished.residents[8]!.bubble?.text, later.line)
+  assert.deepEqual([...released.startedEvents!, ...delivered.startedEvents!, ...finished.startedEvents!]
+    .map(row => row.change_id), ['2', '3'])
   assert.equal(holding.residents[7]!.queue.length, 1)
 })
 
@@ -487,7 +494,9 @@ const walkAway = event('action', { action: 'move', status: 'applied', from_place
 const callOther = { ...event('note', { place_id: 2 }, 'over here'), actor: 'other' }
 
 test('a figure walking out of a room no longer holds a spot in it', () => {
-  const oneSpot = { ...layout, rooms: { ...rooms, 2: { ...rooms[2], standing: { x: 420, y: 20, width: 64, height: 64 } } } } as unknown as NestedLayout
+  const oneResidentFloor = ROOM_RESIDENT_SIZE + 16 * 2
+  const oneSpot = { ...layout, rooms: { ...rooms, 2: { ...rooms[2],
+    standing: { x: 420, y: 20, width: oneResidentFloor, height: oneResidentFloor } } } } as unknown as NestedLayout
   const aloneStart = {
     'resident:7': { origin_event_id: 1, place_id: 2 },
     'resident:8': { origin_event_id: 1, place_id: 1 },
