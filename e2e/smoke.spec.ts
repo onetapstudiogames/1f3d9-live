@@ -1,7 +1,15 @@
 import { test, expect, type Page } from '@playwright/test'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 
 const fixtureUrl = '/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
+const removedControlIds = ['rewind', 'normal', 'fast', 'live-now', 'replay-day', 'nearby', 'city', 'follow-stop', 'show-sleepers', 'minimap-toggle', 'minimap-canvas', 'ui-toggle', 'activity-panel', 'activity-filter', 'activity-toggle']
+type Resident = { id: number; current_place_id: number }
+
+async function fixtureResidents(): Promise<Resident[]> {
+  const pages = await Promise.all([1, 2].map(async page =>
+    JSON.parse(await readFile(`public/fixtures/residents-presence-page${page}.json`, 'utf8')) as { residents: Resident[] }))
+  return pages.flatMap(page => page.residents)
+}
 
 async function openFixture(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
@@ -27,83 +35,111 @@ async function waitUntilReady(page: Page): Promise<void> {
   await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
 }
 
-test('viewer controls follow a resident and preserve the choice while browsing', async ({ page }) => {
-  const diagnostics = await openFixture(page)
-  const picker = page.locator('#follow-picker')
-  await expect.poll(() => picker.locator('option:not([value=""])').count(), { timeout: 30_000 }).toBeGreaterThan(0)
-  const resident = await picker.locator('option:not([value=""])').first().getAttribute('value')
-  expect(resident).not.toBeNull()
-  await picker.selectOption(resident!); await expect(page.locator('body')).toHaveAttribute('data-live-following', resident!)
-  await waitUntilReady(page)
-  await expect.poll(() => page.evaluate(() => JSON.parse(document.body.dataset['liveFigures'] ?? '[]').length)).toBeGreaterThan(0)
-  await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'true')
-  await expect(page.locator('#pause')).toHaveAttribute('aria-label', 'Pause')
-  await expect(page.locator('#pause')).toHaveText('⏸')
-  await expect(page.locator('#normal')).toHaveAttribute('aria-pressed', 'false')
-  await page.locator('#normal').click(); await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
-  await page.locator('#show-sleepers').check(); await expect(page.locator('body')).toHaveAttribute('data-live-show-sleepers', 'true')
-  expect(await page.evaluate(() => localStorage.getItem('1f3d9-live-show-sleepers'))).toBe('true')
-  const box = await page.locator('#app canvas').boundingBox(); expect(box).not.toBeNull()
-  await page.mouse.move(box!.x + 500, box!.y + 350); await page.mouse.down()
-  await page.mouse.move(box!.x + 560, box!.y + 390, { steps: 4 }); await page.mouse.up(); await page.mouse.wheel(0, -180)
-  await expect(page.locator('body')).toHaveAttribute('data-live-following', resident!)
-  await expect(page.locator('body')).toHaveAttribute('data-live-follow-suspended', 'true')
-  await page.locator('#minimap-toggle').click(); await expect(page.locator('#minimap-canvas')).toBeVisible()
-  await page.locator('#minimap-canvas').click({ position: { x: 40, y: 40 } })
-  await expect(page.locator('body')).toHaveAttribute('data-live-following', resident!); await expect(picker).toHaveValue(resident!)
-  await expect(page.locator('#show-sleepers')).toBeChecked(); await page.locator('#follow-stop').click()
-  await expect(page.locator('body')).toHaveAttribute('data-live-following', '')
-  await page.locator('#pause').click(); await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'true')
-  await expect(page.locator('#pause')).toHaveText('⏸')
-  await page.locator('#fast').click(); await expect(page.locator('body')).toHaveAttribute('data-live-speed', '60')
+async function visibleFigures(page: Page): Promise<Array<{ id: number; x: number; y: number }>> {
+  return page.evaluate(() => JSON.parse(document.body.dataset['liveFigures'] ?? '[]'))
+}
+
+test('opens live in the busiest room with only the one-room controls', async ({ page }) => {
+  await page.clock.install({ time: Date.parse('2026-09-07T01:30:42.383Z') })
+  const diagnostics = await openFixture(page); await waitUntilReady(page)
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '8')
   await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
-  const rewind = page.locator('#rewind'); await expect(rewind).toHaveAttribute('aria-label', 'Rewind')
-  await expect(rewind).toBeEnabled(); await rewind.click()
-  await expect(page.locator('body')).toHaveAttribute('data-live-direction', 'backward')
-  await page.locator('#live-now').click()
-  await expect.poll(() => page.evaluate(() => document.body.dataset['liveMode'] ?? ''), { timeout: 30_000 }).toBe('live')
-  await page.locator('#replay-day').click(); await expect(page.locator('body')).toHaveAttribute('data-live-mode', 'replay')
-  await expect(page.locator('#replay-day')).toHaveText('Replay')
+  await expect(page.locator('select')).toHaveCount(2)
+  await expect(page.locator('button')).toHaveCount(1)
+  await expect(page.locator('#follow-picker')).toHaveAttribute('aria-label', 'Choose resident')
+  await expect(page.locator('#place-picker')).toHaveAttribute('aria-label', 'Choose place')
+  await expect(page.locator('#pause')).toHaveAttribute('aria-label', 'Pause')
+  await expect(page.locator(removedControlIds.map(id => `#${id}`).join(','))).toHaveCount(0)
+  await mkdir('docs/screenshots', { recursive: true })
+  await page.screenshot({ path: 'docs/screenshots/latest.png' })
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 
-test('activity controls filter portraits, collapse, and hide with the viewer UI', async ({ page }) => {
+test('resident and place choices control the one room', async ({ page }) => {
   const diagnostics = await openFixture(page); await waitUntilReady(page)
-  const rows = page.locator('#activity-list .activity-row')
-  await expect.poll(() => rows.count()).toBeGreaterThan(0)
-  const allCount = await rows.count(); await expect(page.locator('#activity-list [role="img"]')).not.toHaveCount(0)
-  await page.locator('#activity-filter').selectOption('chats'); await expect.poll(() => rows.count()).toBeLessThanOrEqual(allCount)
-  await page.locator('#activity-toggle').click(); await expect(page.locator('#activity-toggle')).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.locator('#activity-list')).toBeHidden(); await page.locator('#activity-toggle').click(); await expect(page.locator('#activity-list')).toBeVisible()
-  await page.locator('#ui-toggle').click(); await expect(page.locator('#viewer-ui')).toBeHidden(); await expect(page.locator('#activity-panel')).toBeHidden()
-  await expect(page.locator('#ui-toggle')).toBeVisible(); await page.getByRole('button', { name: 'Show controls', exact: true }).click()
-  await expect(page.locator('#viewer-ui')).toBeVisible(); await expect(page.locator('#activity-panel')).toBeVisible()
+  const residents = await fixtureResidents()
+  const roomByResident = Object.fromEntries(residents.map(resident => [String(resident.id), String(resident.current_place_id)]))
+  const placeValues = await page.locator('#place-picker option:not([value=""])').evaluateAll(options => options.map(option => (option as HTMLOptionElement).value))
+  const currentRoom = await page.locator('body').getAttribute('data-live-room')
+  const residentValue = await page.locator('#follow-picker option:not([value=""])').evaluateAll((options, args) => {
+    const { current, places, rooms } = args as { current: string | null; places: string[]; rooms: Record<string, string> }
+    return options.map(option => (option as HTMLOptionElement).value).find(value => rooms[value] !== current && places.includes(rooms[value] ?? '')) ?? ''
+  }, { current: currentRoom, places: placeValues, rooms: roomByResident })
+  expect(residentValue).not.toBe('')
+  await page.locator('#follow-picker').selectOption(residentValue)
+  await expect(page.locator('body')).toHaveAttribute('data-live-following', residentValue)
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', roomByResident[residentValue]!)
+  const occupiedRooms = new Set(residents.map(resident => String(resident.current_place_id)))
+  const emptyRoom = placeValues.find(value => !occupiedRooms.has(value))
+  expect(emptyRoom).toBeDefined()
+  await page.locator('#place-picker').selectOption(emptyRoom!)
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', emptyRoom!)
+  await expect(page.locator('body')).toHaveAttribute('data-live-following', '')
+  await expect.poll(() => visibleFigures(page)).toEqual([])
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 
-test('phone touch pinch changes the minimap framing without page overflow', async ({ page, context, browserName }) => {
-  test.skip(browserName !== 'chromium', 'CDP touch input is Chromium-only')
-  await page.setViewportSize({ width: 390, height: 844 })
-  const cdp = await context.newCDPSession(page)
-  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
+test('pause holds an advancing scene, resume advances it, and pointer navigation does nothing', async ({ page }) => {
   const diagnostics = await openFixture(page); await waitUntilReady(page)
-  await page.locator('#minimap-toggle').click(); const minimap = page.locator('#minimap-canvas'); await expect(minimap).toBeVisible()
-  const before = await minimap.evaluate(canvas => (canvas as HTMLCanvasElement).toDataURL())
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 145, y: 410, id: 1 }, { x: 245, y: 410, id: 2 }] })
-  for (const spread of [15, 30, 40]) {
-    await page.evaluate(() => new Promise(requestAnimationFrame))
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [
-      { x: 145 - spread, y: 410, id: 1 }, { x: 245 + spread, y: 410, id: 2 },
-    ] })
-  }
-  await page.evaluate(() => new Promise(requestAnimationFrame))
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
-  await expect.poll(() => minimap.evaluate(canvas => (canvas as HTMLCanvasElement).toDataURL())).not.toBe(before)
-  await expect.poll(() => minimap.evaluate(canvas => {
-    const element = canvas as HTMLCanvasElement
-    return element.getContext('2d')?.getImageData(0, 0, element.width, element.height).data.some(value => value !== 0) ?? false
-  })).toBe(true)
-  expect(await page.evaluate(() => ({ horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-    vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight }))).toEqual({ horizontal: false, vertical: false })
+  const elapsed = () => page.evaluate(() => Number(document.body.dataset['liveElapsed']))
+  const first = await elapsed()
+  await expect.poll(elapsed).toBeGreaterThan(first)
+  const pause = page.locator('#pause'); await pause.click()
+  await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'true')
+  await expect(pause).toHaveAttribute('aria-label', 'Resume')
+  const roomBefore = await page.locator('body').getAttribute('data-live-room')
+  const frameBefore = await visibleFigures(page); const elapsedBefore = await elapsed()
+  const box = await page.locator('#app canvas').boundingBox(); expect(box).not.toBeNull()
+  await page.mouse.move(box!.x + box!.width * 0.4, box!.y + box!.height * 0.4); await page.mouse.down()
+  await page.mouse.move(box!.x + box!.width * 0.65, box!.y + box!.height * 0.6, { steps: 4 }); await page.mouse.up(); await page.mouse.wheel(0, -180)
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', roomBefore!)
+  await expect.poll(() => visibleFigures(page)).toEqual(frameBefore)
+  await page.waitForTimeout(250)
+  expect(await elapsed()).toBe(elapsedBefore)
+  await pause.click()
+  await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
+  await expect.poll(elapsed).toBeGreaterThan(elapsedBefore)
+  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
+})
+
+test('a tiny window reports its size honestly and redraws after each recovery', async ({ page }) => {
+  await page.setViewportSize({ width: 136, height: 300 })
+  const diagnostics = await openFixture(page)
+  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
+  await expect(page.locator('#live-status')).toHaveText('This window is too small to draw the room.')
+  await page.setViewportSize({ width: 375, height: 812 })
+  await waitUntilReady(page)
+  await expect(page.locator('#live-status')).toBeEmpty()
+  await expect(page.locator('#app canvas')).toBeVisible()
+  await expect.poll(() => visibleFigures(page)).not.toEqual([])
+  const firstRevision = Number(await page.locator('body').getAttribute('data-live-layout-revision'))
+  expect(firstRevision).toBeGreaterThan(0)
+  await page.setViewportSize({ width: 136, height: 300 })
+  await expect(page.locator('#live-status')).toHaveText('This window is too small to draw the room.')
+  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true')
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await expect(page.locator('#live-status')).toBeEmpty()
+  await expect(page.locator('#app canvas')).toBeVisible()
+  await expect.poll(() => visibleFigures(page)).not.toEqual([])
+  await expect.poll(async () => Number(await page.locator('body').getAttribute('data-live-layout-revision'))).toBeGreaterThan(firstRevision)
+  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
+})
+
+test('phone layout keeps the room large and controls at the bottom', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const diagnostics = await openFixture(page); await waitUntilReady(page)
+  const header = await page.locator('header').boundingBox()
+  const controls = await page.locator('#room-footer').boundingBox()
+  const app = await page.locator('#app').boundingBox()
+  const canvas = await page.locator('#app canvas').boundingBox()
+  expect(header).not.toBeNull(); expect(controls).not.toBeNull(); expect(app).not.toBeNull(); expect(canvas).not.toBeNull()
+  expect(header!.height).toBeLessThanOrEqual(60)
+  expect(controls!.y + controls!.height).toBeGreaterThanOrEqual(800)
+  expect(app!.width).toBeGreaterThanOrEqual(365)
+  expect(canvas!.width).toBeGreaterThanOrEqual(app!.width - 2)
+  expect(canvas!.height).toBeGreaterThanOrEqual(app!.height - 2)
+  expect(await page.evaluate(() => ({ horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth, vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight }))).toEqual({ horizontal: false, vertical: false })
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })

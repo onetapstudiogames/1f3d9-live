@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { HAND_PIXELS, handshakeFrame, type StartedHandshake } from '../agreements.ts'
 import type { ResidentView } from './ResidentView.ts'
 import type { Point } from '../ground/nested.ts'
+import { visibleFigureMidpoint } from '../room-anchors.ts'
 
 type View = Readonly<{ hands: Phaser.GameObjects.Graphics; label: Phaser.GameObjects.Text }>
 
@@ -33,11 +34,12 @@ export class AgreementLayer {
             backgroundColor: '#fff3d6', padding: { x: 4, y: 2 } }).setOrigin(0.5, 1).setDepth(206) })
         this.views.set(key, view)
       }
-      const hidden = hiddenPlaces.has(active.plan.placeId) || !figures.get(active.plan.leftId)?.sprite.visible
-        || !figures.get(active.plan.rightId)?.sprite.visible
+      const left = figures.get(active.plan.leftId)?.sprite; const right = figures.get(active.plan.rightId)?.sprite
+      const midpoint = visibleFigureMidpoint(left, right)
+      const hidden = hiddenPlaces.has(active.plan.placeId) || midpoint === null
       view.hands.clear().setVisible(frame.hands && !hidden)
       if (frame.hands) for (const cell of HAND_PIXELS) view.hands.fillStyle(0xc78b62, 1).fillRect(cell.x * 2, (cell.y + frame.shake) * 2, 2, 2)
-      const x = (frame.left.x + frame.right.x) / 2; const y = (frame.left.y + frame.right.y) / 2
+      const x = midpoint?.x ?? 0; const y = midpoint?.y ?? 0
       view.hands.setPosition(x, y - 4); view.label.setPosition(x, y - 18).setVisible(frame.hands && !hidden)
     }
     for (const [key, view] of this.views) if (!keys.has(key)) { view.hands.destroy(); view.label.destroy(); this.views.delete(key) }

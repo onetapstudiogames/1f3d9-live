@@ -10,19 +10,22 @@ import { TiledFloor } from './TiledFloor.ts'
 import {
   animationProgress, brickCount, placeAnimationsByKind, signScale, wallBricks, type PlaceAnimation,
 } from '../place-animation.ts'
+import { removableOnce } from '../scene-lifecycle.ts'
 
 export class RoomView {
   private plates = new Map<number, {
     group: Phaser.GameObjects.Container; text: Phaser.GameObjects.Text; room: Room; nameOffset: number
   }>()
   private readonly tint: Phaser.GameObjects.Rectangle
+  private readonly removeShutdownListener: () => void
+  private destroyed = false
   private readonly surfaces = new Map<number, {
     paint: Phaser.GameObjects.Graphics; windows: Phaser.GameObjects.Graphics
     building: Phaser.GameObjects.Graphics | null; bricks: ReturnType<typeof wallBricks>; drawn: number
     art: TiledFloor[]
   }>()
 
-  constructor(scene: Phaser.Scene, layout: NestedLayout, private plan: PlacePlan) {
+  constructor(scene: Phaser.Scene, layout: NestedLayout, private plan: PlacePlan, private readonly showNames = true) {
     // The mood covers the floor and walls; plates, figures and words keep their contrast.
     this.tint = scene.add.rectangle(0, 0, 1, 1).setScrollFactor(0).setDepth(0.25)
     const floors = [0x344d3c, 0x557354, 0x7e9262, 0xb3af7e, 0xc3b58b]
@@ -101,13 +104,14 @@ export class RoomView {
       const group = scene.add.container(x + 12, y + 12, [text]).setDepth(room.depth + 1)
       this.plates.set(room.id, { group, text, room, nameOffset: 0 })
     }
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-      for (const surface of this.surfaces.values()) for (const art of surface.art) art.destroy()
-    })
+    this.removeShutdownListener = removableOnce(scene.events, Phaser.Scenes.Events.SHUTDOWN, () => this.destroy())
   }
 
   setPlan(plan: PlacePlan): void { this.plan = plan }
   destroy(): void {
+    if (this.destroyed) return
+    this.destroyed = true
+    this.removeShutdownListener()
     this.tint.destroy()
     for (const plate of this.plates.values()) plate.group.destroy()
     for (const surface of this.surfaces.values()) {
@@ -165,7 +169,7 @@ export class RoomView {
       const scale = Math.min(2.5, Math.max(1, 0.85 / camera.zoom))
       plate.group.setScale(scale)
       plate.text.setScale(animation?.renaming ? signScale(animationProgress(animation.renaming, now)) : 1, 1)
-      plate.group.setVisible(shown && plate.room.width * camera.zoom > 105 && plate.room.standing.height * camera.zoom > 27)
+      plate.group.setVisible(this.showNames && shown && plate.room.width * camera.zoom > 105 && plate.room.standing.height * camera.zoom > 27)
       const plateWidth = Math.min(300, (plate.room.width - 24) / scale - plate.nameOffset)
       if (plate.text.width !== plateWidth) plate.text.setFixedSize(plateWidth, 27)
     }
