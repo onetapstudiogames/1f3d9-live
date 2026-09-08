@@ -352,7 +352,7 @@ function startNext(
     const queued = next.queue[0]!
     const event = queued.event
     if (event.kind === 'note' && !roomNoteMayStart(event, { ...all, [next.id]: next }, nowMs)) {
-      return queued.heldByRoom ? next : { ...next, queue: [{ ...queued, heldByRoom: true }, ...next.queue.slice(1)] }
+      return { ...next, queue: holdRoomNotes(next.queue, event.detail.place_id) }
     }
     const queue = next.queue.slice(1)
     next = { ...next, lastActivityId: event.change_id }
@@ -467,6 +467,16 @@ function startNext(
     next = { ...next, queue }
   }
   return next
+}
+
+function holdRoomNotes(queue: readonly QueuedEvent[], placeId: number | undefined): readonly QueuedEvent[] {
+  // The whole leading speech turn waits for this room, including later batches
+  // appended behind a previously marked head. Never mark past other queued work.
+  const end = queue.findIndex(row => row.event.kind !== 'note' || row.event.detail.place_id !== placeId)
+  const count = end < 0 ? queue.length : end
+  if (queue.every((row, index) => index >= count || row.heldByRoom)) return queue
+  return Object.freeze(queue.map((row, index) => index < count && !row.heldByRoom
+    ? Object.freeze({ ...row, heldByRoom: true }) : row))
 }
 
 function arrive(

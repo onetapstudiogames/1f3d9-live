@@ -452,6 +452,64 @@ test('a room-held note cannot hide a later queued move from the live gate', () =
   assert.equal(blocksLiveDelivery(state), true)
 })
 
+test('two same-room notes behind another resident card never block delivery and both speak in recorded order', () => {
+  const notes = ['1', '2', '3'].map((id, index) => ({
+    ...event('note', { place_id: 2 }, `Note ${id}: ${'The whole recorded body stays here. '.repeat(24)}`),
+    actor: index === 0 ? 'walker' : 'still', change_id: id, event_id: Number(id),
+  }))
+  const original = createResidents(replay(), census, layout)
+  let state = stepResidents(original, notes, 0, 0, layout)
+  const started = [...state.startedEvents!]
+  assert.equal(state.residents[7]!.bubble!.expiresAt, 15_000)
+  assert.equal(state.residents[8]!.queue.length, 2)
+  assert.deepEqual(state.residents[8]!.queue.map(row => [row.event.change_id, row.heldByRoom]),
+    [['2', true], ['3', true]])
+  assert.equal(blocksLiveDelivery(state), false)
+  for (let now = 500; now <= 45_000; now += 500) {
+    state = stepResidents(state, [], 500, now, layout)
+    started.push(...state.startedEvents!)
+    const cards = Object.values(state.residents).flatMap(row => row.bubble ? [row.bubble] : [])
+    assert.equal(cards.length, now < 45_000 ? 1 : 0)
+    if (now < 45_000) assert.equal(cards[0]!.text, notes[Math.floor(now / 15_000)]!.line)
+    assert.equal(blocksLiveDelivery(state), false, `speech alone blocked delivery at ${now} ms`)
+  }
+  assert.deepEqual(started.map(row => row.change_id), ['1', '2', '3'])
+  assert.equal(state.residents[8]!.queue.length, 0)
+  assert.equal(state.pending, false)
+  assert.equal(original.residents[8]!.queue.length, 0, 'the input queue is unchanged')
+})
+
+test('new same-room notes join an already held speech queue without blocking delivery', () => {
+  const first = event('note', { place_id: 2 }, 'first card')
+  const second = { ...event('note', { place_id: 2 }, 'second card'), actor: 'still', change_id: '2', event_id: 2 }
+  const third = { ...event('note', { place_id: 2 }, 'third card'), actor: 'still', change_id: '3', event_id: 3 }
+  const held = stepResidents(createResidents(replay(), census, layout), [first, second], 0, 0, layout)
+  assert.equal(held.residents[8]!.queue[0]!.heldByRoom, true)
+  const appended = stepResidents(held, [third], 100, 100, layout)
+  assert.equal(appended.residents[7]!.bubble?.text, first.line)
+  assert.deepEqual(appended.residents[8]!.queue.map(row => [row.event.change_id, row.heldByRoom]),
+    [['2', true], ['3', true]])
+  assert.equal(blocksLiveDelivery(appended), false)
+  assert.deepEqual(held.residents[8]!.queue.map(row => row.event.change_id), ['2'])
+})
+
+test('room-held speech marking stops at queued movement, effects, or another room', () => {
+  const first = event('note', { place_id: 2 }, 'first card')
+  const held = { ...event('note', { place_id: 2 }, 'held card'), actor: 'still', change_id: '2', event_id: 2 }
+  const tail = { ...event('note', { place_id: 2 }, 'later card'), actor: 'still', change_id: '4', event_id: 4 }
+  for (const work of [
+    event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 }),
+    event('kind_invented', { kind_id: 10, name: 'lamp moss' }),
+    event('note', { place_id: 1 }, 'another room'),
+  ]) {
+    const middle = { ...work, actor: 'still', change_id: '3', event_id: 3 }
+    const state = stepResidents(createResidents(replay(), census, layout), [first, held, middle, tail], 0, 0, layout)
+    assert.deepEqual(state.residents[8]!.queue.map(row => [row.event.change_id, row.heldByRoom]),
+      [['2', true], ['3', undefined], ['4', undefined]])
+    assert.equal(blocksLiveDelivery(state), true, `queued ${work.kind} still blocks delivery`)
+  }
+})
+
 test('active walks and effects still block live delivery', () => {
   let state = createResidents(replay(), census, layout)
   state = stepResidents(state, [
