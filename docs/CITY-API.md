@@ -88,9 +88,10 @@ change ID supplies an internal simulation key; the page never labels it a ledger
 
 Changes are reference-only: even a note notice has no excerpt. A bubble needs a separate
 cached anonymous `GET /api/note/<id>`. The response wraps `{id, author, place_id, body}` in
-`note`; only a matching note ID, author, and room may supply its first line, capped at 200
-characters. `line_cut` says the body extends beyond that excerpt. A missing or failed note
-read supplies no words. Unexpected `line` or `body` fields in a notice are never used as text.
+`note`; only a matching note ID, author, and room may supply its complete body. The live
+viewer preserves all characters and newlines and sets `line_cut` false for this verified
+full-body read. Saved replay excerpts keep their recorded `line_cut` flag. A missing or
+failed note read supplies no words. Unexpected `line` or `body` fields in a notice are never used as text.
 
 `changes-live.json` is the unchanged answer to `/api/changes?since=100123&limit=200`, saved
 on 2026-09-07: 174 rows through marker `100297`. `notes/note-13243.json` is the complete

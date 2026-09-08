@@ -34,12 +34,13 @@ import { readNoteWords, readPlacePlan, readResidentDrawings, readVisibleThingDet
 
 import { busiestRoom, singleRoomLayout, roomViewportUsable, roomIsPublic } from '../room-view.ts'
 import { RoomActivityLine } from './RoomActivityLine.ts'
-import { animationDelta, eventsAfterMarker, roomPictureSettled, roomStatus } from '../live-presentation.ts'
+import { animationDelta, eventsAfterMarker, roomPictureSettled, roomPictureAccess, roomStatus, type OutlineResolution } from '../live-presentation.ts'
 import { presentRoom, roomFigurePriority } from '../room-presentation.ts'
 import { roomLabelFitsViewport, visibleRoomLabels, type RoomCrowdingState } from '../room-crowding.ts'
 import { projectRoomHandovers, roomAnchorPair } from '../room-anchors.ts'
 import { removableOnce } from '../scene-lifecycle.ts'
 import { hiddenRoomSpeech } from '../room-speech.ts'
+import { updateSpeechOverflow } from './BubbleView.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -78,7 +79,7 @@ export class CityScene extends Phaser.Scene {
   private readonly readThingDrawing = createDrawingLoader(undefined, 'thing')
   private readonly readOutline = createPlaceOutlineLoader()
   private outlineReads = new Set<number>()
-  private mergedOutlines = new Set<number>()
+  private outlineResolutions: Readonly<Record<number, OutlineResolution>> = {}
   private outlineActive = 0
   private outlineDrawingReads = 0
   private outlinePending = new Map<number, PlaceOutline>()
@@ -94,6 +95,7 @@ export class CityScene extends Phaser.Scene {
   private playbackSpeed = 1
   private readonly readResidentDrawing = createDrawingLoader()
   private readonly readPlaceDrawing = createDrawingLoader(undefined, 'place')
+  private placeDrawingReads = 0
   private activityLog?: RoomActivityLine
   private removeActivityShutdown = (): void => {}
   private activity?: SceneActivity
@@ -152,7 +154,7 @@ export class CityScene extends Phaser.Scene {
         this.elapsed = 0; this.cursor = 0; this.liveHistory = []; this.liveQueue = []; this.liveCatchup = []
         this.liveCaughtUp = false; this.handoverFrame = undefined
         this.inventions = Object.freeze({ moments: [], pending: false, issues: [] })
-        this.outlineReads.clear(); this.mergedOutlines.clear(); this.outlinePending.clear(); this.outlineGeneration += 1
+        this.outlineReads.clear(); this.outlineResolutions = {}; this.outlinePending.clear(); this.outlineGeneration += 1
       }
       const census = censusRead.value
       this.census = census
@@ -241,10 +243,12 @@ export class CityScene extends Phaser.Scene {
     const id = this.viewPlaceId
     if (id === null || !this.layout || !roomIsPublic(this.layout, id)
       || !this.replay?.map.places.some(place => place.id === id && place.has_drawing)) return
+    this.placeDrawingReads += 1
     try {
       const art = await this.readPlaceDrawing(id)
       if (art && this.viewPlaceId === id) this.rooms?.addDrawing(this, id, art)
     } catch (error) { console.error(error); this.thingReadIssue('This room drawing could not be read.') }
+    finally { this.placeDrawingReads -= 1 }
   }
   update(_time: number, delta: number): void {
     if (!this.clock || !this.residents || !this.layout || !this.replay) return
@@ -425,7 +429,7 @@ export class CityScene extends Phaser.Scene {
     this.liveQueue = []
     this.liveDeliveredMarker = Number(this.replay.checkpoint)
     this.outlineReads.clear()
-    this.mergedOutlines.clear()
+    this.outlineResolutions = {}
     this.outlinePending.clear()
     this.outlineGeneration += 1
     this.sleepers = this.initialSleepers
@@ -525,13 +529,18 @@ export class CityScene extends Phaser.Scene {
       void this.readOutline(room.id).then(outline => {
         if (generation !== this.outlineGeneration) return
         if (!outline) {
+          this.outlineResolutions = { ...this.outlineResolutions, [room.id]: 'unmergeable' }
           if (!this.fixtureMode) this.thingReadIssue('A nearby room outline was missing; its floor is kept.')
           return
         }
-        if (this.contentsHidden.has(room.id)) return
+        if (this.contentsHidden.has(room.id)) {
+          this.outlineResolutions = { ...this.outlineResolutions, [room.id]: 'unmergeable' }; return
+        }
         if (this.roomHasMotion(room.id)) this.outlinePending.set(room.id, outline)
         else this.mergeOutline(outline)
       }).catch(error => {
+        if (generation !== this.outlineGeneration) return
+        this.outlineResolutions = { ...this.outlineResolutions, [room.id]: 'unmergeable' }
         console.error(error)
         this.thingReadIssue('Some nearby room things could not be read; their floors are kept.')
       }).finally(() => { this.outlineActive -= 1 })
@@ -542,7 +551,9 @@ export class CityScene extends Phaser.Scene {
       && (resident.placeId === placeId || resident.destinationId === placeId))
   }
   private mergeOutline(outline: PlaceOutline): void {
-    if (this.backward || this.history.rewound || this.mode !== 'live' || !this.layout || !this.residents || !this.things || this.contentsHidden.has(outline.placeId)) return
+    if (this.backward || this.history.rewound || this.mode !== 'live' || !this.layout || !this.residents || !this.things || this.contentsHidden.has(outline.placeId)) {
+      this.outlineResolutions = { ...this.outlineResolutions, [outline.placeId]: 'unmergeable' }; return
+    }
     const blockers: StageStandingSpot[] = Object.values(this.residents.residents).flatMap(resident => {
       const points = [resident.placeId === outline.placeId && resident.visible ? { key: `resident:${resident.id}`, x: resident.x, y: resident.y } : null,
         resident.destinationId === outline.placeId && resident.destination ? { key: `destination:${resident.id}`, ...resident.destination } : null]
@@ -550,7 +561,7 @@ export class CityScene extends Phaser.Scene {
     })
     const before = this.things
     this.things = addPresentThings(before, outline, this.layout, this.recordThingIds, blockers)
-    this.mergedOutlines.add(outline.placeId)
+    this.outlineResolutions = { ...this.outlineResolutions, [outline.placeId]: 'merged' }
     this.residents = Object.freeze({ ...this.residents, reservations: this.things.reservations })
     for (const row of outline.things) {
       if (this.recordThingIds.has(row.id) || before.things[row.id] || !this.things.things[row.id]) continue
@@ -596,7 +607,6 @@ export class CityScene extends Phaser.Scene {
     this.roomThings = frame.things
   }
   private drawResidents(): void {
-    const camera = this.cameras.main
     const state = this.roomResidents
     let visibleSpeech: { residentId: number; text: string; shape: string; showing: string } | null = null
     for (const [id, figure] of this.figures) if (!state[id]) {
@@ -614,15 +624,20 @@ export class CityScene extends Phaser.Scene {
       const hidden = !this.isResidentDrawn(resident) || resident.placeId !== this.viewPlaceId
       const sleeping = this.sleepers.has(resident.id) && !this.lookingAwake.has(resident.id)
       const sleeperHidden = sleeping && !this.showSleepers
-      const speech = figure.update(hidden || sleeperHidden ? { ...resident, visible: false } : resident, camera.zoom, this.elapsed,
-        resident.id === this.following, sleeping, this.clock?.time ?? Number.NaN, this.replay?.map.places)
+      const speech = figure.update(hidden || sleeperHidden ? { ...resident, visible: false } : resident, this.elapsed,
+        sleeping, this.replay?.map.places)
       if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
+    updateSpeechOverflow()
+    const obstacles = [...this.figures].flatMap(([id, figure]) => figure.sprite.visible
+      ? [{ ...figure.sprite.getBounds(), id: String(id) }] : [])
+      .concat([...this.thingViews].flatMap(([id, thing]) => thing.sprite.visible
+        ? [{ ...thing.sprite.getBounds(), id: `thing:${id}` }] : []))
     const labels = visibleRoomLabels([...this.figures].flatMap(([id, figure]) => {
       const box = figure.labelBounds()
       return box && roomLabelFitsViewport(box, this.scale.width, this.scale.height)
         ? [{ ...box, id: String(id), priority: roomFigurePriority(state[id]!, this.following) }] : []
-    }))
+    }), obstacles)
     for (const [id, figure] of this.figures) figure.setNameVisible(labels.has(String(id)))
     this.activityLog?.setUnshownSpeech(hiddenRoomSpeech(this.residents?.residents ?? {}, this.roomResidents,
       this.layout, this.viewPlaceId, this.contentsHidden, this.elapsed))
@@ -735,20 +750,20 @@ export class CityScene extends Phaser.Scene {
     pause.setAttribute('aria-pressed', String(this.paused))
     const room = this.viewPlaceId === null ? undefined : this.layout?.rooms[this.viewPlaceId]
     document.body.dataset['liveLayoutRevision'] = String(this.layoutRevision)
-    const needsOutline = Boolean(room && this.layout && roomIsPublic(this.layout, room.id))
+    const { needsOutline, quiet } = roomPictureAccess(this.layout, this.viewPlaceId, this.contentsHidden)
     document.body.dataset['livePictureSettled'] = String(roomPictureSettled({
-      ready: ready && Boolean(roomAnchorPair(this.layout, this.displayLayout, this.viewPlaceId) || room?.quiet)
+      ready: ready && Boolean(roomAnchorPair(this.layout, this.displayLayout, this.viewPlaceId) || quiet)
         && roomViewportUsable(this.scale.width, this.scale.height),
       firstPollMerged: this.liveCaughtUp, needsOutline,
-      outlineMerged: Boolean(room && this.mergedOutlines.has(room.id)),
-      pendingReads: this.outlineActive + this.outlineDrawingReads + Number(this.readingThings),
+      outline: room ? this.outlineResolutions[room.id] ?? 'pending' : 'pending',
+      pendingReads: this.outlineActive + this.outlineDrawingReads + this.placeDrawingReads + Number(this.readingThings),
       pendingOutline: room ? this.outlinePending.has(room.id) : false,
     }))
     const name = room && this.placePlan ? recordedRoomName(this.placePlan, room, this.clock?.time ?? Date.now()) : null
     document.getElementById('room-name')!.textContent = name ?? (failed ? 'City unavailable' : 'Opening the city…')
     document.getElementById('live-status')!.textContent = roomStatus({
       tooSmall: !roomViewportUsable(this.scale.width, this.scale.height), readFailed: failed,
-      quiet: Boolean(room && this.layout && !roomIsPublic(this.layout, room.id)),
+      quiet,
     })
     const picker = document.querySelector<HTMLSelectElement>('#place-picker')!
     const places = (this.replay?.map.places ?? []).map(place => ({ ...place,

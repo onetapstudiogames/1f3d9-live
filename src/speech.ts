@@ -5,6 +5,8 @@ export type SpeechBubble = Readonly<{ text: string; cut: boolean; placeId: numbe
 export type BubbleShape = 'plain' | 'asking' | 'telling'
 export type BubbleRect = Readonly<{ x: number; y: number; width: number; height: number; color: number; alpha: 1 }>
 export type TypedBubbleFrame = Readonly<{ text: string; revealed: string; firstLine: number; complete: boolean; cut: boolean }>
+export type GrowingBubbleFrame = Readonly<{ text: string; revealed: string; lines: readonly string[]; complete: boolean;
+  cut: boolean; width: number; height: number; fontSize: 14; lineHeight: 20 }>
 
 const TYPE_INTERVAL_MS = 34
 const TYPE_INTERVAL_FLOOR_MS = 18
@@ -47,6 +49,53 @@ export function typedBubbleFrame(bubble: SpeechBubble, now: number, maxWidth = 2
   const firstLine = Math.max(0, lines.length - safeLines)
   return Object.freeze({ text: lines.slice(firstLine).join('\n'), revealed: visible, firstLine,
     complete: count === characters.length, cut: bubble.cut })
+}
+
+const GROWING_BUBBLE_MAX_WIDTH = 320
+const GROWING_BUBBLE_HORIZONTAL_PADDING = 12
+const GROWING_BUBBLE_VERTICAL_PADDING = 10
+
+/** Lays out every revealed grapheme at a fixed reading size. The card width is capped at
+ * 320px and otherwise follows the available viewport; its height adds 20px per line. */
+export function growingBubbleFrame(bubble: SpeechBubble, now: number, availableWidth = GROWING_BUBBLE_MAX_WIDTH,
+  measure: (text: string) => number = readableTextWidth): GrowingBubbleFrame {
+  const finiteWidth = Number.isFinite(availableWidth) ? Math.floor(availableWidth) : GROWING_BUBBLE_MAX_WIDTH
+  const width = Math.min(GROWING_BUBBLE_MAX_WIDTH, Math.max(1, finiteWidth))
+  const characters = splitGraphemes(bubble.text)
+  const count = now < bubble.startedAt ? 0 : Math.min(characters.length,
+    Math.floor((now - bubble.startedAt) / bubble.charInterval) + 1)
+  const revealed = characters.slice(0, count).join('')
+  const lines = wrapGrowingLines(revealed, Math.max(1, width - GROWING_BUBBLE_HORIZONTAL_PADDING * 2), measure)
+  return Object.freeze({ text: revealed, revealed, lines: Object.freeze(lines), complete: count === characters.length,
+    cut: bubble.cut, width, height: GROWING_BUBBLE_VERTICAL_PADDING * 2 + lines.length * 20, fontSize: 14, lineHeight: 20 })
+}
+
+function wrapGrowingLines(text: string, maxWidth: number, measure: (text: string) => number): string[] {
+  if (!text) return []
+  const lines: string[] = []
+  const appendOversized = (chunk: string, initial: string): string => {
+    let line = initial
+    for (const grapheme of splitGraphemes(chunk)) {
+      if (line && measure(line + grapheme) > maxWidth) {
+        lines.push(line)
+        line = grapheme
+      } else line += grapheme
+    }
+    return line
+  }
+  for (const paragraph of text.split('\n')) {
+    if (!paragraph) { lines.push(''); continue }
+    let line = ''
+    for (const chunk of paragraph.match(/[^\S\n]+|\S+/gu) ?? []) {
+      if (measure(chunk) > maxWidth) line = appendOversized(chunk, line)
+      else if (line && measure(line + chunk) > maxWidth) {
+        lines.push(line)
+        line = chunk
+      } else line += chunk
+    }
+    lines.push(line)
+  }
+  return lines
 }
 
 export function bubbleShape(placeId: number | null, places: readonly ReplayPlace[]): BubbleShape {

@@ -69,12 +69,13 @@ test('changes reads omit credentials and fixture reads never fall back to the ci
   await assert.rejects(fetchChanges('0', '?replay=/saved/day.json'))
 })
 
-test('a real single-note read yields its own author, room and short first line', () => {
+test('a real single-note read yields its complete body including newlines', () => {
   const excerpt = parseNoteExcerpt(note, 13243)
-  assert.deepEqual(excerpt, { id: 13243, author: 'buzz', placeId: 782, text: 'GUESS ROUND 002: thog', cut: true })
+  assert.deepEqual(excerpt, { id: 13243, author: 'buzz', placeId: 782, text: note.note.body, cut: false })
   const short = { note: { id: 1, author: 'one', place_id: 3, body: 'hello' } }
   assert.equal(parseNoteExcerpt(short, 1).cut, false)
-  assert.equal(parseNoteExcerpt({ note: { ...short.note, body: 'x'.repeat(250) } }, 1).text.length, 200)
+  assert.equal(parseNoteExcerpt({ note: { ...short.note, body: `first\n${'x'.repeat(250)}` } }, 1).text,
+    `first\n${'x'.repeat(250)}`)
   for (const value of [null, {}, { note: { ...short.note, id: 2 } }, { note: { ...short.note, place_id: null } },
     { note: { ...short.note, body: 3 } }, { note: { ...short.note, author: null } }]) {
     assert.throws(() => parseNoteExcerpt(value, 1), /note/)

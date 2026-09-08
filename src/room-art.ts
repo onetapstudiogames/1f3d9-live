@@ -15,12 +15,18 @@ export type PlaceFloorArt = Readonly<{
   cellSize: number; tileSize: number; tileOffsetX: number; tileOffsetY: number; shadeAlpha: number
 }>
 
+export type UndrawnFloor = Readonly<{ color: number }>
+
+const PLAIN_FLOOR: UndrawnFloor = Object.freeze({ color: 0xb89b72 })
+
+export function undrawnFloor(): UndrawnFloor { return PLAIN_FLOOR }
+
 // Four world pixels per recorded cell keeps the 8 by 8 portrait crisp. The four-pixel
 // wall inset clips the repeat while the offsets keep it anchored at the room's corner.
 export function placeFloorArt(room: Room): PlaceFloorArt {
   return Object.freeze({
     x: room.x + 4, y: room.y + 4, width: room.width - 8, height: room.height - 8,
-    cellSize: 4, tileSize: 32, tileOffsetX: 4, tileOffsetY: 4, shadeAlpha: 0.42,
+    cellSize: 4, tileSize: 32, tileOffsetX: 4, tileOffsetY: 4, shadeAlpha: 0.10,
   })
 }
 

@@ -30,10 +30,10 @@ try {
   if (state.ready !== 'true') throw new Error(JSON.stringify({ state, failed }))
   await stablePicture(page)
   await mkdir('docs/screenshots', { recursive: true })
-  await page.screenshot({ path: 'docs/screenshots/pr-1-live-desktop.png' })
+  await page.screenshot({ path: 'docs/screenshots/pr-2-live-desktop.png' })
   await page.setViewportSize({ width: 375, height: 812 })
   await stablePicture(page)
-  await page.screenshot({ path: 'docs/screenshots/pr-1-live-phone.png' })
+  await page.screenshot({ path: 'docs/screenshots/pr-2-live-phone.png' })
   console.log(JSON.stringify({ capturedAt: new Date().toISOString(), ...state, failed }))
 } finally {
   await browser.close()

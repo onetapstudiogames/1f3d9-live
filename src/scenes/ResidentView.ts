@@ -4,12 +4,14 @@ import { drawingCells } from '../city/drawing.ts'
 import { sleepingDrawingCells } from '../sleep.ts'
 import { residentNamePlate } from '../city/residents.ts'
 import type { ResidentState } from '../replay/simulation.ts'
-import { isNewResident, sparkleAlpha } from '../newcomers.ts'
-import { bubbleFitScale, bubbleRects, bubbleShape, typedBubbleFrame } from '../speech.ts'
+import { sparkleAlpha } from '../newcomers.ts'
+import { bubbleShape } from '../speech.ts'
+import { BubbleView } from './BubbleView.ts'
 import { residentBobOffset } from '../resident-bob.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
 import { lockCells } from '../laws.ts'
 import { reappearanceAlpha } from '../viewer.ts'
+import { ROOM_RESIDENT_SIZE, roomFigureStyle, roomNameStyle } from '../room-appearance.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
 export type ResidentLabelBounds = Readonly<{ x: number; y: number; width: number; height: number }>
@@ -17,44 +19,33 @@ export type ResidentLabelBounds = Readonly<{ x: number; y: number; width: number
 export class ResidentView {
   readonly sprite: Phaser.GameObjects.Image
   private readonly name: Phaser.GameObjects.Text
-  private readonly bubble: Phaser.GameObjects.Text
-  private readonly bubbleBackground: Phaser.GameObjects.Graphics
+  private readonly bubble: BubbleView
   private readonly zzz: Phaser.GameObjects.Graphics
-  private readonly newTag: Phaser.GameObjects.Text
   private readonly sparkle: Phaser.GameObjects.Graphics
   private showing: Phaser.GameObjects.Graphics | null = null
   private contest: Phaser.GameObjects.Graphics | null = null
   private lock: Phaser.GameObjects.Graphics | null = null
-  private lockLabel: Phaser.GameObjects.Text | null = null
   private readonly named: boolean
   private nameAllowed = false
-  private newTagAllowed = false
   private standingTexture = 'resident-default'
 
   constructor(scene: Phaser.Scene, resident: ResidentState) {
     const plate = residentNamePlate(resident.handle)
+    const nameStyle = roomNameStyle(window.devicePixelRatio)
     this.named = plate !== null
     this.sprite = scene.add.image(resident.x, resident.y, 'resident-default')
-      .setScale(4).setDepth(100).setInteractive({ useHandCursor: true }).setData('residentId', resident.id)
+      .setScale(roomFigureStyle('resident').scale).setDepth(100).setInteractive({ useHandCursor: true }).setData('residentId', resident.id)
     this.name = scene.add.text(0, 0, plate ?? '', {
-      fontFamily: 'system-ui, sans-serif', fontSize: '12px', color: '#172c24', resolution: 2,
-      backgroundColor: '#e9dfb9', padding: { x: 4, y: 2 },
+      fontFamily: 'system-ui, sans-serif', fontSize: `${nameStyle.fontSize}px`, color: '#534b3b', resolution: nameStyle.resolution,
+      backgroundColor: '#eee3cc', padding: { x: nameStyle.paddingX, y: nameStyle.paddingY },
     }).setOrigin(0.5, 0).setDepth(101)
     this.name.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
-    this.newTag = scene.add.text(0, 0, 'new', {
-      fontFamily: 'monospace', fontSize: '12px', color: '#203c2b',
-      backgroundColor: '#ffe69a', padding: { x: 3, y: 2 },
-    }).setOrigin(0, 0).setDepth(102).setVisible(false)
     this.sparkle = scene.add.graphics().setDepth(102).setVisible(false)
     this.sparkle.fillStyle(0xffe69a, 1)
     for (const [x, y] of [[-25, -10], [21, -19], [18, 13]] as const) {
       this.sparkle.fillRect(x, y - 3, 3, 9).fillRect(x - 3, y, 9, 3)
     }
-    this.bubbleBackground = scene.add.graphics().setDepth(199).setVisible(false)
-    this.bubble = scene.add.text(0, 0, '', {
-      fontFamily: 'monospace', fontSize: '14px', color: '#21392e',
-      padding: { x: 10, y: 7 }, fixedWidth: 230, fixedHeight: 82,
-    }).setOrigin(0.5, 1).setDepth(200).setVisible(false)
+    this.bubble = new BubbleView(resident.id)
     this.zzz = scene.add.graphics().setDepth(102).setVisible(false)
     this.zzz.fillStyle(0xe9dfb9, 1)
     for (const [x, y] of [[0, 0], [6, -7], [12, -14]] as const) {
@@ -62,8 +53,7 @@ export class ResidentView {
     }
   }
 
-  update(resident: ResidentState, zoom: number, now: number, followed: boolean, asleep = false,
-    recordedTime = Number.NaN, places: readonly ReplayPlace[] = []): VisibleSpeech | null {
+  update(resident: ResidentState, now: number, asleep = false, places: readonly ReplayPlace[] = []): VisibleSpeech | null {
     const currentTexture = this.sprite.texture.key
     if (!currentTexture.endsWith('-asleep')) this.standingTexture = currentTexture
     const sleeping = asleep && !resident.walking && resident.bubble === null
@@ -73,25 +63,19 @@ export class ResidentView {
     const bob = residentBobOffset(resident.id, now, resident.walking || resident.ambientWalking === true, sleeping)
     this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
     const appearance = reappearanceAlpha(resident.relocatedAt, now)
-    for (const item of [this.sprite, this.name, this.bubble, this.bubbleBackground, this.newTag, this.zzz]) item.setAlpha(appearance)
-    this.nameAllowed = this.named && resident.visible && (zoom >= 0.45 || followed)
-    this.name.setPosition(resident.x, resident.y + (sleeping ? 19 : 22)).setVisible(this.nameAllowed)
-    this.newTag.setPosition(this.name.x + (this.named ? this.name.width / 2 + 3 : 0), this.name.y)
-    this.newTagAllowed = resident.visible && (zoom >= 0.45 || followed) && isNewResident(resident.joinedAt, recordedTime)
-    this.newTag.setVisible(this.newTagAllowed)
+    for (const item of [this.sprite, this.name, this.zzz]) item.setAlpha(appearance)
+    this.nameAllowed = this.named && resident.visible
+    this.name.setPosition(resident.x, resident.y + ROOM_RESIDENT_SIZE / 2 + 5).setVisible(this.nameAllowed)
     const alpha = sparkleAlpha(resident.sparkle, now)
     this.sparkle.setPosition(resident.x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
-    this.zzz.setPosition(resident.x + 13, resident.y - 13).setVisible(sleeping && resident.visible)
+    this.zzz.setPosition(resident.x + ROOM_RESIDENT_SIZE / 2 - 3, resident.y - ROOM_RESIDENT_SIZE / 2).setVisible(sleeping && resident.visible)
     const blocked = resident.visible ? resident.blockedAttempt : null
     if (blocked) {
       this.lock ??= this.sprite.scene.add.graphics().setDepth(204)
-      this.lockLabel ??= this.sprite.scene.add.text(0, 0, '', { fontFamily: 'monospace', fontSize: '11px', color: '#3a201f',
-        backgroundColor: '#f1c7b7', padding: { x: 3, y: 2 } }).setDepth(204).setOrigin(0.5, 1)
-      this.lock.clear().setPosition(resident.x - 5, resident.y - 54)
+      this.lock.clear().setPosition(resident.x - 5, resident.y - ROOM_RESIDENT_SIZE / 2 - 20)
       for (const cell of lockCells()) this.lock.fillStyle(cell.color).fillRect(cell.x, cell.y, cell.width, cell.height)
-      this.lockLabel.setText(`blocked ${blocked.attempt.action}`).setPosition(resident.x, resident.y - 58)
-    } else if (this.lock || this.lockLabel) {
-      this.lock?.destroy(); this.lockLabel?.destroy(); this.lock = null; this.lockLabel = null
+    } else if (this.lock) {
+      this.lock.destroy(); this.lock = null
     }
     const bubble = resident.bubble
     const moment = showingFor(bubble, resident.visible, places, resident.handle)
@@ -112,55 +96,34 @@ export class ResidentView {
     } else if (this.showing || this.contest) {
       this.showing?.destroy(); this.contest?.destroy(); this.showing = null; this.contest = null
     }
-    this.bubble.setVisible(resident.visible && bubble !== null)
-    this.bubbleBackground.setVisible(resident.visible && bubble !== null)
-    if (bubble && resident.visible) {
-      this.bubble.style.syncFont(this.bubble.canvas, this.bubble.context)
-      const frame = typedBubbleFrame(bubble, now, 210, 4, text => this.bubble.context.measureText(text).width)
-      const shape = bubbleShape(bubble.placeId, places)
-      const fit = bubbleFitScale(frame.text.split('\n'), 210, text => this.bubble.context.measureText(text).width)
-      const scale = Math.min(4, Math.max(1, 0.8 / zoom)) * fit; const x = resident.x; const y = resident.y - 25
-      const height = 82
-      this.bubble.setText(frame.text).setScale(scale).setPosition(x, y)
-      this.bubbleBackground.clear()
-      for (const cell of bubbleRects(shape, 230, height)) {
-        this.bubbleBackground.fillStyle(cell.color, cell.alpha).fillRect(cell.x - 115, cell.y - height, cell.width, cell.height)
-      }
-      this.bubbleBackground.setScale(scale).setPosition(x, y)
-      return Object.freeze({ residentId: resident.id, text: frame.revealed, shape,
-        showing: moment?.confetti ? 'confetti' : moment?.ballot ? 'ballot' : moment ? 'spotlight' : '' })
-    }
+    const shape = bubbleShape(bubble?.placeId ?? null, places)
+    const frame = this.bubble.update(resident.visible ? bubble : null, resident,
+      { width: this.sprite.scene.scale.width, height: this.sprite.scene.scale.height }, shape, now, appearance)
+    if (frame) return Object.freeze({ residentId: resident.id, text: frame.text, shape,
+      showing: moment?.confetti ? 'confetti' : moment?.ballot ? 'ballot' : moment ? 'spotlight' : '' })
+
     return null
   }
 
   labelBounds(): ResidentLabelBounds | null {
     if (!this.name.visible) return null
     const name = this.name.getBounds()
-    const tag = this.newTag.visible ? this.newTag.getBounds() : null
-    const left = Math.min(name.left, tag?.left ?? name.left)
-    const top = Math.min(name.top, tag?.top ?? name.top)
-    const right = Math.max(name.right, tag?.right ?? name.right)
-    const bottom = Math.max(name.bottom, tag?.bottom ?? name.bottom)
-    return Object.freeze({ x: left, y: top, width: right - left, height: bottom - top })
+    return Object.freeze({ x: name.x, y: name.y, width: name.width, height: name.height })
   }
 
   setNameVisible(visible: boolean): void {
     this.name.setVisible(this.nameAllowed && visible)
-    this.newTag.setVisible(this.newTagAllowed && visible)
   }
 
   destroy(): void {
     this.sprite.destroy()
     this.name.destroy()
     this.bubble.destroy()
-    this.bubbleBackground.destroy()
     this.zzz.destroy()
-    this.newTag.destroy()
     this.sparkle.destroy()
     this.showing?.destroy()
     this.contest?.destroy()
     this.lock?.destroy()
-    this.lockLabel?.destroy()
   }
 }
 
@@ -170,8 +133,10 @@ export function addDrawingTexture(scene: Phaser.Scene, key: string, drawing: Dra
   const paint = scene.make.graphics({ x: 0, y: 0 })
   for (const cell of cells) paint.fillStyle(cell.color, 1).fillRect(cell.x, cell.y, 1, 1)
   paint.generateTexture(key, 8, 8)
+  scene.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST)
   paint.clear()
   for (const cell of sleepingDrawingCells(drawing)) paint.fillStyle(cell.color, 1).fillRect(cell.x, cell.y, 1, 1)
   paint.generateTexture(`${key}-asleep`, 8, 8)
+  scene.textures.get(`${key}-asleep`).setFilter(Phaser.Textures.FilterMode.NEAREST)
   paint.destroy()
 }

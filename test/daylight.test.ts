@@ -8,22 +8,34 @@ import { nestedLayout, type Place, type Room } from '../src/ground/nested.ts'
 const atUtc = (hour: number, minute = 0): number => Date.UTC(2026, 8, 7, hour, minute)
 
 test('daylight follows the recorded UTC clock at each period boundary', () => {
-  assert.deepEqual(daylightAt(atUtc(0)), { color: 0x163b92, alpha: 0.45 })
-  assert.deepEqual(daylightAt(atUtc(5)), { color: 0x163b92, alpha: 0.45 })
-  assert.deepEqual(daylightAt(atUtc(6)), { color: 0xf0ad78, alpha: 0.12 })
+  assert.deepEqual(daylightAt(atUtc(0)), { color: 0x62504b, alpha: 0.14 })
+  assert.deepEqual(daylightAt(atUtc(5)), { color: 0x62504b, alpha: 0.14 })
+  assert.deepEqual(daylightAt(atUtc(6)), { color: 0xf0ad78, alpha: 0.06 })
   assert.deepEqual(daylightAt(atUtc(10)), { color: 0xffffff, alpha: 0 })
   assert.deepEqual(daylightAt(atUtc(12)), { color: 0xffffff, alpha: 0 })
   assert.deepEqual(daylightAt(atUtc(17)), { color: 0xffffff, alpha: 0 })
-  assert.deepEqual(daylightAt(atUtc(18)), { color: 0xf0a04a, alpha: 0.18 })
-  assert.deepEqual(daylightAt(atUtc(20)), { color: 0x163b92, alpha: 0.45 })
+  assert.deepEqual(daylightAt(atUtc(18)), { color: 0xf0a04a, alpha: 0.08 })
+  assert.deepEqual(daylightAt(atUtc(20)), { color: 0x62504b, alpha: 0.14 })
   assert.deepEqual(daylightAt(Date.UTC(2026, 8, 8, 0)), daylightAt(atUtc(0)))
 })
 
-test('daylight changes smoothly within a period and never exceeds the night limit', () => {
+test('daylight follows a soft curve within a period and never exceeds the warm night limit', () => {
   const morning = daylightAt(atUtc(8))
-  assert.ok(morning.alpha > 0 && morning.alpha < 0.12)
+  assert.ok(morning.alpha > 0 && morning.alpha < 0.06)
   assert.notEqual(morning.color, daylightAt(atUtc(6)).color)
-  for (let hour = 0; hour < 24; hour += 1) assert.ok(daylightAt(atUtc(hour)).alpha <= 0.45)
+  assert.ok(daylightAt(atUtc(6, 30)).alpha > daylightAt(atUtc(9, 30)).alpha,
+    'the eased dawn lingers near its warm endpoint and settles softly into day')
+  for (let minute = 0; minute < 24 * 60; minute += 1) {
+    const tint = daylightAt(atUtc(Math.floor(minute / 60), minute % 60))
+    assert.ok(tint.alpha <= 0.14)
+  }
+  for (const hour of [0, 1, 4, 5, 20, 21, 23]) {
+    const { color } = daylightAt(atUtc(hour))
+    assert.ok(((color >> 16) & 0xff) >= (color & 0xff), 'night tint stays warm rather than blue-dominant')
+  }
+  const beforeNight = daylightAt(atUtc(19, 59))
+  const night = daylightAt(atUtc(20))
+  assert.ok(Math.abs(beforeNight.alpha - night.alpha) < 0.001, 'night begins without an alpha jump')
 })
 
 test('invalid recorded times are neutral and leave windows unlit', () => {

@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { HEART_PIXELS } from '../giving.ts'
 import type { stepHandovers, HandoverState, HandoverStep } from '../handovers.ts'
 import type { Simulation } from '../replay/simulation.ts'
+import { roomFigureStyle } from '../room-appearance.ts'
 
 type Motion = ReturnType<typeof stepHandovers>['motions'][number]
 
@@ -32,7 +33,7 @@ export class HandoverView {
   private readonly heart: Phaser.GameObjects.Graphics
 
   constructor(private readonly scene: Phaser.Scene) {
-    this.sprite = scene.add.image(0, 0, 'thing-default').setScale(3).setDepth(104)
+    this.sprite = scene.add.image(0, 0, 'thing-default').setScale(roomFigureStyle('thing').scale).setDepth(104)
     this.heart = scene.add.graphics().setDepth(105)
   }
 

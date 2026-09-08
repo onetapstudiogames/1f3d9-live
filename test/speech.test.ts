@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { bubbleDuration, bubbleFitScale, bubbleFor, bubbleRects, bubbleShape, splitGraphemes, typingInterval, typedBubbleFrame, wrapLines } from '../src/speech.ts'
+import { bubbleDuration, bubbleFitScale, bubbleFor, bubbleRects, bubbleShape, growingBubbleFrame, splitGraphemes, typingInterval, typedBubbleFrame, wrapLines } from '../src/speech.ts'
 import type { ReplayEvent, ReplayPlace } from '../src/city/types.ts'
 
 const note = (line: string, placeId = 3, cut = false): ReplayEvent => ({ actor: 'ada', at: '2026-01-01T00:00:00Z',
@@ -93,4 +93,55 @@ test('one unbreakable token stays whole and is fitted instead of split', () => {
   assert.deepEqual(lines, [token])
   assert.equal(bubbleFitScale(lines, 20, text => text.length), 20 / token.length)
   assert.equal(bubbleFitScale(['ordinary words'], 20, text => text.length), 1)
+})
+
+test('a growing bubble keeps every revealed line and grows by one fixed line height', () => {
+  const bubble = bubbleFor(note('one two three four'), 0, 120)!
+  const measure = (text: string): number => splitGraphemes(text).length * 8
+  const early = growingBubbleFrame({ ...bubble, charInterval: 1 }, 6, 64, measure)
+  const later = growingBubbleFrame({ ...bubble, charInterval: 1 }, 10, 64, measure)
+  assert.equal(early.fontSize, 14)
+  assert.equal(early.lineHeight, 20)
+  assert.equal(early.width, 64)
+  assert.equal(early.text, early.revealed)
+  assert.ok(later.text.startsWith(early.text))
+  assert.ok(later.lines.length > early.lines.length)
+  assert.equal(later.height - early.height, 20)
+})
+
+test('a growing bubble breaks oversized tokens by grapheme without losing Unicode', () => {
+  const text = `ab👩🏽‍💻cdefghijklmnop`
+  const bubble = { ...bubbleFor(note(text), 0)!, charInterval: 1 }
+  const frame = growingBubbleFrame(bubble, 10_000, 48, value => splitGraphemes(value).length * 8)
+  assert.equal(frame.complete, true)
+  assert.equal(frame.lines.join(''), text)
+  assert.ok(frame.lines.length > 1)
+  assert.ok(frame.lines.every(line => splitGraphemes(line).length <= 3))
+})
+
+test('a growing bubble preserves explicit newlines and whitespace', () => {
+  const text = 'first line\n\n  indented  words\nlast '
+  const bubble = { ...bubbleFor(note(text), 0)!, charInterval: 1 }
+  const frame = growingBubbleFrame(bubble, 10_000, 320, value => splitGraphemes(value).length * 8)
+  assert.equal(frame.text, text)
+  assert.deepEqual(frame.lines, ['first line', '', '  indented  words', 'last '])
+  assert.equal(frame.width, 320)
+  assert.equal(frame.height, 100)
+})
+
+test('full note length extends the existing typing and reading duration', () => {
+  const short = bubbleFor(note('brief'), 0)!
+  const full = bubbleFor(note(`brief\n${'x'.repeat(500)}`), 0)!
+  assert.ok(full.expiresAt > short.expiresAt)
+  assert.ok(full.expiresAt >= splitGraphemes(full.text).length * full.charInterval + 2_500)
+})
+
+test('typing a long word never reduces the growing card height', () => {
+  const text = `short ${'界'.repeat(80)} after\nlast`
+  const original = bubbleFor(note(text), 0)!
+  const bubble = { ...original, charInterval: 1 }
+  const heights = splitGraphemes(text).map((_, index) =>
+    growingBubbleFrame(bubble, index, 96, value => splitGraphemes(value).length * 8).height)
+  assert.ok(heights.every((height, index) => index === 0 || height >= heights[index - 1]!))
+  assert.equal(growingBubbleFrame(bubble, 10_000, 96, value => splitGraphemes(value).length * 8).text, text)
 })
