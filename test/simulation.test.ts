@@ -5,7 +5,7 @@ import test from 'node:test'
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
 import { roomContains } from '../src/ground/room-shape.ts'
-import { createResidents, retimeResidentWalks, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
+import { blocksLiveDelivery, createResidents, retimeResidentWalks, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
 import type { ThingReservations } from '../src/things.ts'
 import { followActivity, reappearanceAlpha } from '../src/viewer.ts'
 
@@ -242,6 +242,21 @@ test('a full destination reports no free spot rather than no path', () => {
   assert.deepEqual(next.issues, ['Some rooms had no free spot left, so those figures were not moved into them.'])
 })
 
+test('a moving resident cannot take space covered by another resident 56-pixel footprint', () => {
+  const tightDestination = { ...layout, rooms: { ...rooms,
+    3: { ...rooms[3], standing: { x: 0, y: 0, width: 160, height: 160 } } } } as unknown as NestedLayout
+  const start = { 'resident:7': { origin_event_id: 1, place_id: 2 },
+    'resident:8': { origin_event_id: 1, place_id: 3 } }
+  const initial = createResidents(replay(start), census, tightDestination)
+  const residentEight = { ...initial.residents[8]!, x: 75, y: 75 }
+  const state = { ...initial, residents: { ...initial.residents, 8: residentEight } }
+  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 })
+  const next = stepResidents(state, [move], 0, 0, tightDestination)
+
+  assert.equal(next.residents[7]!.walking, false)
+  assert.deepEqual(next.issues, ['Some rooms had no free spot left, so those figures were not moved into them.'])
+})
+
 test('same-room applied move establishes an absent resident without walking', () => {
   const establishing = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 2 })
   const absent = { ...replay({}), timeline: [establishing] }
@@ -340,6 +355,65 @@ test('expired bubble releases the next queued note and state remains immutable',
   assert.equal(second.residents[7]!.bubble?.text, 'one')
   assert.equal(third.residents[7]!.bubble?.text, 'two')
   assert.equal(state.residents[7]!.bubble, null)
+})
+
+test('a lone held speech card does not block a later resident change', () => {
+  let state = createResidents(replay(), census, layout)
+  const longCard = event('note', { place_id: 2 }, 'A long card remains visible while the live feed advances.')
+  state = stepResidents(state, [longCard], 0, 1_000, layout)
+  assert.equal(state.residents[7]!.queue.length, 0)
+  assert.equal(state.pending, true)
+  assert.equal(blocksLiveDelivery(state), false)
+
+  const laterChange = { ...event('note', { place_id: 2 }, 'later'), actor: 'still', change_id: '3', event_id: 3 }
+  let queued: readonly ReplayEvent[] = [laterChange]
+  const delivered: string[] = []
+  if (!blocksLiveDelivery(state)) {
+    const incoming = queued
+    queued = []
+    delivered.push(...incoming.map(row => row.change_id))
+    state = stepResidents(state, incoming, 0, 2_000, layout)
+  }
+  if (!blocksLiveDelivery(state) && queued.length) delivered.push(...queued.map(row => row.change_id))
+
+  assert.equal(state.residents[7]!.bubble?.text, longCard.line)
+  assert.equal(state.residents[8]!.bubble?.text, 'later')
+  assert.deepEqual(delivered, ['3'])
+})
+
+test('a queued earlier note holds the next live batch until it appears in recorded order', () => {
+  const first = event('note', { place_id: 2 }, 'first card')
+  const earlier = { ...event('note', { place_id: 2 }, 'earlier queued note'), change_id: '2', event_id: 2 }
+  const later = { ...event('note', { place_id: 2 }, 'later other resident'), actor: 'still', change_id: '3', event_id: 3 }
+  const holding = stepResidents(createResidents(replay(), census, layout), [first, earlier], 0, 1_000, layout)
+  assert.equal(holding.residents[7]!.bubble?.text, first.line)
+  assert.equal(holding.residents[7]!.queue[0]?.event.change_id, '2')
+  assert.equal(holding.residents[8]!.bubble, null)
+  assert.equal(blocksLiveDelivery(holding), true)
+
+  const released = stepResidents(holding, [], 0, holding.residents[7]!.bubble!.expiresAt, layout)
+  assert.equal(released.residents[7]!.bubble?.text, earlier.line)
+  assert.equal(released.residents[7]!.queue.length, 0)
+  assert.equal(blocksLiveDelivery(released), false)
+  const delivered = stepResidents(released, [later], 0, released.residents[7]!.bubble!.startedAt + 1, layout)
+  assert.equal(delivered.residents[7]!.bubble?.text, earlier.line)
+  assert.equal(delivered.residents[8]!.bubble?.text, later.line)
+  assert.deepEqual([...released.startedEvents!, ...delivered.startedEvents!].map(row => row.change_id), ['2', '3'])
+  assert.equal(holding.residents[7]!.queue.length, 1)
+})
+
+test('active walks and effects still block live delivery', () => {
+  let state = createResidents(replay(), census, layout)
+  state = stepResidents(state, [
+    event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 }),
+    { ...event('note', { place_id: 1 }, 'after walking'), change_id: '2', event_id: 2 },
+  ], 0, 1_000, layout)
+  assert.equal(blocksLiveDelivery(state), true)
+
+  const inventing = stepResidents(createResidents(replay(), census, layout), [
+    event('kind_invented', { kind_id: 10, name: 'lamp moss' }),
+  ], 0, 1_000, layout)
+  assert.equal(blocksLiveDelivery(inventing), true)
 })
 
 test('real replay finishes with every mapped resident in its last valid recorded room', () => {

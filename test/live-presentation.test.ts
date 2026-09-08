@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { animationDelta, eventsAfterMarker, roomPictureSettled, roomStatus } from '../src/live-presentation.ts'
+import { animationDelta, eventsAfterMarker, roomPictureSettled, roomPictureAccess, roomStatus } from '../src/live-presentation.ts'
+import { nestedLayout } from '../src/ground/nested.ts'
 
 const replayEvent = (changeId: string, at: string): ReplayEvent => ({
   actor: 'author', at, change_id: changeId, event_id: Number(changeId),
@@ -29,14 +30,46 @@ test('known change IDs never apply twice, including duplicate pages and changes 
 })
 
 test('capture readiness requires the first poll, the room outline merge, and completed picture reads', () => {
-  const complete = { ready: true, firstPollMerged: true, needsOutline: true, outlineMerged: true,
+  const complete = { ready: true, firstPollMerged: true, needsOutline: true, outline: 'merged' as const,
     pendingReads: 0, pendingOutline: false }
   assert.equal(roomPictureSettled(complete), true)
-  for (const change of [{ ready: false }, { firstPollMerged: false }, { outlineMerged: false },
+  for (const change of [{ ready: false }, { firstPollMerged: false }, { outline: 'pending' as const },
     { pendingReads: 1 }, { pendingOutline: true }]) {
     assert.equal(roomPictureSettled({ ...complete, ...change }), false)
   }
-  assert.equal(roomPictureSettled({ ...complete, needsOutline: false, outlineMerged: false }), true)
+  assert.equal(roomPictureSettled({ ...complete, needsOutline: false, outline: 'pending' }), true)
+})
+
+test('null, rejected, and hidden outline results settle the retained picture after reads finish', () => {
+  for (const reason of ['null response', 'read rejection', 'contents became hidden']) {
+    const resolved = { ready: true, firstPollMerged: true, needsOutline: true, outline: 'unmergeable' as const,
+      pendingReads: 0, pendingOutline: false }
+    assert.equal(roomPictureSettled(resolved), true, reason)
+    assert.equal(roomPictureSettled({ ...resolved, pendingReads: 1 }), false, reason)
+  }
+})
+
+test('a quiet ancestor gives a rendered descendant the same settlement rule as a quiet room', () => {
+  const places = [1, 2].map(id => ({ id, name: `room ${id}`, parent_id: id === 1 ? null : 1,
+    quiet: id === 1, owner: null, owner_id: null, has_drawing: false }))
+  const layout = nestedLayout(places)
+  for (const roomId of [1, 2]) {
+    const { quiet, needsOutline } = roomPictureAccess(layout, roomId, new Set())
+    assert.equal(quiet, true)
+    assert.equal(needsOutline, false)
+    assert.equal(roomPictureSettled({ ready: quiet, firstPollMerged: true, needsOutline,
+      outline: 'pending', pendingReads: 0, pendingOutline: false }), true)
+  }
+})
+
+test('contents hidden before the outline read do not wait for a read that cannot start', () => {
+  const layout = nestedLayout([{ id: 1, name: 'room', parent_id: null, quiet: false }])
+  const hidden = roomPictureAccess(layout, 1, new Set([1]))
+  assert.deepEqual(hidden, { quiet: false, needsOutline: false })
+  assert.equal(roomPictureSettled({ ...hidden, ready: true, firstPollMerged: true,
+    outline: 'pending', pendingReads: 0, pendingOutline: false }), true)
+  assert.deepEqual(roomPictureAccess(layout, 1, new Set()), { quiet: false, needsOutline: true })
+  assert.deepEqual(roomPictureAccess(layout, 2, new Set()), { quiet: false, needsOutline: false })
 })
 
 test('clamps valid animation deltas while readiness, pause, and jump are the only gates', () => {

@@ -1,6 +1,8 @@
 import Phaser from 'phaser'
-import { bulbCells, type InventionState } from '../inventions.ts'
+import type { InventionState } from '../inventions.ts'
 import type { Simulation } from '../replay/simulation.ts'
+import { roomTextResolution } from '../room-appearance.ts'
+import { RESIDENT_BULB_RECTS, residentBulbAnchor, residentOverlayDistance } from '../resident-overlays.ts'
 
 type InventionView = Readonly<{ bulb: Phaser.GameObjects.Graphics; name: Phaser.GameObjects.Text }>
 
@@ -20,13 +22,20 @@ export class InventionLayer {
       let view = this.views.get(moment.changeId)
       if (!view) {
         const bulb = this.scene.add.graphics().setDepth(205)
-        for (const cell of bulbCells()) bulb.fillStyle(cell.color, 1).fillRect(cell.x * 2, cell.y * 2, cell.width * 2, cell.height * 2)
+        for (const cell of RESIDENT_BULB_RECTS) bulb.fillStyle(cell.color, cell.alpha)
+          .fillRect(cell.x, cell.y, cell.width, cell.height)
         const name = this.scene.add.text(0, 0, moment.name, { fontFamily: 'system-ui, sans-serif', fontSize: '12px',
-          color: '#382b18', backgroundColor: '#fff1aa', padding: { x: 4, y: 2 } }).setOrigin(0, 0.5).setDepth(205)
+          color: '#382b18', backgroundColor: '#fff1aa', padding: { x: 4, y: 2 },
+          resolution: roomTextResolution(window.devicePixelRatio) }).setOrigin(0, 0.5).setDepth(205)
+        name.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
         view = Object.freeze({ bulb, name }); this.views.set(moment.changeId, view)
       }
-      view.bulb.setPosition((resident?.x ?? 0) - 9, (resident?.y ?? 0) - 58).setVisible(visible)
-      view.name.setPosition((resident?.x ?? 0) + 13, (resident?.y ?? 0) - 47)
+      const resolution = roomTextResolution(window.devicePixelRatio)
+      if (view.name.style.resolution !== resolution) view.name.setResolution(resolution)
+      const bulbAnchor = residentBulbAnchor(resident ?? { x: 0, y: 0 })
+      view.bulb.setPosition(bulbAnchor.x, bulbAnchor.y).setVisible(visible)
+      view.name.setPosition((resident?.x ?? 0) + residentOverlayDistance(13),
+        (resident?.y ?? 0) + residentOverlayDistance(-47))
         .setScale(Math.min(3, Math.max(1, 0.7 / zoom))).setVisible(visible)
     }
   }

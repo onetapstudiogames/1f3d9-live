@@ -3,7 +3,7 @@ import test from 'node:test'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { singleRoomLayout } from '../src/room-view.ts'
 import { presentRoom, roomFigurePriority } from '../src/room-presentation.ts'
-import { ROOM_FIGURE_PITCH } from '../src/room-crowding.ts'
+import { ROOM_FIGURE_PITCH, ROOM_FIGURE_SIZE } from '../src/room-crowding.ts'
 
 const places = [1, 2, 3].map(id => ({ id, parent_id: id === 1 ? null : 1, name: `room ${id}`,
   quiet: id === 3, owner: null, owner_id: null, has_drawing: false }))
@@ -44,7 +44,7 @@ test('speakers outrank idle followed residents and hidden speakers are reported'
   assert.ok(roomFigurePriority(speaker, 1) > roomFigurePriority(idleFollowed, 1))
   assert.ok(roomFigurePriority({ ...speaker, id: 1 }, 1) > roomFigurePriority(speaker, null))
 
-  const small = singleRoomLayout(source, 150, 230)
+  const small = singleRoomLayout(source, 112 + ROOM_FIGURE_SIZE, 186 + ROOM_FIGURE_SIZE)
   const one = presentRoom({ 1: idleFollowed, 2: speaker }, {}, world, small, new Set(), {}, 1)
   assert.equal(one.residents[2]!.visible, true)
   assert.equal(one.residents[1]!.visible, false)
@@ -70,7 +70,7 @@ test('quiet, unavailable and hidden rooms cannot expose projected occupants or a
 })
 
 test('following wins scarce standing space and agreement positions use the same projection', () => {
-  const small = singleRoomLayout(source, 150, 230)
+  const small = singleRoomLayout(source, 112 + ROOM_FIGURE_SIZE, 186 + ROOM_FIGURE_SIZE)
   const residents = { 1: actor(1), 2: actor(2) }
   const frame = presentRoom(residents, {}, world, small, new Set(), {}, 2)
   assert.equal(frame.residents[2]!.visible, true)

@@ -1,5 +1,7 @@
-export const ROOM_FIGURE_SIZE = 32
-export const ROOM_FIGURE_PITCH = 36
+import { ROOM_RESIDENT_SIZE } from './room-appearance.ts'
+
+export const ROOM_FIGURE_SIZE = ROOM_RESIDENT_SIZE
+export const ROOM_FIGURE_PITCH = ROOM_FIGURE_SIZE + 4
 
 export type RoomCrowdingRect = Readonly<{ x: number; y: number; width: number; height: number }>
 export type RoomCrowdingPoint = Readonly<{ x: number; y: number }>
@@ -19,6 +21,7 @@ export type RoomCrowdingPlacement = Readonly<{
   offsetY: number
 }>
 export type RoomLabelBox = Readonly<RoomCrowdingRect & { id: string; priority: number }>
+export type RoomFigureBox = Readonly<RoomCrowdingRect & { id: string }>
 export type RoomCrowdingMetrics = Readonly<{ gridBuilds: number; candidateChecks: number }>
 export type RoomCrowdingState = Readonly<{
   bandKey: string
@@ -137,21 +140,16 @@ export function allocateRoomCrowdingFrame(entries: readonly RoomCrowdingEntry[],
     metrics: Object.freeze({ gridBuilds: reusedGrid ? 0 : 1, candidateChecks }) })
 }
 
-/** Compatibility helper for callers that only retain placements. */
-export function allocateRoomCrowding(entries: readonly RoomCrowdingEntry[], band: RoomCrowdingRect,
-  previous: Readonly<Record<string, RoomCrowdingPlacement>> = {}): Readonly<Record<string, RoomCrowdingPlacement>> {
-  return allocateRoomCrowdingFrame(entries, band, previous).placements
-}
-
 /** Returns the deterministic subset of name plates that can be drawn without overlap. */
-export function visibleRoomLabels(boxes: readonly RoomLabelBox[]): ReadonlySet<string> {
+export function visibleRoomLabels(boxes: readonly RoomLabelBox[], figures: readonly RoomFigureBox[] = []): ReadonlySet<string> {
   const accepted: RoomLabelBox[] = []
   const visible = new Set<string>()
   const ordered = boxes.filter(box => box && typeof box.id === 'string' && box.id.length > 0 &&
       Number.isFinite(box.priority) && finiteRect(box))
     .sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id))
   for (const box of ordered) {
-    if (visible.has(box.id) || accepted.some(other => overlaps(box, other))) continue
+    if (visible.has(box.id) || accepted.some(other => overlaps(box, other)) ||
+        figures.some(figure => figure.id !== box.id && finiteRect(figure) && overlaps(box, figure))) continue
     visible.add(box.id)
     accepted.push(box)
   }

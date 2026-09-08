@@ -4,11 +4,27 @@ export async function waitForStablePicture(sample, options = {}) {
   const intervalMs = options.intervalMs ?? 100
   const now = options.now ?? Date.now
   const wait = options.wait ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)))
+  const schedule = options.schedule ?? ((callback, milliseconds) => setTimeout(callback, milliseconds))
+  const cancel = options.cancel ?? (timer => clearTimeout(timer))
   const startedAt = now()
+  const timeoutError = () => new Error(`The live picture did not settle within ${timeoutMs}ms.`)
+  const boundedSample = async remainingMs => {
+    let timer
+    const deadline = new Promise((_, reject) => {
+      timer = schedule(() => reject(timeoutError()), remainingMs)
+    })
+    try {
+      return await Promise.race([Promise.resolve().then(sample), deadline])
+    } finally {
+      cancel(timer)
+    }
+  }
   let stableSince = null
   let signature = ''
   while (now() - startedAt <= timeoutMs) {
-    const state = await sample()
+    const remainingMs = timeoutMs - (now() - startedAt)
+    if (remainingMs <= 0) throw timeoutError()
+    const state = await boundedSample(remainingMs)
     const nextSignature = JSON.stringify(state.picture)
     if (state.settled && nextSignature === signature) {
       stableSince ??= now()
@@ -19,5 +35,5 @@ export async function waitForStablePicture(sample, options = {}) {
     }
     await wait(intervalMs)
   }
-  throw new Error(`The live picture did not settle within ${timeoutMs}ms.`)
+  throw timeoutError()
 }

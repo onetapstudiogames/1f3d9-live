@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { curtainCells, placeFloorArt, placesWithDrawings, roomsToDraw } from '../src/room-art.ts'
+import { curtainCells, placeFloorArt, placesWithDrawings, roomsToDraw, undrawnFloor } from '../src/room-art.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import type { ReplayFile } from '../src/city/types.ts'
 
@@ -33,8 +33,15 @@ test('place art repeats as a crisp 32 pixel tile across each inner floor', async
     assert.equal(floor.height, room.height - 8)
     assert.equal(floor.tileOffsetX, 4)
     assert.equal(floor.tileOffsetY, 4)
-    assert.equal(floor.shadeAlpha, 0.42)
+    assert.equal(floor.shadeAlpha, 0.10)
   }
+})
+
+test('an undrawn room uses one warm plain floor without an invented grid', () => {
+  const floor = undrawnFloor()
+  assert.deepEqual(floor, { color: 0xb89b72 })
+  assert.equal(Object.isFrozen(floor), true)
+  assert.equal(undrawnFloor(), floor, 'the floor choice is stable for every room depth')
 })
 
 test('quiet curtains cover the inner floor in bounded, repeatable pixel cells', () => {

@@ -12,7 +12,8 @@ const census = ['page1', 'page2'].flatMap(page =>
 test('saved day duration stays pinned for fast-forward and the original benchmark speeds', () => {
   const measured = [60, 120, 300].map(speed => measureReplay(replay, census, speed))
   assert.deepEqual(measured.map(row => row.walkCount), [615, 615, 615])
-  assert.deepEqual(measured.map(row => Number((row.dayDurationMs / 60_000).toFixed(2))), [110.97, 56.1, 25.29])
+  // The 15-second speech ceiling shortens slow replay holds without removing any walk.
+  assert.deepEqual(measured.map(row => Number((row.dayDurationMs / 60_000).toFixed(2))), [107.96, 56.1, 25.29])
   assert.ok(measured[1]!.dayDurationMs < 60 * 60_000)
   assert.ok(measured[2]!.dayDurationMs < measured[1]!.dayDurationMs / 2)
 })

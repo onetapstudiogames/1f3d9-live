@@ -6,14 +6,14 @@ export type WindowRectangle = Readonly<{ x: number; y: number; width: number; he
 
 const NEUTRAL: Daylight = Object.freeze({ color: 0xffffff, alpha: 0 })
 const DAY_STOPS = Object.freeze([
-  Object.freeze({ hour: 0, color: 0x163b92, alpha: 0.45 }),
-  Object.freeze({ hour: 5, color: 0x163b92, alpha: 0.45 }),
-  Object.freeze({ hour: 6, color: 0xf0ad78, alpha: 0.12 }),
+  Object.freeze({ hour: 0, color: 0x62504b, alpha: 0.14 }),
+  Object.freeze({ hour: 5, color: 0x62504b, alpha: 0.14 }),
+  Object.freeze({ hour: 6, color: 0xf0ad78, alpha: 0.06 }),
   Object.freeze({ hour: 10, color: 0xffffff, alpha: 0 }),
   Object.freeze({ hour: 17, color: 0xffffff, alpha: 0 }),
-  Object.freeze({ hour: 18, color: 0xf0a04a, alpha: 0.18 }),
-  Object.freeze({ hour: 20, color: 0x163b92, alpha: 0.45 }),
-  Object.freeze({ hour: 24, color: 0x163b92, alpha: 0.45 }),
+  Object.freeze({ hour: 18, color: 0xf0a04a, alpha: 0.08 }),
+  Object.freeze({ hour: 20, color: 0x62504b, alpha: 0.14 }),
+  Object.freeze({ hour: 24, color: 0x62504b, alpha: 0.14 }),
 ])
 
 const utcHour = (recordedTime: number): number | undefined => {
@@ -24,6 +24,7 @@ const utcHour = (recordedTime: number): number | undefined => {
 }
 
 const mixChannel = (from: number, to: number, amount: number): number => Math.round(from + (to - from) * amount)
+const smoothStep = (amount: number): number => amount * amount * (3 - 2 * amount)
 
 const mixColor = (from: number, to: number, amount: number): number => {
   const red = mixChannel((from >> 16) & 0xff, (to >> 16) & 0xff, amount)
@@ -38,7 +39,7 @@ export function daylightAt(recordedTime: number): Daylight {
   const endIndex = DAY_STOPS.findIndex(stop => stop.hour >= hour)
   const end = DAY_STOPS[Math.max(1, endIndex)]!
   const start = DAY_STOPS[Math.max(0, endIndex - 1)]!
-  const amount = (hour - start.hour) / (end.hour - start.hour)
+  const amount = smoothStep((hour - start.hour) / (end.hour - start.hour))
   return Object.freeze({
     color: mixColor(start.color, end.color, amount),
     alpha: start.alpha + (end.alpha - start.alpha) * amount,

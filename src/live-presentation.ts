@@ -1,4 +1,6 @@
 import type { ReplayEvent } from './city/types.ts'
+import type { NestedLayout } from './ground/nested.ts'
+import { roomIsPublic } from './room-view.ts'
 
 // Census pages have no per-resident change marker. Only the replay/delivered change ID
 // proves a row is already covered; elapsed browser time can never prove that.
@@ -12,9 +14,18 @@ export function eventsAfterMarker(events: readonly ReplayEvent[], deliveredMarke
   }).sort((left, right) => Number(left.change_id) - Number(right.change_id)))
 }
 
+export type OutlineResolution = 'pending' | 'merged' | 'unmergeable'
+
+export function roomPictureAccess(layout: NestedLayout | undefined, roomId: number | null,
+  hiddenContents: ReadonlySet<number>): Readonly<{ quiet: boolean; needsOutline: boolean }> {
+  const exists = roomId !== null && Boolean(layout?.rooms[roomId])
+  const publicRoom = exists && roomIsPublic(layout!, roomId!)
+  return Object.freeze({ quiet: exists && !publicRoom, needsOutline: publicRoom && !hiddenContents.has(roomId!) })
+}
+
 export function roomPictureSettled(state: { ready: boolean; firstPollMerged: boolean; needsOutline: boolean;
-  outlineMerged: boolean; pendingReads: number; pendingOutline: boolean }): boolean {
-  return state.ready && state.firstPollMerged && (!state.needsOutline || state.outlineMerged)
+  outline: OutlineResolution; pendingReads: number; pendingOutline: boolean }): boolean {
+  return state.ready && state.firstPollMerged && (!state.needsOutline || state.outline !== 'pending')
     && state.pendingReads === 0 && !state.pendingOutline
 }
 

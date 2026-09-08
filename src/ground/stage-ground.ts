@@ -45,20 +45,28 @@ export function stageFindFreeSpots(
   const occupiedByBucket = new Map<number, Map<number, StageStandingSpot[]>>()
   const bucketCoordinate = (value: number): number => Math.floor(value / bucketSize)
   const addOccupied = (spot: StageStandingSpot): void => {
-    const x = bucketCoordinate(spot.x)
-    const y = bucketCoordinate(spot.y)
-    const bucketColumn = occupiedByBucket.get(x) || new Map<number, StageStandingSpot[]>()
-    bucketColumn.set(y, [...(bucketColumn.get(y) || []), spot])
-    occupiedByBucket.set(x, bucketColumn)
+    const minimumX = bucketCoordinate(spot.x - clearance)
+    const maximumX = bucketCoordinate(spot.x + spot.width + clearance)
+    const minimumY = bucketCoordinate(spot.y - clearance)
+    const maximumY = bucketCoordinate(spot.y + spot.height + clearance)
+    for (let x = minimumX; x <= maximumX; x += 1) {
+      const bucketColumn = occupiedByBucket.get(x) || new Map<number, StageStandingSpot[]>()
+      for (let y = minimumY; y <= maximumY; y += 1) {
+        bucketColumn.set(y, [...(bucketColumn.get(y) || []), spot])
+      }
+      occupiedByBucket.set(x, bucketColumn)
+    }
   }
   for (const obstacle of fixedObstacles) addOccupied(obstacle)
   const collides = (area: StageGroundRect): boolean => {
-    const centerX = bucketCoordinate(area.x)
-    const centerY = bucketCoordinate(area.y)
-    for (let x = centerX - 1; x <= centerX + 1; x += 1) {
+    const minimumX = bucketCoordinate(area.x)
+    const maximumX = bucketCoordinate(area.x + area.width)
+    const minimumY = bucketCoordinate(area.y)
+    const maximumY = bucketCoordinate(area.y + area.height)
+    for (let x = minimumX; x <= maximumX; x += 1) {
       const bucketColumn = occupiedByBucket.get(x)
       if (!bucketColumn) continue
-      for (let y = centerY - 1; y <= centerY + 1; y += 1) {
+      for (let y = minimumY; y <= maximumY; y += 1) {
         if ((bucketColumn.get(y) || []).some(occupied => overlaps(area, occupied))) return true
       }
     }

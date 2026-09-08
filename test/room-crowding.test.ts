@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
-  allocateRoomCrowding,
   allocateRoomCrowdingFrame,
   ROOM_FIGURE_PITCH,
   ROOM_FIGURE_SIZE,
@@ -25,11 +24,13 @@ function overlapWithBob(left: RoomCrowdingPlacement, right: RoomCrowdingPlacemen
 }
 
 test('allocates colliding projected residents and things deterministically without sprite overlap', () => {
+  assert.equal(ROOM_FIGURE_SIZE, 56)
+  assert.equal(ROOM_FIGURE_PITCH, 60)
   const entries = [entry('resident:2', 120, 120), entry('thing:8', 120, 120, 1, 'thing'),
     entry('resident:1', 121, 120, 2)]
   const band = { x: 40, y: 70, width: 1_200, height: 300 }
-  const first = allocateRoomCrowding(entries, band)
-  const second = allocateRoomCrowding([...entries].reverse(), band)
+  const first = allocateRoomCrowdingFrame(entries, band).placements
+  const second = allocateRoomCrowdingFrame([...entries].reverse(), band).placements
 
   assert.deepEqual(first, second)
   const visible = Object.values(first).filter(value => value.visible)
@@ -44,8 +45,8 @@ test('allocates colliding projected residents and things deterministically witho
 
 test('keeps a stable seat offset while a projected resident moves slightly', () => {
   const band = { x: 0, y: 0, width: 160, height: 96 }
-  const first = allocateRoomCrowding([entry('a', 48, 48), entry('b', 48, 48)], band)
-  const moved = allocateRoomCrowding([entry('a', 51, 50), entry('b', 51, 50)], band, first)
+  const first = allocateRoomCrowdingFrame([entry('a', 48, 48), entry('b', 48, 48)], band).placements
+  const moved = allocateRoomCrowdingFrame([entry('a', 51, 50), entry('b', 51, 50)], band, first).placements
 
   for (const id of ['a', 'b']) {
     assert.equal(moved[id]!.offsetX, first[id]!.offsetX)
@@ -56,10 +57,10 @@ test('keeps a stable seat offset while a projected resident moves slightly', () 
 })
 
 test('returns to the preferred projection as soon as the blocking crowd leaves', () => {
-  const band = { x: 0, y: 0, width: 160, height: 96 }
-  const crowded = allocateRoomCrowding([entry('blocker', 48, 48, 2), entry('moved', 48, 48, 1)], band)
+  const band = { x: 0, y: 0, width: 220, height: 120 }
+  const crowded = allocateRoomCrowdingFrame([entry('blocker', 48, 48, 2), entry('moved', 48, 48, 1)], band).placements
   assert.notDeepEqual({ x: crowded.moved!.x, y: crowded.moved!.y }, { x: 48, y: 48 })
-  const clear = allocateRoomCrowding([entry('moved', 48, 48, 1)], band, crowded)
+  const clear = allocateRoomCrowdingFrame([entry('moved', 48, 48, 1)], band, crowded).placements
   assert.deepEqual({ x: clear.moved!.x, y: clear.moved!.y, offsetX: clear.moved!.offsetX, offsetY: clear.moved!.offsetY },
     { x: 48, y: 48, offsetX: 0, offsetY: 0 })
 })
@@ -87,28 +88,28 @@ test('changed residents reuse the band grid while a resized band builds a new gr
 })
 
 test('375px viewport overflow stays bounded and hides lower-priority figures honestly', () => {
-  const band = { x: 8, y: 108, width: 359, height: 48 }
+  const band = { x: 8, y: 108, width: 359, height: 60 }
   const entries = [entry('followed', 180, 132, 100), entry('speaker', 180, 132, 80),
     entry('walker', 180, 132, 60), ...Array.from({ length: 20 }, (_, index) => entry(`idle:${index}`, 180, 132))]
-  const placed = allocateRoomCrowding(entries, band)
+  const placed = allocateRoomCrowdingFrame(entries, band).placements
 
   assert.equal(placed.followed!.visible, true)
   assert.equal(placed.speaker!.visible, true)
   assert.equal(placed.walker!.visible, true)
   assert.ok(Object.values(placed).some(value => !value.visible))
   for (const value of Object.values(placed).filter(value => value.visible)) {
-    assert.ok(value.x >= band.x + 16 && value.x <= band.x + band.width - 16)
-    assert.ok(value.y >= band.y + 16 && value.y <= band.y + band.height - 16)
+    assert.ok(value.x >= band.x + 28 && value.x <= band.x + band.width - 28)
+    assert.ok(value.y >= band.y + 28 && value.y <= band.y + band.height - 28)
   }
 })
 
 test('invalid or too-small bands hide every valid figure and ignore invalid entries', () => {
-  assert.deepEqual(allocateRoomCrowding([entry('a', 1, 1)], { x: 0, y: 0, width: 31, height: 31 }), {
+  assert.deepEqual(allocateRoomCrowdingFrame([entry('a', 1, 1)], { x: 0, y: 0, width: 55, height: 55 }).placements, {
     a: { id: 'a', kind: 'resident', x: 1, y: 1, visible: false, offsetX: 0, offsetY: 0 },
   })
-  assert.deepEqual(allocateRoomCrowding([
+  assert.deepEqual(allocateRoomCrowdingFrame([
     entry('', 1, 1), entry('bad', Number.NaN, 1), entry('ok', 1, 1),
-  ], { x: 0, y: 0, width: Number.NaN, height: 100 }), {
+  ], { x: 0, y: 0, width: Number.NaN, height: 100 }).placements, {
     ok: { id: 'ok', kind: 'resident', x: 1, y: 1, visible: false, offsetX: 0, offsetY: 0 },
   })
 })
@@ -125,6 +126,19 @@ test('label allocation keeps priority plates and removes collisions and invalid 
     { id: 'b', x: 0, y: 0, width: 20, height: 12, priority: 1 },
     { id: 'a', x: 0, y: 0, width: 20, height: 12, priority: 1 },
   ])], ['a'])
+})
+
+test('label allocation hides plates over other figures but allows their own figure and edge contact', () => {
+  const figures = [
+    { id: 'resident:1', x: 40, y: 40, width: 56, height: 56 },
+    { id: 'resident:2', x: 120, y: 40, width: 56, height: 56 },
+  ]
+  const visible = visibleRoomLabels([
+    { id: 'resident:1', x: 40, y: 50, width: 10, height: 16, priority: 3 },
+    { id: 'resident:2', x: 70, y: 50, width: 40, height: 16, priority: 2 },
+    { id: 'resident:3', x: 176, y: 50, width: 40, height: 16, priority: 1 },
+  ], figures)
+  assert.deepEqual([...visible], ['resident:1', 'resident:3'])
 })
 
 test('label viewport bounds accept exact edges and harmless measurement roundoff only', () => {

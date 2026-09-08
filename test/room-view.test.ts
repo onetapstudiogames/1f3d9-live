@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import type { ReplayEvent, ReplayPlace, Resident } from '../src/city/types.ts'
 import type { NestedLayout, Room } from '../src/ground/nested.ts'
-import { allocateRoomCrowding } from '../src/room-crowding.ts'
+import { allocateRoomCrowdingFrame } from '../src/room-crowding.ts'
 import { busiestRoom, projectRoomPoint, roomIsPublic, roomViewportUsable, singleRoomLayout } from '../src/room-view.ts'
 
 const room = (id: number, parentId: number | null, quiet = false): Room => Object.freeze({
@@ -59,6 +59,36 @@ test('busiest room anchors its inclusive window to the newest valid record and i
   assert.equal(roomIsPublic(city, 99), false)
 })
 
+test('one isolated future timestamp cannot pull the activity window away from the latest recorded cluster', () => {
+  const places = [place(1, null), place(2, 1), place(3, 1)]
+  const cluster = [
+    recorded(1, '2026-09-08T12:00:00Z', 'note', { place_id: 2 }),
+    recorded(2, '2026-09-08T11:55:00Z', 'note', { place_id: 99 }),
+  ]
+  const isolatedOutlier = recorded(3, '2099-01-01T00:00:00Z', 'note', { place_id: 3 })
+  assert.equal(busiestRoom(places, [resident(1, 3)], [...cluster, isolatedOutlier, isolatedOutlier]), 2)
+  assert.equal(busiestRoom(places, [], [isolatedOutlier]), 3)
+})
+
+test('two latest timestamps within thirty minutes form a valid newest cluster', () => {
+  const places = [place(1, null), place(2, 1), place(3, 1)]
+  const timeline = [
+    recorded(1, '2026-09-08T12:00:00Z', 'note', { place_id: 2 }),
+    recorded(2, '2099-01-01T00:00:00Z', 'note', { place_id: 3 }),
+    recorded(3, '2099-01-01T00:30:00Z', 'note', { place_id: 3 }),
+  ]
+  assert.equal(busiestRoom(places, [], timeline), 3)
+})
+
+test('a sparse city anchors activity to its newest room', () => {
+  const places = [place(1, null), place(2, 1), place(3, 1)]
+  const timeline = [
+    recorded(1, '2026-09-08T10:00:00Z', 'note', { place_id: 2 }),
+    recorded(2, '2026-09-08T12:00:00Z', 'note', { place_id: 3 }),
+  ]
+  assert.equal(busiestRoom(places, [], timeline), 3)
+})
+
 test('a quiet child does not turn its public parent into an ineligible container', () => {
   const places = [place(1, null), place(2, 1, true), place(3, null)]
   assert.equal(busiestRoom(places, [resident(1, 1), resident(2, 1), resident(3, 3)], []), 1)
@@ -78,19 +108,19 @@ test('applied move destinations count, failed moves do not, and no activity fall
 })
 
 test('room viewport usability requires enough standing space for one full figure', () => {
-  assert.equal(roomViewportUsable(144, 218), true)
-  assert.equal(roomViewportUsable(143.999, 600), false)
+  assert.equal(roomViewportUsable(168, 242), true)
+  assert.equal(roomViewportUsable(167.999, 600), false)
   assert.equal(roomViewportUsable(136, 600), false)
-  assert.equal(roomViewportUsable(144, 217.999), false)
-  assert.equal(roomViewportUsable(Number.NaN, 218), false)
-  assert.equal(roomViewportUsable(144, Number.POSITIVE_INFINITY), false)
+  assert.equal(roomViewportUsable(168, 241.999), false)
+  assert.equal(roomViewportUsable(Number.NaN, 242), false)
+  assert.equal(roomViewportUsable(168, Number.POSITIVE_INFINITY), false)
 
-  const exact = singleRoomLayout(room(6, null), 144, 218).rooms[6]!
-  assert.deepEqual({ width: exact.standing.width, height: exact.standing.height }, { width: 32, height: 32 })
-  const placement = allocateRoomCrowding([{
+  const exact = singleRoomLayout(room(6, null), 168, 242).rooms[6]!
+  assert.deepEqual({ width: exact.standing.width, height: exact.standing.height }, { width: 56, height: 56 })
+  const placement = allocateRoomCrowdingFrame([{
     id: 'resident:1', kind: 'resident', priority: 1,
-    preferred: { x: exact.standing.x + 16, y: exact.standing.y + 16 },
-  }], exact.standing)['resident:1']
+    preferred: { x: exact.standing.x + 28, y: exact.standing.y + 28 },
+  }], exact.standing).placements['resident:1']
   assert.equal(placement?.visible, true)
 })
 
@@ -129,7 +159,7 @@ test('all source walls and doors project inside a skinny displayed room', () => 
   ]
   for (const sourceDoor of doors) {
     const source = { ...base, door: sourceDoor }
-    const target = singleRoomLayout(source, 375, 220).rooms[source.id]!
+    const target = singleRoomLayout(source, 375, 242).rooms[source.id]!
     assert.deepEqual(projectRoomPoint(sourceDoor, source, target), target.door)
     for (const point of [
       { x: source.x, y: source.y }, { x: source.x + source.width, y: source.y },

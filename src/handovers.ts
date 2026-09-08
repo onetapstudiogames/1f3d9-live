@@ -49,6 +49,12 @@ export type HandoverStep = Readonly<{
   pending: boolean
 }>
 
+// Replay pending also includes a carry waiting in its resident's queue. Live
+// delivery waits only while a carry or transfer is already moving on screen.
+export function blocksLiveHandoverDelivery(frame: HandoverStep): boolean {
+  return frame.motions.length > 0
+}
+
 export function createHandovers(timeline: readonly ReplayEvent[]): HandoverState {
   const carries: CarryPlan[] = []
   for (let noticeIndex = 0; noticeIndex < timeline.length; noticeIndex += 1) {

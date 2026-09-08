@@ -72,8 +72,7 @@ export function parseNoteExcerpt(value: unknown, id: number): NoteExcerpt {
     || !Number.isSafeInteger(note['place_id']) || note['place_id'] < 1) {
     throw new Error('The public note answer is incomplete or names a different note.')
   }
-  const text = (note['body'].split(/\r?\n/, 1)[0] ?? '').slice(0, 200)
-  return Object.freeze({ id, author: note['author'], placeId: note['place_id'], text, cut: note['body'].length > text.length })
+  return Object.freeze({ id, author: note['author'], placeId: note['place_id'], text: note['body'], cut: false })
 }
 
 export function createNoteExcerptLoader(search: string = browserSearch()): (id: number) => Promise<NoteExcerpt | null> {

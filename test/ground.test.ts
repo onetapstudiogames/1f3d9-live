@@ -43,6 +43,14 @@ test('free positions stay continuous and retain a moved presentation spot', () =
   assert.ok(Object.values(retained).every(spot => !('row' in spot) && !('column' in spot)))
 })
 
+test('fixed obstacles spanning multiple buckets block every overlapping candidate', () => {
+  const previous = { 'thing:1': { key: 'thing:1', kind: 'thing' as const, x: 96, y: 96, width: 32, height: 32 } }
+  const obstacle = { key: 'resident:1', kind: 'resident' as const, x: 47, y: 47, width: 56, height: 56 }
+
+  assert.deepEqual(stageFindFreeSpots([{ key: 'thing:1', kind: 'thing' }],
+    { x: 0, y: 0, width: 160, height: 160 }, previous, [], [obstacle]), {})
+})
+
 test('nested layout keeps children inside parents without sibling overlap', () => {
   const places: readonly Place[] = Object.freeze([
     { id: 1, parent_id: null, name: 'world', quiet: false }, { id: 2, parent_id: 1, name: 'north', quiet: false },
