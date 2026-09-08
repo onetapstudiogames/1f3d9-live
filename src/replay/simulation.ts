@@ -22,7 +22,7 @@ export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; p
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
 type AgreementCandidate = Readonly<{ signature: AgreementSignature; actorId: number }>
 
-type QueuedEvent = Readonly<{ event: ReplayEvent; heldByRoom?: boolean }>
+type QueuedEvent = Readonly<{ event: ReplayEvent }>
 
 export type ResidentState = Readonly<{
   id: number
@@ -351,9 +351,7 @@ function startNext(
     const beforeEvent = next
     const queued = next.queue[0]!
     const event = queued.event
-    if (event.kind === 'note' && !roomNoteMayStart(event, { ...all, [next.id]: next }, nowMs)) {
-      return { ...next, queue: holdRoomNotes(next.queue, event.detail.place_id) }
-    }
+    if (event.kind === 'note' && !roomNoteMayStart(event, { ...all, [next.id]: next }, nowMs)) return next
     const queue = next.queue.slice(1)
     next = { ...next, lastActivityId: event.change_id }
     startedEvents.push(event)
@@ -467,16 +465,6 @@ function startNext(
     next = { ...next, queue }
   }
   return next
-}
-
-function holdRoomNotes(queue: readonly QueuedEvent[], placeId: number | undefined): readonly QueuedEvent[] {
-  // The whole leading speech turn waits for this room, including later batches
-  // appended behind a previously marked head. Never mark past other queued work.
-  const end = queue.findIndex(row => row.event.kind !== 'note' || row.event.detail.place_id !== placeId)
-  const count = end < 0 ? queue.length : end
-  if (queue.every((row, index) => index >= count || row.heldByRoom)) return queue
-  return Object.freeze(queue.map((row, index) => index < count && !row.heldByRoom
-    ? Object.freeze({ ...row, heldByRoom: true }) : row))
 }
 
 function arrive(
@@ -651,10 +639,10 @@ function isPending(resident: ResidentState): boolean {
     || resident.blockedAttempt != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
 }
 
-// A visible card and notes held only for that room's turn do not hold live
-// delivery. Other queued work must start before the next batch.
+// Cards and queued notes never hold live delivery, regardless of whose card
+// they wait for. Non-note work and active walks or effects must still finish.
 export function blocksLiveDelivery(state: Simulation): boolean {
-  return Object.values(state.residents).some(resident => resident.queue.some(queued => !queued.heldByRoom) || resident.walking || resident.sparkle !== null
+  return Object.values(state.residents).some(resident => resident.queue.some(queued => queued.event.kind !== 'note') || resident.walking || resident.sparkle !== null
     || resident.showingNotice != null || resident.blockedAttempt != null || resident.transferUntil !== null
     || resident.inventionUntil != null || resident.agreementUntil != null)
 }
