@@ -5,6 +5,8 @@ import type { Drawing } from '../city/types.ts'
 import { drawingCells } from '../city/drawing.ts'
 import { curtainCells, placeFloorArt, roomsToDraw } from '../room-art.ts'
 import { recordedRoomName, type PlacePlan } from '../places.ts'
+import { roomFloorRects, roomOutline } from '../ground/room-shape.ts'
+import { TiledFloor } from './TiledFloor.ts'
 import {
   animationProgress, brickCount, placeAnimationsByKind, signScale, wallBricks, type PlaceAnimation,
 } from '../place-animation.ts'
@@ -17,7 +19,7 @@ export class RoomView {
   private readonly surfaces = new Map<number, {
     paint: Phaser.GameObjects.Graphics; windows: Phaser.GameObjects.Graphics
     building: Phaser.GameObjects.Graphics | null; bricks: ReturnType<typeof wallBricks>; drawn: number
-    art: Phaser.GameObjects.TileSprite | null; shade: Phaser.GameObjects.Rectangle | null
+    art: TiledFloor[]
   }>()
 
   constructor(scene: Phaser.Scene, layout: NestedLayout, private plan: PlacePlan) {
@@ -30,11 +32,11 @@ export class RoomView {
       const windows = scene.add.graphics().setDepth(0.5 + depth).setVisible(false)
       const bricks = plan.foundings.has(room.id) ? wallBricks(room) : []
       const building = bricks.length ? scene.add.graphics().setDepth(depth).setVisible(false) : null
-      this.surfaces.set(room.id, { paint, windows, building, bricks, drawn: -1, art: null, shade: null })
+      this.surfaces.set(room.id, { paint, windows, building, bricks, drawn: -1, art: [] })
       const { x, y, width, height, door } = room
-      paint.fillStyle(0x0a1916, 0.35).fillRect(x + 7, y + 9, width, height)
+      for (const rect of roomFloorRects(room)) paint.fillStyle(0x0a1916, 0.35).fillRect(rect.x + 7, rect.y + 9, rect.width, rect.height)
       const floorColor = floors[Math.min(room.depth, floors.length - 1)]!
-      paint.fillStyle(floorColor, 1).fillRect(x, y, width, height)
+      for (const rect of roomFloorRects(room)) paint.fillStyle(floorColor, 1).fillRect(rect.x, rect.y, rect.width, rect.height)
       paint.lineStyle(1, 0xeee5bb, 0.07)
       for (let line = 44; !room.quiet && line < Math.min(height, room.standing.height + 52); line += 32) {
         paint.lineBetween(x + 8, y + line, x + width - 8, y + line)
@@ -43,6 +45,8 @@ export class RoomView {
         paint.fillStyle(cell.color).fillRect(cell.x, cell.y, cell.width, cell.height)
       }
       const wall = (x1: number, y1: number, x2: number, y2: number, gap: boolean): void => {
+        if (x1 > x2) [x1, x2] = [x2, x1]
+        if (y1 > y2) [y1, y2] = [y2, y1]
         if (!gap) { paint.lineBetween(x1, y1, x2, y2); return }
         if (y1 === y2) {
           paint.lineBetween(x1, y1, door.x - 22, y2)
@@ -60,10 +64,11 @@ export class RoomView {
         for (const brick of bricks) paint.fillStyle(brick.color).fillRect(brick.x, brick.y, brick.width, brick.height)
       } else {
         paint.lineStyle(7, 0x243c30, 1)
-        wall(x, y, x + width, y, onTop)
-        wall(x, y + height, x + width, y + height, onBottom)
-        wall(x, y, x, y + height, onLeft)
-        wall(x + width, y, x + width, y + height, onRight)
+        for (const [a, b] of roomOutline(room)) {
+          const gap = !room.quiet && (a.y === b.y ? door.y === a.y && door.x >= Math.min(a.x, b.x) && door.x <= Math.max(a.x, b.x)
+            : door.x === a.x && door.y >= Math.min(a.y, b.y) && door.y <= Math.max(a.y, b.y))
+          wall(a.x, a.y, b.x, b.y, gap)
+        }
         paint.lineStyle(2, 0xe2ddaf, 0.8)
         wall(x + 2, y + 2, x + width - 2, y + 2, onTop)
         wall(x + 2, y + 2, x + 2, y + height - 2, onLeft)
@@ -89,13 +94,16 @@ export class RoomView {
       }
       const name = room.name.length > 32 ? `${room.name.slice(0, 31)}…` : room.name
       const text = scene.add.text(0, 0, name, {
-        fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#f8edcf',
-        backgroundColor: '#273c30', padding: { x: 7, y: 4 },
+        fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#f8edcf', resolution: 2,
+        backgroundColor: '#273c30', padding: { x: 7, y: 4 }, fixedWidth: Math.min(300, width - 24), fixedHeight: 27,
       })
-      text.setCrop(0, 0, Math.min(text.width, width - 24), text.height)
+      text.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
       const group = scene.add.container(x + 12, y + 12, [text]).setDepth(room.depth + 1)
       this.plates.set(room.id, { group, text, room, nameOffset: 0 })
     }
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      for (const surface of this.surfaces.values()) for (const art of surface.art) art.destroy()
+    })
   }
 
   setPlan(plan: PlacePlan): void { this.plan = plan }
@@ -113,10 +121,8 @@ export class RoomView {
     paint.generateTexture(key, floor.tileSize, floor.tileSize)
     paint.destroy()
     const depth = plate.room.depth / 1000
-    surface.art = scene.add.tileSprite(floor.x, floor.y, floor.width, floor.height, key).setOrigin(0)
-      .setTilePosition(floor.tileOffsetX, floor.tileOffsetY).setDepth(depth + 0.0001).setVisible(false)
-    surface.shade = scene.add.rectangle(floor.x, floor.y, floor.width, floor.height, 0x142722, floor.shadeAlpha)
-      .setOrigin(0).setDepth(depth + 0.0002).setVisible(false)
+    surface.art = roomFloorRects(plate.room, 4).map(rect => new TiledFloor(scene, key, rect,
+      { x: plate.room.x, y: plate.room.y }, depth + 0.0001, floor.shadeAlpha))
   }
 
   update(camera: Phaser.Cameras.Scene2D.Camera, recordedTime: number, now: number,
@@ -134,8 +140,7 @@ export class RoomView {
       const founding = animation?.founding ?? null
       const shown = !contentsHidden.has(id)
       surface.paint.setVisible(shown)
-      surface.art?.setVisible(shown)
-      surface.shade?.setVisible(shown)
+      for (const art of surface.art) art.update(camera, shown)
       surface.windows.setVisible(shown && lit)
       if (surface.building) {
         // The parent floor stays bare until this row is due. Children wait for the parent walls.
@@ -150,7 +155,8 @@ export class RoomView {
       plate.group.setScale(scale)
       plate.text.setScale(animation?.renaming ? signScale(animationProgress(animation.renaming, now)) : 1, 1)
       plate.group.setVisible(shown && plate.room.width * camera.zoom > 105 && plate.room.standing.height * camera.zoom > 27)
-      plate.text.setCrop(0, 0, Math.min(plate.text.width, (plate.room.width - 24) / scale - plate.nameOffset), plate.text.height)
+      const plateWidth = Math.min(300, (plate.room.width - 24) / scale - plate.nameOffset)
+      if (plate.text.width !== plateWidth) plate.text.setFixedSize(plateWidth, 27)
     }
   }
 
@@ -162,7 +168,8 @@ export class RoomView {
     const paint = surface.building
     if (surface.drawn < 0) {
       const floors = [0x344d3c, 0x557354, 0x7e9262, 0xb3af7e, 0xc3b58b]
-      paint.fillStyle(floors[Math.min(room.depth, floors.length - 1)]!).fillRect(room.x, room.y, room.width, room.height)
+      for (const rect of roomFloorRects(room)) paint.fillStyle(floors[Math.min(room.depth, floors.length - 1)]!)
+        .fillRect(rect.x, rect.y, rect.width, rect.height)
     }
     for (const brick of surface.bricks.slice(Math.max(0, surface.drawn), count)) {
       paint.fillStyle(brick.color).fillRect(brick.x, brick.y, brick.width, brick.height)

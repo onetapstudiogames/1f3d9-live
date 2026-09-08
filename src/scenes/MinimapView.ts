@@ -54,7 +54,7 @@ export class MinimapView {
     const panel = document.getElementById('minimap')
     const toggle = document.getElementById('minimap-toggle')
     if (panel) panel.hidden = !visible
-    if (toggle) { toggle.textContent = visible ? 'Hide map' : 'Show map'; toggle.setAttribute('aria-expanded', String(visible)) }
+    if (toggle) { toggle.textContent = '▦'; toggle.setAttribute('aria-label', visible ? 'Hide map' : 'Show map'); toggle.title = visible ? 'Hide map' : 'Show map'; toggle.setAttribute('aria-expanded', String(visible)) }
     document.body.dataset['liveMinimapVisible'] = String(visible)
   }
 }
@@ -71,5 +71,10 @@ export function keepFollowedInView(camera: { scrollX: number; scrollY: number; w
 
 function drawRooms(context: CanvasRenderingContext2D, rooms: readonly MiniRect[], color: string): void {
   context.strokeStyle = color; context.lineWidth = 1
-  for (const room of rooms) context.strokeRect(room.x + 0.5, room.y + 0.5, Math.max(1, room.width - 1), Math.max(1, room.height - 1))
+  for (const room of rooms) {
+    if (!room.outline) { context.strokeRect(room.x + 0.5, room.y + 0.5, Math.max(1, room.width - 1), Math.max(1, room.height - 1)); continue }
+    context.beginPath()
+    room.outline.forEach((point, index) => index ? context.lineTo(point.x + 0.5, point.y + 0.5) : context.moveTo(point.x + 0.5, point.y + 0.5))
+    context.closePath(); context.stroke()
+  }
 }

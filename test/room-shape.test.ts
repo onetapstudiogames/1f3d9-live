@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { nestedLayout, type Place, type Room } from '../src/ground/nested.ts'
 import { roomContains, roomFloorRects, roomOutline } from '../src/ground/room-shape.ts'
+import { curtainCells } from '../src/room-art.ts'
+import { wallBricks } from '../src/place-animation.ts'
+import { minimapPlan } from '../src/minimap.ts'
+import { readFileSync } from 'node:fs'
 
 test('stepped rooms are a bounded L with doors and standing floor outside the notch', () => {
   const places: Place[] = [{ id: 1, parent_id: null }, ...Array.from({ length: 12 }, (_, index) => ({ id: index + 2, parent_id: 1 }))]
@@ -46,4 +50,33 @@ test('layout has deterministic wide, tall, compact, and staggered shelf variants
   for (const child of children) shelves.set(child.shelf!.row, [...(shelves.get(child.shelf!.row) ?? []), child])
   assert.ok(shelves.size > 1)
   assert.ok([...shelves].some(([row, rooms]) => row % 2 === 1 && Math.min(...rooms.map(room => room.x)) > 48))
+})
+
+test('real continents have visible spacing and their children stay on the shaped floor', () => {
+  const places = JSON.parse(readFileSync(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')).map.places
+  const layout = nestedLayout(places)
+  const root = layout.rooms[layout.rootId]!
+  for (const id of root.children) assert.ok(layout.rooms[id]!.shelf!.laneBelow - layout.rooms[id]!.shelf!.bottom >= 100)
+  for (const room of Object.values(layout.rooms)) for (const id of room.children) {
+    const child = layout.rooms[id]!
+    for (const point of [{ x: child.x, y: child.y }, { x: child.x + child.width, y: child.y + child.height }]) {
+      assert.equal(roomContains(room, point), true, `child ${id} must remain on room ${room.id}`)
+    }
+  }
+})
+
+test('curtains, founding bricks and the minimap respect the same stepped outline', () => {
+  const layout = nestedLayout([{ id: 1, parent_id: null }, { id: 2, parent_id: 1, quiet: true }])
+  const room = layout.rooms[2]!
+  assert.ok(room.notch)
+  const cells = curtainCells(room, 0x557354)
+  assert.equal(cells.reduce((sum, cell) => sum + cell.width * cell.height, 0),
+    roomFloorRects(room, 4).reduce((sum, rect) => sum + rect.width * rect.height, 0))
+  for (const cell of cells) assert.equal(roomContains(room, { x: cell.x + cell.width, y: cell.y + cell.height }, 4), true)
+  const bricks = wallBricks(room)
+  assert.ok(bricks.some(brick => Math.abs(brick.x - (room.x + room.width - room.notch!.width)) <= 3
+    && brick.y > room.y + room.height - room.notch!.height))
+  assert.ok(!bricks.some(brick => brick.x > room.x + room.width - room.notch!.width + 4
+    && brick.y > room.y + room.height - room.notch!.height + 4))
+  assert.equal(minimapPlan(layout).staticRooms.find(row => row.id === room.id)?.outline?.length, 6)
 })

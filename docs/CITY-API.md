@@ -321,7 +321,7 @@ floor until its row is due. Pixel walls build while the clock holds that moment;
 the door, windows, art, and plate appear after the walls. Figures and things also
 wait for their room. Finished rooms are painted once. Names in the view label use
 the same recorded time as the plates. Missing rooms, incomplete notices, and
-conflicting references produce plain status words without a guessed animation.
+conflicting references keep internal diagnostics without a guessed animation.
 
 `place_edited` changes no name here. `place_retired` and `place_restored` are not
 handled yet; a place absent from the snapshot gets no room.
@@ -477,6 +477,25 @@ paid actions and their flat fees, skill versions, public snapshots. Read it, nev
 from memory.
 
 ## Rules of the road
+
+The owner's viewer revision removes the on-screen status block and excerpt footers. This
+changes presentation only: incomplete history, unknown names, failed reads, and unverified
+meetings are still not filled in. Missing routes briefly reappear at the next recorded room.
+
+The Recent activity log reads the same due replay/live rows. It retains the latest 100
+supported rows (notes, applied moves and named thing creations), with All and Chats filters.
+Quiet rooms and their descendants are excluded. It uses explicit actor/place/thing IDs;
+mentions inside prose do not imply a linked person or object. Names and locations stay tied
+to the recorded moment, including name history; current art comes from the existing anonymous
+drawing readers. Things use a detail read solely to learn whether a drawing exists. Missing
+art gets a pixel type icon. Four portrait jobs run at once and cached reads are shared with
+the scene. Pause freezes new rows; replay resets the log and reveals rows only when due.
+
+The world root's portrait uses the same 32-world-pixel tiles and fixed 42% shade as other
+floors. Large floors render only the viewport's pixels, with the pattern anchored to the
+room corner. This avoids allocating a canvas the size of the whole nested world. Room shape
+and spacing are deterministic presentation; the city still supplies only the nesting and
+recorded room membership. There is no sea, boat, or new city action.
 
 - Anonymous reads only; no key ever; never POST.
 - Reads are rate-limited per IP like any visitor's. Be polite: fetch a resident's drawing once

@@ -117,12 +117,14 @@ export function nestedLayout(
       used = row.length === 1 ? child.width : used + ROOM_GAP + child.width
     }
     if (row.length) rows.push(row)
-    const placements: PlannedChild[] = []; const gap = id === root.id ? ROOM_GAP + 24 : ROOM_GAP + 8
+    const placements: PlannedChild[] = []
+    const gap = id === root.id ? Math.max(56, Math.ceil(Math.max(...children.map(child => Math.max(child.width, child.height))) * 0.04 / 8) * 8)
+      : ROOM_GAP + 8
     let y = ROOM_PADDING + standingHeight + gap
     let widest = 0
     for (const [rowIndex, shelf] of rows.entries()) {
       const shelfHeight = Math.max(...shelf.map(child => child.height))
-      let x = ROOM_PADDING + (rowIndex % 2) * 24
+      let x = ROOM_PADDING + (rowIndex % 2) * (id === root.id ? gap / 2 : 24)
       for (const child of shelf) {
         const childY = y + shelfHeight - child.height
         placements.push(Object.freeze({ id: child.id, x, y: childY, row: rowIndex, top: y,
@@ -132,7 +134,8 @@ export function nestedLayout(
       widest = Math.max(widest, x - gap + ROOM_PADDING)
       y += shelfHeight + gap
     }
-    const [width, height] = variedSize(id, Math.max(standingOuterWidth, widest), Math.max(MINIMUM_HEIGHT, y + ROOM_PADDING - gap))
+    const baseWidth = Math.max(standingOuterWidth, widest); const baseHeight = Math.max(MINIMUM_HEIGHT, y + ROOM_PADDING - gap)
+    const [width, height] = id === root.id ? [baseWidth, baseHeight] : variedSize(id, baseWidth, baseHeight)
     const plan = Object.freeze({
       id,
       width, height,
@@ -157,13 +160,19 @@ export function nestedLayout(
       { x, y: y + plan.height / 2 },
       { x: x + plan.width / 2, y },
     ][doorIndex % 4]!
+    const lastRow = Math.max(-1, ...plan.children.map(child => child.row))
+    const lastChildren = plan.children.filter(child => child.row === lastRow)
+    // Leave the child door's outside lane (16px) and a margin beside the missing corner.
+    const notchWidth = lastChildren.length ? Math.max(8, plan.width - Math.max(...lastChildren.map(child => child.x + plans.get(child.id)!.width)) - 24) : 40
+    const notchHeight = lastChildren.length ? Math.max(40, plan.height - lastChildren[0]!.top) : 40
     rooms[plan.id] = Object.freeze({
       id: plan.id, parentId, name: place.name ?? `place ${String(plan.id)}`, quiet: place.quiet === true,
       depth, x, y, width: plan.width, height: plan.height,
       door: Object.freeze(door),
       standing: Object.freeze({ x: x + ROOM_PADDING / 2, y: y + ROOM_PADDING / 2, width: plan.width - ROOM_PADDING, height: plan.standingHeight }),
       children: Object.freeze(plan.children.map(child => child.id)),
-      notch: depth > 0 && variant(plan.id) === 2 ? Object.freeze({ width: Math.min(40, plan.width / 3), height: Math.min(40, plan.height / 3) }) : null,
+      notch: depth > 0 && (depth === 1 || variant(plan.id) === 2) ? Object.freeze({ width: Math.floor(Math.min(notchWidth, plan.width / 3)),
+        height: Math.floor(Math.min(notchHeight, plan.height / 3, plan.height - plan.standingHeight - ROOM_PADDING)) }) : null,
       shelf: shelf ? Object.freeze({ row: shelf.row, top: y - shelf.y + shelf.top, bottom: y - shelf.y + shelf.bottom,
         laneAbove: y - shelf.y + shelf.laneAbove, laneBelow: y - shelf.y + shelf.laneBelow }) : null,
     })

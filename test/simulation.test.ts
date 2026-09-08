@@ -6,6 +6,7 @@ import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
 import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
 import type { ThingReservations } from '../src/things.ts'
+import { followActivity, reappearanceAlpha } from '../src/viewer.ts'
 
 const rooms = {
   1: { id: 1, parentId: null, name: 'world', quiet: false, depth: 0, x: 0, y: 0, width: 320, height: 240, door: { x: 300, y: 120 }, standing: { x: 20, y: 20, width: 260, height: 180 }, children: [2, 3] },
@@ -88,6 +89,32 @@ test('a walk finishes before the following note is shown', () => {
   const arrived = completed.residents[7]!.bubble
   assert.equal(arrived && arrived.text, 'arrived')
   assert.equal(completed.residents[7]!.visible, false)
+})
+
+test('follow resumes on the next started record, never on an already queued note or idle frame', () => {
+  let state = createResidents(replay(), census, layout)
+  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 })
+  const note = { ...event('note', { place_id: 1 }, 'arrived'), change_id: '2' }
+  state = stepResidents(state, [move, note], 100, 100, layout)
+  const browsing = { residentId: 7, suspended: true, activityId: state.residents[7]!.lastActivityId ?? null }
+  assert.equal(browsing.activityId, '1')
+  state = stepResidents(state, [], 1, 101, layout)
+  assert.equal(followActivity(browsing, 7, state.residents[7]!.lastActivityId ?? null), browsing)
+  state = stepResidents(state, [], 100_000, 100_101, layout)
+  assert.equal(state.residents[7]!.lastActivityId, '2')
+  assert.equal(followActivity(browsing, 7, state.residents[7]!.lastActivityId ?? null).suspended, false)
+})
+
+test('a missing route reappears at the recorded room without inventing a walk', () => {
+  const state = createResidents(replay(), census, layout)
+  const next = stepResidents(state, [event('note', { place_id: 1 }, 'here')], 100, 100, layout).residents[7]!
+  assert.equal(next.placeId, 1)
+  assert.equal(next.walking, false)
+  assert.equal(next.relocatedAt, 100)
+  assert.equal(reappearanceAlpha(next.relocatedAt, 100), 0)
+  assert.equal(reappearanceAlpha(next.relocatedAt, 300), 0.5)
+  assert.equal(reappearanceAlpha(next.relocatedAt, 500), 1)
+  assert.equal(reappearanceAlpha(undefined, 100), 1)
 })
 
 test('inventions take their actor queue turn between walks and words, one at a time', () => {

@@ -1,5 +1,6 @@
 import type { ReplayPlace } from './city/types.ts'
 import type { NestedLayout, Room } from './ground/nested.ts'
+import { roomFloorRects } from './ground/room-shape.ts'
 
 export function placesWithDrawings(
   places: readonly Pick<ReplayPlace, 'id' | 'has_drawing'>[], layout: NestedLayout,
@@ -42,7 +43,12 @@ export function curtainCells(room: Room, floorColor: number): readonly CurtainCe
       height: room.y + 4 + Math.floor((row + 1) * (room.height - 8) / 8) - y,
       color: colors[row === 0 ? 2 : row === 7 ? 1 : folds[column]!]!,
     })
-  }))
+  }).flatMap(cell => roomFloorRects(room, 4).flatMap(rect => {
+    const x = Math.max(cell.x, rect.x); const y = Math.max(cell.y, rect.y)
+    const width = Math.min(cell.x + cell.width, rect.x + rect.width) - x
+    const height = Math.min(cell.y + cell.height, rect.y + rect.height) - y
+    return width > 0 && height > 0 ? [Object.freeze({ ...cell, x, y, width, height })] : []
+  })))
 }
 
 export function roomsToDraw(layout: NestedLayout): readonly Room[] {

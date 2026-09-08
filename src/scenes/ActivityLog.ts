@@ -10,6 +10,16 @@ export type ActivityElements = Readonly<{
   list: HTMLElement
 }>
 
+export function mountActivityLog(context: ActivityContext, portraits: PixelPortrait): ActivityLog {
+  const panel = document.getElementById('activity-panel')!
+  const toggle = document.querySelector<HTMLButtonElement>('#activity-toggle')!
+  const filter = document.querySelector<HTMLSelectElement>('#activity-filter')!
+  const list = document.getElementById('activity-list')!
+  const open = !window.matchMedia('(max-width: 600px)').matches
+  toggle.setAttribute('aria-expanded', String(open)); filter.hidden = !open; list.hidden = !open
+  return new ActivityLog({ panel, toggle, filter, list }, context, portraits)
+}
+
 function paint(canvas: HTMLCanvasElement, cells: Awaited<ReturnType<PixelPortrait['load']>>): void {
   const context = canvas.getContext('2d')
   if (!context) return
@@ -53,17 +63,21 @@ export class ActivityLog {
     this.elements.toggle.setAttribute('aria-expanded', String(open))
     this.elements.panel.dataset['open'] = String(open)
     this.elements.filter.hidden = !open; this.elements.list.hidden = !open
-    this.elements.toggle.textContent = open ? 'Hide recent activity' : 'Show recent activity'
+    this.elements.toggle.textContent = 'Recent activity'
+    this.render()
   }
 
   private render(): void {
     const list = this.elements.list
     const stayAtBottom = list.scrollHeight - list.scrollTop - list.clientHeight <= 24
+    const anchor = Array.from(list.children).find(node => (node as HTMLElement).offsetTop + (node as HTMLElement).offsetHeight > list.scrollTop) as HTMLElement | undefined
+    const anchorOffset = anchor ? anchor.offsetTop - list.scrollTop : 0
     const generation = ++this.generation
+    if (this.elements.toggle.getAttribute('aria-expanded') === 'false') { list.replaceChildren(); return }
     const filter: ActivityFilter = this.elements.filter.value === 'chats' ? 'chats' : 'all'
     const entries = activityVisible(this.state.entries, filter)
     const nodes = entries.map(entry => {
-      const row = document.createElement('li'); row.className = 'activity-row'; row.dataset['activityKey'] = entry.key
+      const row = document.createElement('div'); row.className = 'activity-row'; row.dataset['activityKey'] = entry.key
       const time = document.createElement('time'); time.dateTime = new Date(entry.time).toISOString()
       time.textContent = new Date(entry.time).toISOString().slice(11, 16)
       const words = document.createElement('span'); words.className = 'activity-text'; words.textContent = entry.text
@@ -81,5 +95,9 @@ export class ActivityLog {
     })
     list.replaceChildren(...nodes)
     if (stayAtBottom) list.scrollTop = list.scrollHeight
+    else if (anchor) {
+      const retained = nodes.find(row => row.dataset['activityKey'] === anchor.dataset['activityKey'])
+      if (retained) list.scrollTop = retained.offsetTop - anchorOffset
+    }
   }
 }

@@ -1,6 +1,7 @@
 import type { NestedLayout, Point, Room } from './ground/nested.ts'
+import { roomOutline } from './ground/room-shape.ts'
 
-export type MiniRect = Readonly<{ id: number; x: number; y: number; width: number; height: number }>
+export type MiniRect = Readonly<{ id: number; x: number; y: number; width: number; height: number; outline?: readonly Point[] }>
 export type MinimapPlan = Readonly<{
   width: number; height: number; worldWidth: number; worldHeight: number
   staticRooms: readonly MiniRect[]; dynamicRooms: readonly MiniRect[]
@@ -64,8 +65,12 @@ function hasAncestor(room: Room, rooms: NestedLayout['rooms'], predicate: (id: n
   return false
 }
 function miniRect(room: Room, xScale: number, yScale: number): MiniRect {
-  return Object.freeze({ id: room.id, x: Math.round(room.x * xScale), y: Math.round(room.y * yScale),
-    width: Math.max(1, Math.round(room.width * xScale)), height: Math.max(1, Math.round(room.height * yScale)) })
+  const base: MiniRect = { id: room.id, x: Math.round(room.x * xScale), y: Math.round(room.y * yScale),
+    width: Math.max(1, Math.round(room.width * xScale)), height: Math.max(1, Math.round(room.height * yScale)) }
+  if (!room.notch) return Object.freeze(base)
+  return Object.freeze({ ...base, outline: Object.freeze(roomOutline(room).map(([point]) => Object.freeze({
+    x: Math.round(point.x * xScale), y: Math.round(point.y * yScale),
+  }))) })
 }
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, Number.isFinite(value) ? value : minimum))

@@ -2,6 +2,7 @@ import type { ReplayEvent, ReplayFile, Resident } from '../city/types.ts'
 import { initialResidents, residentIndex } from '../city/residents.ts'
 import type { NestedLayout, Point } from '../ground/nested.ts'
 import { pointAlongPath, sidestepPath, walkPath } from '../ground/path.ts'
+import { roomContains } from '../ground/room-shape.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
 import { appliedMove, bubbleFor, bubbleVisible, walkDuration, walkProgress, BASE_SPEED, type Bubble } from './index.ts'
 import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
@@ -38,6 +39,8 @@ export type ResidentState = Readonly<{
   destinationId: number | null
   destination: Point | null
   walkEventId: string | null
+  lastActivityId?: string
+  relocatedAt?: number
   transferUntil: number | null
   inventionUntil?: number | null
   agreementUntil?: number | null
@@ -243,6 +246,7 @@ function startNext(
     const queued = next.queue[0]!
     const event = queued.event
     const queue = next.queue.slice(1)
+    next = { ...next, lastActivityId: event.change_id }
     const detail = event.detail
     const blocked = blockedAttemptFor(event)
     if (blocked) {
@@ -282,7 +286,7 @@ function startNext(
       if (source) {
         // A first placement skips nothing; only a figure that already stood somewhere lost a route.
         if (next.placeId !== null) addIssue(issues, 'route-gap')
-        next = { ...next, queue, placeId: detail.from_place_id, x: source.x, y: source.y, visible: placeVisible(layout, detail.from_place_id) }
+        next = { ...next, queue, placeId: detail.from_place_id, x: source.x, y: source.y, relocatedAt: nowMs, visible: placeVisible(layout, detail.from_place_id) }
         continue
       }
     }
@@ -311,7 +315,7 @@ function startNext(
           continue
         }
         addIssue(issues, 'route-gap')
-        next = { ...next, placeId: fromId, x: source.x, y: source.y, visible: placeVisible(layout, fromId) }
+        next = { ...next, placeId: fromId, x: source.x, y: source.y, relocatedAt: nowMs, visible: placeVisible(layout, fromId) }
       }
       // A same-room applied move only anchors the figure; appliedMove says when there is a real walk.
       const walk = appliedMove(event)
@@ -398,7 +402,7 @@ function handleNote(
       return { ...resident, queue }
     }
     if (resident.placeId !== null) addIssue(issues, 'route-gap')
-    next = { ...resident, placeId, x: destination.x, y: destination.y, visible: placeVisible(layout, placeId) }
+    next = { ...resident, placeId, x: destination.x, y: destination.y, relocatedAt: nowMs, visible: placeVisible(layout, placeId) }
   }
   const bubble = bubbleFor({ ...event, detail: { ...event.detail, place_id: placeId ?? undefined } }, nowMs, speed)
   const room = placeId === null ? undefined : layout.rooms[placeId]
@@ -479,7 +483,7 @@ function placeStationary(residents: Record<number, ResidentState>, layout: Neste
 }
 
 function visibleAt(point: Point, layout: NestedLayout): boolean {
-  const containing = Object.values(layout.rooms).filter(room => point.x >= room.x && point.x <= room.x + room.width && point.y >= room.y && point.y <= room.y + room.height).sort((a, b) => b.depth - a.depth)[0]
+  const containing = Object.values(layout.rooms).filter(room => roomContains(room, point)).sort((a, b) => b.depth - a.depth)[0]
   return containing ? placeVisible(layout, containing.id) : true
 }
 
