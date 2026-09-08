@@ -15,9 +15,7 @@ import { ThingView, addThingTexture } from './ThingView.ts'
 import { createHandovers, stepHandovers, type HandoverState } from '../handovers.ts'
 import { HandoverLayer } from './HandoverView.ts'
 import { hiddenRooms, planPlaces, recordedRoomName, type PlacePlan } from '../places.ts'
-import {
-  contentHiddenRooms, placeAnimation, stepPlaceAnimations, type PlaceAnimation,
-} from '../place-animation.ts'
+import { contentHiddenRooms, placeAnimation, stepPlaceAnimations, type PlaceAnimation } from '../place-animation.ts'
 import { readShowSleepers } from '../preferences.ts'
 import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
 import { liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
@@ -218,14 +216,15 @@ export class CityScene extends Phaser.Scene {
     const context = createActivityContext(this.census, this.replay.map.places, (place, time) =>
       hiddenRooms(this.placePlan!, this.layout!, time).has(place.id) ? null : recordedRoomName(this.placePlan!, place, time))
     const residents = context.resident
-    const dynamic = { ...context, resident: (actor: string) => {
+    const dynamic: ActivityContext = { ...context, resident: (actor: string) => {
       const known = residents(actor)
       if (known) return known
       const id = this.residents?.actors.get(actor)
       return id === undefined ? null : { type: 'resident' as const, id, name: actor, hasDrawing: false }
     }, actorRoom: (actor: string, time: number) => this.historicalActivity?.actorRoom?.(actor, time) ?? null,
     thing: (id: number, time: number) => this.historicalActivity?.thing?.(id, time) ?? null,
-    effect: (id: number, time: number) => this.historicalActivity?.effect?.(id, time) ?? null }
+    effect: (id: number, time: number) => this.historicalActivity?.effect?.(id, time) ?? null,
+    placementVisibility: (subject, time, before) => this.historicalActivity?.placementVisibility?.(subject, time, before) ?? 'unknown' }
     this.activityBase = context
     this.historicalActivity = createHistoricalActivityContext(this.replay, this.census, context)
     const portraits = new PixelPortrait({ residentDrawing: this.readResidentDrawing, placeDrawing: this.readPlaceDrawing,

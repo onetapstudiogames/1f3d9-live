@@ -1,4 +1,4 @@
-import type { ActivityContext, ActivityEntity } from './activity.ts'
+import type { ActivityContext, ActivityEntity, ActivityPlacementVisibility } from './activity.ts'
 import type { ReplayEvent, ReplayFile, Resident } from './city/types.ts'
 import { appliedMove } from './replay/index.ts'
 
@@ -7,6 +7,11 @@ const validId = (value: unknown): value is number => Number.isSafeInteger(value)
 const eventTime = (event: ReplayEvent): number => Date.parse(event.at)
 const latest = <T>(rows: readonly TimedValue<T>[], time: number): T | null => {
   let found: T | null = null; for (const row of rows) { if (row.at > time) break; found = row.value } return found
+}
+const latestThingBefore = (rows: readonly TimedValue<Readonly<{ entity: ActivityEntity; placeId: number | null }>>[], time: number) => {
+  let found: Readonly<{ entity: ActivityEntity; placeId: number | null }> | null = null
+  for (const row of rows) { if (row.at > time) break; if (row.at < time || row.value.placeId !== null) found = row.value }
+  return found
 }
 
 /** Adds time-aware public-record lookups without consulting current census positions for past events. */
@@ -22,8 +27,17 @@ export function createHistoricalActivityContext(replay: ReplayFile, census: read
   const publicRoom = (id: number | null): number | null => {
     if (id === null) return null
     const seen = new Set<number>(); let place = base.place(id)
-    while (place) { if (place.quiet || seen.has(place.id)) return null; seen.add(place.id); place = place.parentId === null ? null : base.place(place.parentId) }
-    return id
+    while (place) {
+      if (place.quiet || seen.has(place.id)) return null
+      seen.add(place.id)
+      if (place.parentId === null) return id
+      place = base.place(place.parentId)
+    }
+    return null
+  }
+  const visibility = (id: number | null): ActivityPlacementVisibility => {
+    if (id === null) return 'unknown'
+    return publicRoom(id) === null ? 'hidden' : 'public'
   }
   for (const [key, start] of Object.entries(replay.start)) {
     if (!start || !validId(start.place_id)) continue
@@ -67,5 +81,13 @@ export function createHistoricalActivityContext(replay: ReplayFile, census: read
     residentById: id => byResidentId.get(id) ?? base.residentById?.(id) ?? null,
     actorRoom: (actor, time) => publicRoom(latest(rooms.get(actor.trim()) ?? [], time)),
     thing: (id, time) => { const found = latest(things.get(id) ?? [], time); return found && publicRoom(found.placeId) !== null ? found : null },
-    effect: (id, time) => { const found = latest(effects.get(id) ?? [], time); return found && publicRoom(found.placeId) !== null ? found : null } })
+    effect: (id, time) => { const found = latest(effects.get(id) ?? [], time); return found && publicRoom(found.placeId) !== null ? found : null },
+    placementVisibility: (subject, time, before = false) => {
+      if (subject.type === 'actor') return visibility(latest(rooms.get(subject.actor.trim()) ?? [], time))
+      if (subject.type === 'thing') {
+        const rows = things.get(subject.id) ?? []; const found = before ? latestThingBefore(rows, time) : latest(rows, time)
+        return visibility(found?.placeId ?? null)
+      }
+      return visibility(latest(effects.get(subject.id) ?? [], time)?.placeId ?? null)
+    } })
 }

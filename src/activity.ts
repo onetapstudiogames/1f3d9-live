@@ -9,6 +9,8 @@ export type ActivityEntry = Readonly<{ key: string; changeId: number; time: numb
   text: string; entities: readonly ActivityEntity[]; cue?: ActivityCue; roomId?: number | null; anchorRoomId?: number | null;
   actorResidentId?: number | null; targetResidentId?: number | null; thingId?: number | null }>
 export type ActivityPlace = Readonly<{ id: number; name: string; parentId: number | null; quiet: boolean; hasDrawing: boolean }>
+export type ActivityPlacementSubject = Readonly<{ type: 'actor'; actor: string } | { type: 'thing' | 'effect'; id: number }>
+export type ActivityPlacementVisibility = 'public' | 'hidden' | 'unknown'
 export type ActivityContext = Readonly<{
   resident(actor: string): ActivityEntity | null
   place(id: number): ActivityPlace | null
@@ -17,6 +19,7 @@ export type ActivityContext = Readonly<{
   residentById?(id: number): ActivityEntity | null
   thing?(id: number, time: number): Readonly<{ entity: ActivityEntity; placeId: number | null }> | null
   effect?(id: number, time: number): Readonly<{ placeId: number | null; thingId?: number | null }> | null
+  placementVisibility?(subject: ActivityPlacementSubject, time: number, before?: boolean): ActivityPlacementVisibility
 }>
 export type ActivityState = Readonly<{ entries: readonly ActivityEntry[]; highWater: number; seenKeys?: readonly string[] }>
 export type ActivityFilter = 'all' | 'chats'
@@ -117,6 +120,11 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
   const status = safe(detail.status); const action = safe(detail.action)
   let thingId = validId(detail.thing_id) ? Number(detail.thing_id) : validId(detail.source_thing_id) ? Number(detail.source_thing_id) :
     detail.asset_type === 'thing' && validId(detail.asset_id) ? Number(detail.asset_id) : detail.type === 'thing' && validId(detail.id) ? Number(detail.id) : null
+  const actorPlacement = context.placementVisibility?.({ type: 'actor', actor: actorName! }, time) ?? 'unknown'
+  const thingPlacement = thingId === null ? 'unknown' : context.placementVisibility?.({ type: 'thing', id: thingId }, time, event.kind === 'thing_withdrawn') ?? 'unknown'
+  const effectPlacement = validId(detail.effect_id) ? context.placementVisibility?.({ type: 'effect', id: Number(detail.effect_id) }, time) ?? 'unknown' : 'unknown'
+  const placementSensitive = event.kind === 'action' || event.kind === 'resident_edited' || event.kind.startsWith('thing_') || event.kind.startsWith('effect_')
+  if (thingPlacement === 'hidden' || effectPlacement === 'hidden' || (placementSensitive && actorPlacement === 'hidden')) return null
   const knownThing = thingId === null ? null : context.thing?.(thingId, time) ?? null
   const directRoomId = validId(detail.place_id) ? Number(detail.place_id) : event.kind === 'place_created' && validId(detail.parent_id) ? Number(detail.parent_id) :
     detail.asset_type === 'place' && validId(detail.asset_id) ? Number(detail.asset_id) : null
