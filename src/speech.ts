@@ -3,17 +3,23 @@ import type { ReplayEvent, ReplayPlace } from './city/types.ts'
 export type SpeechBubble = Readonly<{ text: string; cut: boolean; placeId: number | null; noteId?: number; startedAt: number;
   charInterval: number; expiresAt: number }>
 export type BubbleShape = 'plain' | 'asking' | 'telling'
-export type BubbleRect = Readonly<{ x: number; y: number; width: number; height: number; color: number; alpha: 1 }>
-export type TypedBubbleFrame = Readonly<{ text: string; revealed: string; firstLine: number; complete: boolean; cut: boolean }>
-export type GrowingBubbleFrame = Readonly<{ text: string; revealed: string; lines: readonly string[]; complete: boolean;
-  cut: boolean; width: number; height: number; fontSize: 14; lineHeight: 20 }>
+export type SpeechPageMoment = Readonly<{ lines: readonly string[]; start: number; revealEnd: number; end: number }>
+export type PagedBubbleFrame = Readonly<{ text: string; revealed: string; lines: readonly string[]; pages: readonly (readonly string[])[];
+  page: number; pageCount: number; complete: boolean; pageComplete: boolean; cut: boolean; width: number; height: number;
+  fontSize: 14; lineHeight: 20; effectiveCharInterval: number }>
 
 const TYPE_INTERVAL_MS = 34
 const TYPE_INTERVAL_FLOOR_MS = 18
 const BASE_HOLD_MS = 5_000
 const HOLD_FLOOR_MS = 1_500
 const READ_AFTER_TYPE_MS = 2_500
+const MAX_TOTAL_MS = 15_000
 const BASE_SPEED = 120
+const MAX_WIDTH = 320
+const HORIZONTAL_PADDING = 12
+const VERTICAL_PADDING = 10
+const LINE_HEIGHT = 20
+const TARGET_PAGE_HOLD_MS = 2_500
 const holdScale = (speed: number): number => Number.isFinite(speed) && speed > 0 ? BASE_SPEED / speed : 1
 
 export function typingInterval(speed: number = BASE_SPEED): number {
@@ -24,7 +30,7 @@ export function bubbleDuration(speed: number = BASE_SPEED, characters = 0): numb
   const length = Number.isFinite(characters) ? Math.max(0, Math.floor(characters)) : 0
   const scaledBase = Math.max(HOLD_FLOOR_MS, BASE_HOLD_MS * holdScale(speed))
   const readAfter = Math.max(HOLD_FLOOR_MS, READ_AFTER_TYPE_MS * holdScale(speed))
-  return Math.max(scaledBase, length * typingInterval(speed) + readAfter)
+  return Math.min(MAX_TOTAL_MS, Math.max(scaledBase, length * typingInterval(speed) + readAfter))
 }
 
 export function bubbleFor(event: ReplayEvent, shownAt: number, speed: number = BASE_SPEED): SpeechBubble | null {
@@ -37,65 +43,83 @@ export function bubbleFor(event: ReplayEvent, shownAt: number, speed: number = B
     charInterval: typingInterval(speed), expiresAt: shownAt + bubbleDuration(speed, splitGraphemes(event.line).length) })
 }
 
-export function typedBubbleFrame(bubble: SpeechBubble, now: number, maxWidth = 210, visibleLines = 4,
-  measure: (text: string) => number = readableTextWidth): TypedBubbleFrame {
-  const safeWidth = Math.max(1, maxWidth)
-  const safeLines = Math.max(1, Math.floor(visibleLines))
-  const characters = splitGraphemes(bubble.text)
-  const count = now < bubble.startedAt ? 0 : Math.min(characters.length,
-    Math.floor((now - bubble.startedAt) / bubble.charInterval) + 1)
-  const visible = characters.slice(0, count).join('')
-  const lines = wrapLines(visible, safeWidth, measure)
-  const firstLine = Math.max(0, lines.length - safeLines)
-  return Object.freeze({ text: lines.slice(firstLine).join('\n'), revealed: visible, firstLine,
-    complete: count === characters.length, cut: bubble.cut })
+export function speechPagePlan(bubble: SpeechBubble, availableWidth = MAX_WIDTH, availableHeight = 200,
+  measure: (text: string) => number = readableTextWidth): readonly SpeechPageMoment[] {
+  const width = Math.min(MAX_WIDTH, Math.max(1, finiteFloor(availableWidth, MAX_WIDTH)))
+  const height = Math.max(VERTICAL_PADDING * 2 + LINE_HEIGHT, finiteFloor(availableHeight, 200))
+  const lines = wrapGrowingLines(bubble.text, Math.max(1, width - HORIZONTAL_PADDING * 2), measure)
+  const linesPerPage = Math.max(1, Math.floor((height - VERTICAL_PADDING * 2) / LINE_HEIGHT))
+  const pages: string[][] = []
+  for (let index = 0; index < lines.length; index += linesPerPage) pages.push(lines.slice(index, index + linesPerPage))
+  if (pages.length === 0) pages.push([])
+  const duration = Math.max(1, bubble.expiresAt - bubble.startedAt)
+  const counts = pages.map(page => splitGraphemes(page.join('')).length)
+  const totalCharacters = Math.max(1, counts.reduce((sum, count) => sum + count, 0))
+  const reservedHold = Math.min(duration * .5, pages.length * TARGET_PAGE_HOLD_MS)
+  const availableTypingBudget = Math.max(0, duration - reservedHold)
+  const typingBudget = Math.min(availableTypingBudget, totalCharacters * bubble.charInterval)
+  const holdBudget = duration - typingBudget
+  let cursor = bubble.startedAt
+  return Object.freeze(pages.map((lines, index) => {
+    const typing = typingBudget * counts[index]! / totalCharacters
+    const end = index === pages.length - 1 ? bubble.expiresAt : cursor + typing + holdBudget / pages.length
+    const moment = Object.freeze({ lines: Object.freeze(lines), start: cursor, revealEnd: cursor + typing, end })
+    cursor = end
+    return moment
+  }))
 }
 
-const GROWING_BUBBLE_MAX_WIDTH = 320
-const GROWING_BUBBLE_HORIZONTAL_PADDING = 12
-const GROWING_BUBBLE_VERTICAL_PADDING = 10
-
-/** Lays out every revealed grapheme at a fixed reading size. The card width is capped at
- * 320px and otherwise follows the available viewport; its height adds 20px per line. */
-export function growingBubbleFrame(bubble: SpeechBubble, now: number, availableWidth = GROWING_BUBBLE_MAX_WIDTH,
-  measure: (text: string) => number = readableTextWidth): GrowingBubbleFrame {
-  const finiteWidth = Number.isFinite(availableWidth) ? Math.floor(availableWidth) : GROWING_BUBBLE_MAX_WIDTH
-  const width = Math.min(GROWING_BUBBLE_MAX_WIDTH, Math.max(1, finiteWidth))
-  const characters = splitGraphemes(bubble.text)
-  const count = now < bubble.startedAt ? 0 : Math.min(characters.length,
-    Math.floor((now - bubble.startedAt) / bubble.charInterval) + 1)
+export function pagedBubbleFrame(bubble: SpeechBubble, now: number, availableWidth = MAX_WIDTH, availableHeight = 200,
+  measure: (text: string) => number = readableTextWidth, existingPlan?: readonly SpeechPageMoment[]): PagedBubbleFrame {
+  const width = Math.min(MAX_WIDTH, Math.max(1, finiteFloor(availableWidth, MAX_WIDTH)))
+  const plan = existingPlan ?? speechPagePlan(bubble, width, availableHeight, measure)
+  const matchingPage = plan.findIndex(item => now < item.end)
+  const page = now < bubble.startedAt ? 0 : matchingPage < 0 ? plan.length - 1 : matchingPage
+  const moment = plan[page]!
+  const pageText = moment.lines.join('')
+  const characters = splitGraphemes(pageText)
+  const revealSpan = Math.max(0, moment.revealEnd - moment.start)
+  const effectiveCharInterval = characters.length > 0 ? revealSpan / characters.length : 0
+  const count = now < moment.start ? 0 : now >= moment.revealEnd || effectiveCharInterval === 0 ? characters.length
+    : Math.min(characters.length, Math.floor((now - moment.start) / effectiveCharInterval) + 1)
   const revealed = characters.slice(0, count).join('')
-  const lines = wrapGrowingLines(revealed, Math.max(1, width - GROWING_BUBBLE_HORIZONTAL_PADDING * 2), measure)
-  return Object.freeze({ text: revealed, revealed, lines: Object.freeze(lines), complete: count === characters.length,
-    cut: bubble.cut, width, height: GROWING_BUBBLE_VERTICAL_PADDING * 2 + lines.length * 20, fontSize: 14, lineHeight: 20 })
+  const visibleLines = wrapGrowingLines(revealed, Math.max(1, width - HORIZONTAL_PADDING * 2), measure)
+  return Object.freeze({ text: displayLines(visibleLines), revealed, lines: Object.freeze(visibleLines),
+    pages: Object.freeze(plan.map(item => item.lines)), page, pageCount: plan.length,
+    complete: page === plan.length - 1 && count === characters.length, pageComplete: count === characters.length, cut: bubble.cut,
+    width, height: VERTICAL_PADDING * 2 + Math.max(1, visibleLines.length) * LINE_HEIGHT,
+    fontSize: 14, lineHeight: LINE_HEIGHT, effectiveCharInterval })
+}
+
+function finiteFloor(value: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.floor(value) : fallback
 }
 
 function wrapGrowingLines(text: string, maxWidth: number, measure: (text: string) => number): string[] {
   if (!text) return []
   const lines: string[] = []
-  const appendOversized = (chunk: string, initial: string): string => {
-    let line = initial
-    for (const grapheme of splitGraphemes(chunk)) {
-      if (line && measure(line + grapheme) > maxWidth) {
-        lines.push(line)
-        line = grapheme
-      } else line += grapheme
-    }
-    return line
-  }
-  for (const paragraph of text.split('\n')) {
-    if (!paragraph) { lines.push(''); continue }
+  const paragraphs = text.split('\n')
+  for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
     let line = ''
     for (const chunk of paragraph.match(/[^\S\n]+|\S+/gu) ?? []) {
-      if (measure(chunk) > maxWidth) line = appendOversized(chunk, line)
-      else if (line && measure(line + chunk) > maxWidth) {
-        lines.push(line)
-        line = chunk
-      } else line += chunk
+      if (measure(chunk) <= maxWidth) {
+        if (line && chunk.trim() && measure(line + chunk) > maxWidth) { lines.push(line); line = chunk }
+        else line += chunk
+        continue
+      }
+      for (const grapheme of splitGraphemes(chunk)) {
+        if (line && measure(line + grapheme) > maxWidth) { lines.push(line); line = grapheme }
+        else line += grapheme
+      }
     }
-    lines.push(line)
+    if (paragraphIndex < paragraphs.length - 1) line += '\n'
+    if (line || paragraphIndex < paragraphs.length - 1) lines.push(line)
   }
   return lines
+}
+
+function displayLines(lines: readonly string[]): string {
+  return lines.map((line, index) => line + (index < lines.length - 1 && !line.endsWith('\n') ? '\n' : '')).join('')
 }
 
 export function bubbleShape(placeId: number | null, places: readonly ReplayPlace[]): BubbleShape {
@@ -103,43 +127,6 @@ export function bubbleShape(placeId: number | null, places: readonly ReplayPlace
   if (place?.id === 249 && place.name === 'the asking room') return 'asking'
   if (place?.id === 422 && place.name === 'the telling room') return 'telling'
   return 'plain'
-}
-
-export function bubbleRects(shape: BubbleShape, width: number, height: number): readonly BubbleRect[] {
-  const w = Math.max(12, Math.round(width)); const h = Math.max(12, Math.round(height))
-  const fill = 0xfff3d6; const edge = 0x6c5838
-  const cells: BubbleRect[] = shape === 'telling'
-    ? [{ x: 0, y: 0, width: w, height: h, color: fill, alpha: 1 }, { x: 0, y: h - 3, width: w, height: 3, color: edge, alpha: 1 }]
-    : [{ x: 3, y: 0, width: w - 6, height: h, color: fill, alpha: 1 },
-      { x: 0, y: 3, width: w, height: h - 6, color: fill, alpha: 1 },
-      ...(shape === 'asking' ? [{ x: 8, y: h, width: 6, height: 5, color: fill, alpha: 1 } as const,
-        { x: 13, y: h + 5, width: 4, height: 4, color: fill, alpha: 1 } as const] : [])]
-  return Object.freeze(cells.map(cell => Object.freeze(cell)))
-}
-
-export function wrapLines(text: string, maxWidth: number, measure: (text: string) => number): string[] {
-  if (!text) return []
-  const lines: string[] = []
-  for (const paragraph of text.split('\n')) {
-    if (!paragraph) { lines.push(''); continue }
-    let line = ''
-    const chunks = paragraph.match(/^\S+|[^\S\n]+\S+|[^\S\n]+$/gu) ?? []
-    for (const chunk of chunks) {
-      if (line && measure(line + chunk) > maxWidth && chunk.trim().length > 0) {
-        lines.push(line)
-        line = chunk
-      } else {
-        line += chunk
-      }
-    }
-    if (line) lines.push(line)
-  }
-  return lines
-}
-
-export function bubbleFitScale(lines: readonly string[], maxWidth: number, measure: (text: string) => number): number {
-  const widest = Math.max(0, ...lines.map(measure))
-  return widest > maxWidth ? maxWidth / widest : 1
 }
 
 function readableTextWidth(text: string): number {

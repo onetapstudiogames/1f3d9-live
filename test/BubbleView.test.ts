@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { BubbleView, updateSpeechOverflow } from '../src/scenes/BubbleView.ts'
+import { BubbleView, positionSpeechLayer } from '../src/scenes/BubbleView.ts'
 import { bubbleFor } from '../src/speech.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
 
 class StubElement {
   className = ''
-  dataset: Record<string, string> = {}
-  textContent = ''
+  datasetWrites = 0
+  textWrites = 0
+  private content = ''
+  dataset: Record<string, string> = new Proxy({}, { set: (target, key, value) => {
+    this.datasetWrites += 1; Reflect.set(target, key, value); return true
+  }, deleteProperty: (target, key) => { this.datasetWrites += 1; return Reflect.deleteProperty(target, key) } })
+  get textContent(): string { return this.content }
+  set textContent(value: string) { this.textWrites += 1; this.content = value }
   children: StubElement[] = []
   offsetLeft = 12
   offsetTop = 20
@@ -16,21 +22,31 @@ class StubElement {
   clientHeight = 100
   intrinsicHeight = 0
   removed = false
+  styleWrites = 0
+  rectReads = 0
   readonly values = new Map<string, string>()
-  style = Object.assign(this.values, {
-    display: '', left: '', top: '', width: '', height: '', minHeight: '', opacity: '', font: '', lineHeight: '',
-    setProperty: (name: string, value: string) => { this.values.set(name, value) },
+  private readonly styleTarget = Object.assign(this.values, {
+    display: '', left: '', top: '', width: '', height: '', minHeight: '', opacity: '', font: '', lineHeight: '', boxSizing: '',
+    setProperty: (name: string, value: string) => {
+      this.styleWrites += 1; this.values.set(name, value)
+    },
+    getPropertyValue: (name: string) => this.values.get(name) ?? '',
   })
+  style = new Proxy(this.styleTarget, { set: (target, key, value) => {
+    this.styleWrites += 1
+    return Reflect.set(target, key, value)
+  } })
   append(child: StubElement): void { this.children.push(child) }
   remove(): void { this.removed = true }
   getBoundingClientRect(): DOMRect {
+    this.rectReads += 1
     const top = Number.parseFloat(this.style.top || String(this.offsetTop))
     const height = this.intrinsicHeight || Number.parseFloat(this.style.height || this.style.minHeight || String(this.clientHeight))
     return { bottom: top + height, height } as DOMRect
   }
 }
 
-test('BubbleView reuses safe DOM text and reports page overflow', t => {
+test('BubbleView reuses safe DOM text and keeps paged speech in the room', t => {
   const previous = globalThis.document
   const app = new StubElement()
   const layer = new StubElement()
@@ -52,29 +68,40 @@ test('BubbleView reuses safe DOM text and reports page overflow', t => {
   const bubble = bubbleFor(event, 0)!
   const view = new BubbleView(4)
   const card = layer.children[0]!
-  card.intrinsicHeight = 400
-  // A font change can make native layout taller than the initial measurement.
-  // The estimate would fit above; the rendered card must move below the speaker.
+  card.intrinsicHeight = 40
   view.update({ ...bubble, text: 'brief' }, { x: 100, y: 240 }, { width: 200, height: 300 }, 'plain', bubble.expiresAt - 1)
-  assert.equal(card.style.top, '292px')
+  assert.ok(Number.parseFloat(card.style.top) + 40 <= 300)
   const frame = view.update(bubble, { x: 100, y: 40 }, { width: 200, height: 100 }, 'plain', bubble.expiresAt - 1)!
-  assert.equal(card.children[0]!.textContent, frame.revealed)
+  assert.equal(card.children[0]!.textContent, frame.text)
   assert.equal(card.children[0]!.children.length, 0)
   assert.equal(card.dataset['residentId'], '4')
   assert.equal(card.dataset['noteId'], '7')
   assert.equal(card.dataset['complete'], 'true')
-  assert.equal(card.dataset['revealed'], event.line)
-  assert.ok(card.children[0]!.textContent.includes('<b>'))
+  assert.equal(card.dataset['pageComplete'], 'true')
+  assert.equal(card.dataset['revealed'], frame.revealed)
   assert.equal(card.style.width, `${frame.width}px`)
   assert.equal(card.style.height, 'auto')
   assert.equal(card.style.minHeight, `${frame.height}px`)
-  assert.equal(card.style.top, '92px')
-  assert.ok(updateSpeechOverflow() > 0)
-  assert.equal(root.dataset['tallSpeech'], 'true')
+  assert.ok(Number.parseFloat(card.style.top) + 40 <= 100)
+  const textWrites = card.children[0]!.textWrites
+  const datasetWrites = card.datasetWrites
+  const styleWrites = card.styleWrites
+  const rectReads = card.rectReads
+  view.update(bubble, { x: 100, y: 40 }, { width: 200, height: 100 }, 'plain', bubble.expiresAt - 1)
+  assert.equal(card.children[0]!.textWrites, textWrites)
+  assert.equal(card.datasetWrites, datasetWrites)
+  assert.equal(card.styleWrites, styleWrites)
+  assert.equal(card.rectReads, rectReads)
+  assert.equal(positionSpeechLayer(), true)
+  assert.equal(layer.style.left, '12px')
+  const layerWrites = layer.styleWrites
+  assert.equal(positionSpeechLayer(), true)
+  assert.equal(layer.styleWrites, layerWrites)
   view.update(null, { x: 0, y: 0 }, { width: 200, height: 100 }, 'plain', 0)
   assert.equal(card.style.display, 'none')
-  assert.equal(updateSpeechOverflow(), 0)
-  assert.equal(root.dataset['tallSpeech'], 'false')
+  layer.style.left = 'unchanged'
+  assert.equal(positionSpeechLayer(), false)
+  assert.equal(layer.style.left, 'unchanged')
   view.destroy()
   assert.equal(card.removed, true)
 })

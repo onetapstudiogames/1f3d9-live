@@ -30,9 +30,9 @@ test('the tail remains inset on the card edge when the speaker is beyond a clamp
   assert.equal(right.tailX, 304)
 })
 
-test('a card taller than the viewport starts below the speaker and extends the page', () => {
-  const position = positionBubbleCard({ x: 160, y: 80 }, { width: 120, height: 400 },
+test('a room-sized page remains within the room after resize', () => {
+  const position = positionBubbleCard({ x: 160, y: 80 }, { width: 120, height: 224 },
     { width: 320, height: 240 }, 48)
-  assert.deepEqual(position, { x: 100, y: 128, tailX: 160, tailY: 128, side: 'below' })
-  assert.ok(position.y + 400 > 240)
+  assert.equal(position.y, 8)
+  assert.ok(position.y + 224 <= 240)
 })

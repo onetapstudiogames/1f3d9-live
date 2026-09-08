@@ -33,7 +33,7 @@ function activityWindowEnd(timeline: readonly ReplayEvent[]): number {
   for (let index = 0; index < recordedTimes.length - 1; index += 1) {
     if (recordedTimes[index]! - recordedTimes[index + 1]! <= RECENT_ACTIVITY_MS) return recordedTimes[index]!
   }
-  return recordedTimes.at(-1) ?? Number.NEGATIVE_INFINITY
+  return recordedTimes[0] ?? Number.NEGATIVE_INFINITY
 }
 
 function recordedPlaceId(event: ReplayEvent): number | null {

@@ -5,7 +5,7 @@ import test from 'node:test'
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
 import { roomContains } from '../src/ground/room-shape.ts'
-import { createResidents, retimeResidentWalks, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
+import { blocksLiveDelivery, createResidents, retimeResidentWalks, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
 import type { ThingReservations } from '../src/things.ts'
 import { followActivity, reappearanceAlpha } from '../src/viewer.ts'
 
@@ -340,6 +340,45 @@ test('expired bubble releases the next queued note and state remains immutable',
   assert.equal(second.residents[7]!.bubble?.text, 'one')
   assert.equal(third.residents[7]!.bubble?.text, 'two')
   assert.equal(state.residents[7]!.bubble, null)
+})
+
+test('a held speech card and its waiting records do not block a later resident change', () => {
+  let state = createResidents(replay(), census, layout)
+  const longCard = event('note', { place_id: 2 }, 'A long card remains visible while the live feed advances.')
+  const waitingMove = { ...event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 }),
+    change_id: '2', event_id: 2 }
+  state = stepResidents(state, [longCard, waitingMove], 0, 1_000, layout)
+  assert.equal(state.pending, true)
+  assert.equal(blocksLiveDelivery(state), false)
+
+  const laterChange = { ...event('note', { place_id: 2 }, 'later'), actor: 'still', change_id: '3', event_id: 3 }
+  let queued: readonly ReplayEvent[] = [laterChange]
+  const delivered: string[] = []
+  if (!blocksLiveDelivery(state)) {
+    const incoming = queued
+    queued = []
+    delivered.push(...incoming.map(row => row.change_id))
+    state = stepResidents(state, incoming, 0, 2_000, layout)
+  }
+  if (!blocksLiveDelivery(state) && queued.length) delivered.push(...queued.map(row => row.change_id))
+
+  assert.equal(state.residents[7]!.bubble?.text, longCard.line)
+  assert.equal(state.residents[8]!.bubble?.text, 'later')
+  assert.deepEqual(delivered, ['3'])
+})
+
+test('active walks and effects still block live delivery', () => {
+  let state = createResidents(replay(), census, layout)
+  state = stepResidents(state, [
+    event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 }),
+    { ...event('note', { place_id: 1 }, 'after walking'), change_id: '2', event_id: 2 },
+  ], 0, 1_000, layout)
+  assert.equal(blocksLiveDelivery(state), true)
+
+  const inventing = stepResidents(createResidents(replay(), census, layout), [
+    event('kind_invented', { kind_id: 10, name: 'lamp moss' }),
+  ], 0, 1_000, layout)
+  assert.equal(blocksLiveDelivery(inventing), true)
 })
 
 test('real replay finishes with every mapped resident in its last valid recorded room', () => {

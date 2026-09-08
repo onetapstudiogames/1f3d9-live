@@ -110,15 +110,9 @@ body {
 }
 .room-speech-card[data-side="above"]::after { bottom: -4px; }
 .room-speech-card[data-side="below"]::after { top: -4px; }
-.room-speech-card[data-shape="telling"] { border-bottom: 3px solid #6c5838; }
-
-/* A very long note stays in one card. Only this case extends the document;
-   the canvas keeps its viewport-sized standing band as the words arrive. */
-html[data-tall-speech="true"] { overflow-y: auto; }
-html[data-tall-speech="true"] body { overflow: visible; }
+.room-speech-card[data-shape="telling"] { box-shadow: inset 0 -3px 0 #6c5838, 0 1px 0 1px #6c5838; }
 
 #room-footer {
-  transform: translateY(var(--speech-overflow, 0px));
   display: flex;
   align-items: center;
   gap: 12px;

@@ -618,6 +618,15 @@ function isPending(resident: ResidentState): boolean {
     || resident.blockedAttempt != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
 }
 
+// Live feed delivery waits only for presentation that is already changing the
+// recorded picture. Speech and queued turns keep their per-resident order, but
+// cannot prevent a different resident's newly recorded turn from entering.
+export function blocksLiveDelivery(state: Simulation): boolean {
+  return Object.values(state.residents).some(resident => resident.walking || resident.sparkle !== null
+    || resident.showingNotice != null || resident.blockedAttempt != null || resident.transferUntil !== null
+    || resident.inventionUntil != null || resident.agreementUntil != null)
+}
+
 function handshakeResident(row: ResidentState, drawn: boolean): HandshakeResident {
   return Object.freeze({ id: row.id, handle: row.handle, placeId: row.placeId, x: row.x, y: row.y, visible: row.visible && drawn,
     destinationId: row.destinationId, walking: row.walking,

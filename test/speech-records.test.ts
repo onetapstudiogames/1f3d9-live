@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 import type { ReplayFile, ReplayPlace } from '../src/city/types.ts'
-import { bubbleFor, bubbleShape, typedBubbleFrame } from '../src/speech.ts'
+import { bubbleFor, bubbleShape, pagedBubbleFrame, speechPagePlan } from '../src/speech.ts'
 
 const read = (name: string): string => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')
 const replay = JSON.parse(read('replay-24h.json')) as ReplayFile
@@ -13,10 +13,10 @@ test('hard line breaks and empty lines remain visible when no soft wrapping is n
   const text = 'left\n\nright\nlast'
   const bubble = bubbleFor({ actor: 'reader', at: '2026-09-07T00:00:00Z', change_id: '1',
     event_id: 1, kind: 'note', detail: { place_id: 3 }, line: text, line_cut: false }, 0)!
-  const frame = typedBubbleFrame(bubble, bubble.expiresAt - 1)
-  assert.equal(frame.text, text)
+  const frame = pagedBubbleFrame(bubble, bubble.expiresAt - 1, 320, 200)
+  assert.equal(frame.pages.flat().join(''), text)
   assert.equal(frame.revealed, text)
-  assert.equal(frame.firstLine, 0)
+  assert.equal(frame.page, 0)
 })
 
 test('public map answers verify both named speech rooms and match the browser fixtures exactly', () => {
@@ -35,7 +35,7 @@ test('public map answers verify both named speech rooms and match the browser fi
   }
 })
 
-test('every saved note excerpt survives typing and scrolling with its exact words and cut flag', () => {
+test('every saved note excerpt survives paged typing with its exact words and cut flag', () => {
   const notes = replay.timeline.filter(row => row.kind === 'note' && typeof row.line === 'string' && row.line.length > 0)
   assert.ok(notes.length > 0)
   assert.ok(notes.some(row => row.detail.place_id === 249))
@@ -44,18 +44,12 @@ test('every saved note excerpt survives typing and scrolling with its exact word
     assert.ok(bubble)
     assert.equal(bubble.text, note.line)
     assert.equal(bubble.cut, note.line_cut === true)
-    const characters = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(note.line!)]
-    const recovered = new Map<number, string>()
-    for (let count = 0; count < characters.length; count += 1) {
-      const frame = typedBubbleFrame(bubble, bubble.startedAt + count * bubble.charInterval + 0.01)
-      const lines = frame.text.split('\n')
-      assert.ok(lines.length <= 4)
-      lines.forEach((line, index) => recovered.set(frame.firstLine + index, line))
-    }
-    assert.equal([...recovered.values()].join(''), note.line!.replaceAll('\n', ''), `recorded note ${note.event_id}`)
-    const final = typedBubbleFrame(bubble, bubble.expiresAt - 1)
+    const plan = speechPagePlan(bubble, 320, 200)
+    assert.equal(plan.flatMap(page => page.lines).join(''), note.line, `recorded note ${note.event_id}`)
+    assert.ok(plan.every(page => page.start < page.revealEnd && page.revealEnd < page.end))
+    const final = pagedBubbleFrame(bubble, bubble.expiresAt - 1, 320, 200)
     assert.equal(final.complete, true)
-    assert.equal(final.revealed, note.line)
-    assert.ok(bubble.expiresAt - bubble.startedAt - characters.length * bubble.charInterval >= 1_500)
+    assert.equal(final.page, final.pageCount - 1)
+    assert.ok(bubble.expiresAt - bubble.startedAt <= 15_000)
   }
 })

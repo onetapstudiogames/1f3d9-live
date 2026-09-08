@@ -80,6 +80,15 @@ test('two latest timestamps within thirty minutes form a valid newest cluster', 
   assert.equal(busiestRoom(places, [], timeline), 3)
 })
 
+test('a sparse city anchors activity to its newest room', () => {
+  const places = [place(1, null), place(2, 1), place(3, 1)]
+  const timeline = [
+    recorded(1, '2026-09-08T10:00:00Z', 'note', { place_id: 2 }),
+    recorded(2, '2026-09-08T12:00:00Z', 'note', { place_id: 3 }),
+  ]
+  assert.equal(busiestRoom(places, [], timeline), 3)
+})
+
 test('a quiet child does not turn its public parent into an ineligible container', () => {
   const places = [place(1, null), place(2, 1, true), place(3, null)]
   assert.equal(busiestRoom(places, [resident(1, 1), resident(2, 1), resident(3, 3)], []), 1)

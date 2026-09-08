@@ -5,7 +5,7 @@ import test from 'node:test'
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
-import { createHandovers, stepHandovers } from '../src/handovers.ts'
+import { blocksLiveHandoverDelivery, createHandovers, stepHandovers } from '../src/handovers.ts'
 import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
 import { createThings, stepThings } from '../src/things.ts'
 
@@ -71,6 +71,32 @@ test('a notice may arrive before its action without holding the replay clock', (
   const first = stepHandovers(createHandovers([notice, action]), [notice], residents, layout, 100)
   assert.equal(first.pending, false)
   assert.deepEqual(first.floorEvents, [])
+})
+
+test('a carry queued behind a speech card does not block live delivery', () => {
+  const note = { ...row('32', 'note', { place_id: 2 }), line: 'keep reading' }
+  const notice = row('33', 'thing_moved', { mode: 'carry', thing_id: 47, action_id: 10, resident_id: 7, from_place_id: 2, place_id: 1 })
+  const action = row('34', 'action', { mode: 'carry', action: 'move', status: 'applied', thing_id: 47, action_id: 10, from_place_id: 2, to_place_id: 1 })
+  const residents = stepResidents(createResidents(replay([note, notice, action]), census, layout), [note, action], 0, 100, layout)
+  const frame = stepHandovers(createHandovers([notice, action]), [notice, action], residents, layout, 100)
+
+  assert.equal(residents.residents[7]?.bubble?.text, 'keep reading')
+  assert.equal(frame.pending, true)
+  assert.deepEqual(frame.motions, [])
+  assert.equal(blocksLiveHandoverDelivery(frame), false)
+})
+
+test('an active carried walk and transfer float block live delivery', () => {
+  const notice = row('35', 'thing_moved', { mode: 'carry', thing_id: 48, action_id: 11, resident_id: 7, from_place_id: 2, place_id: 1 })
+  const action = row('36', 'action', { mode: 'carry', action: 'move', status: 'applied', thing_id: 48, action_id: 11, from_place_id: 2, to_place_id: 1 })
+  const carrying = stepResidents(createResidents(replay([notice, action]), census, layout), [action], 0, 100, layout)
+  const carryFrame = stepHandovers(createHandovers([notice, action]), [notice, action], carrying, layout, 100)
+  assert.equal(blocksLiveHandoverDelivery(carryFrame), true)
+
+  const gift = row('37', 'transfer', { mode: 'gift', transfer_id: 37, asset_id: 49, asset_type: 'thing', resident_id: 8, place_id: 2 })
+  const transferring = stepResidents(createResidents(replay([gift]), census, layout), [gift], 0, 100, layout)
+  const floatFrame = stepHandovers(createHandovers([]), [], transferring, layout, 100)
+  assert.equal(blocksLiveHandoverDelivery(floatFrame), true)
 })
 
 test('gift starts when its queue turn arrives, keeps floor state fixed, and holds both partners', () => {

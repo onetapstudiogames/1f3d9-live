@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import type { Drawing } from '../city/types.ts'
 import { thingDrawingCells, thingParticles } from '../thing-art.ts'
 import { effectFrame, type ThingState } from '../things.ts'
-import { ROOM_THING_SIZE, roomFigureStyle, roomNameStyle } from '../room-appearance.ts'
+import { ROOM_THING_SIZE, roomFigureStyle, roomNameStyle, roomTextResolution } from '../room-appearance.ts'
 
 export class ThingView {
   readonly sprite: Phaser.GameObjects.Image
@@ -26,6 +26,8 @@ export class ThingView {
   }
 
   update(thing: ThingState, label: string | null, zoom: number, now: number, carried = false, labelClear = true): void {
+    const resolution = roomTextResolution(window.devicePixelRatio)
+    if (this.name.style.resolution !== resolution) this.name.setResolution(resolution)
     const frame = thing.effect ? effectFrame(thing.effect, now) : null
     const visible = thing.visible && !carried && !frame?.crumbs
     const lift = frame?.puff ? Math.round(12 * (1 - frame.progress)) : 0

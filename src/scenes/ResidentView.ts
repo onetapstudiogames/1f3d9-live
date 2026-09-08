@@ -11,10 +11,15 @@ import { residentBobOffset } from '../resident-bob.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
 import { lockCells } from '../laws.ts'
 import { reappearanceAlpha } from '../viewer.ts'
-import { ROOM_RESIDENT_SIZE, roomFigureStyle, roomNameStyle } from '../room-appearance.ts'
+import { ROOM_RESIDENT_SIZE, roomFigureStyle, roomNameStyle, roomTextResolution } from '../room-appearance.ts'
+import { residentOverlayDistance, residentOverlayRects } from '../resident-overlays.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
 export type ResidentLabelBounds = Readonly<{ x: number; y: number; width: number; height: number }>
+
+const SPOTLIGHT_CELLS = residentOverlayRects(spotlightCells())
+const BALLOT_CELLS = residentOverlayRects(ballotCells())
+const CONFETTI_CELLS = residentOverlayRects(confettiCells())
 
 export class ResidentView {
   readonly sprite: Phaser.GameObjects.Image
@@ -42,8 +47,10 @@ export class ResidentView {
     this.name.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
     this.sparkle = scene.add.graphics().setDepth(102).setVisible(false)
     this.sparkle.fillStyle(0xffe69a, 1)
-    for (const [x, y] of [[-25, -10], [21, -19], [18, 13]] as const) {
-      this.sparkle.fillRect(x, y - 3, 3, 9).fillRect(x - 3, y, 9, 3)
+    for (const [sourceX, sourceY] of [[-25, -10], [21, -19], [18, 13]] as const) {
+      const x = residentOverlayDistance(sourceX); const y = residentOverlayDistance(sourceY)
+      const short = residentOverlayDistance(3); const long = residentOverlayDistance(9)
+      this.sparkle.fillRect(x, y - short, short, long).fillRect(x - short, y, long, short)
     }
     this.bubble = new BubbleView(resident.id)
     this.zzz = scene.add.graphics().setDepth(102).setVisible(false)
@@ -53,7 +60,10 @@ export class ResidentView {
     }
   }
 
-  update(resident: ResidentState, now: number, asleep = false, places: readonly ReplayPlace[] = []): VisibleSpeech | null {
+  update(resident: ResidentState, now: number, asleep = false, places: readonly ReplayPlace[] = [],
+    viewport: Readonly<{ width: number; height: number }> = { width: 0, height: 0 }): VisibleSpeech | null {
+    const resolution = roomTextResolution(window.devicePixelRatio)
+    if (this.name.style.resolution !== resolution) this.name.setResolution(resolution)
     const currentTexture = this.sprite.texture.key
     if (!currentTexture.endsWith('-asleep')) this.standingTexture = currentTexture
     const sleeping = asleep && !resident.walking && resident.bubble === null
@@ -86,19 +96,19 @@ export class ResidentView {
       this.contest ??= this.sprite.scene.add.graphics().setDepth(204)
       this.showing.clear(); this.contest.clear()
       this.showing.setPosition(resident.x, resident.y)
-      for (const cell of spotlightCells()) this.showing.fillStyle(cell.color, cell.alpha * contest.alpha)
+      for (const cell of SPOTLIGHT_CELLS) this.showing.fillStyle(cell.color, cell.alpha * contest.alpha)
         .fillRect(cell.x, cell.y, cell.width, cell.height)
       this.contest.setPosition(resident.x, resident.y)
-      if (contest.ballotY !== null) for (const [index, cell] of ballotCells().entries()) this.contest.fillStyle(cell.color, cell.alpha)
-        .fillRect(cell.x, cell.y + (index < 2 ? contest.ballotY : 0), cell.width, cell.height)
-      if (contest.confetti) for (const cell of confettiCells()) this.contest.fillStyle(cell.color, contest.confetti)
-        .fillRect(cell.x, cell.y + Math.round(contest.confetti * 12), cell.width, cell.height)
+      if (contest.ballotY !== null) for (const [index, cell] of BALLOT_CELLS.entries()) this.contest.fillStyle(cell.color, cell.alpha)
+        .fillRect(cell.x, cell.y + (index < 2 ? residentOverlayDistance(contest.ballotY) : 0), cell.width, cell.height)
+      if (contest.confetti) for (const cell of CONFETTI_CELLS) this.contest.fillStyle(cell.color, contest.confetti)
+        .fillRect(cell.x, cell.y + residentOverlayDistance(Math.round(contest.confetti * 12)), cell.width, cell.height)
     } else if (this.showing || this.contest) {
       this.showing?.destroy(); this.contest?.destroy(); this.showing = null; this.contest = null
     }
     const shape = bubbleShape(bubble?.placeId ?? null, places)
     const frame = this.bubble.update(resident.visible ? bubble : null, resident,
-      { width: this.sprite.scene.scale.width, height: this.sprite.scene.scale.height }, shape, now, appearance)
+      viewport, shape, now, appearance)
     if (frame) return Object.freeze({ residentId: resident.id, text: frame.text, shape,
       showing: moment?.confetti ? 'confetti' : moment?.ballot ? 'ballot' : moment ? 'spotlight' : '' })
 

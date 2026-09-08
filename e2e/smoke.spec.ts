@@ -143,3 +143,25 @@ test('phone layout keeps the room large and controls at the bottom', async ({ pa
   expect(await page.evaluate(() => ({ horizontal: document.documentElement.scrollWidth > document.documentElement.clientWidth, vertical: document.documentElement.scrollHeight > document.documentElement.clientHeight }))).toEqual({ horizontal: false, vertical: false })
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
+
+test('a dense screen keeps canvas pixels sharp and residents at their CSS size', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 2 })
+  const page = await context.newPage()
+  try {
+    const diagnostics = await openFixture(page); await waitUntilReady(page)
+    const canvas = page.locator('#app canvas')
+    const box = await canvas.boundingBox(); expect(box).not.toBeNull()
+    const backing = await canvas.evaluate(element => {
+      const canvasElement = element as HTMLCanvasElement
+      return { width: canvasElement.width, height: canvasElement.height }
+    })
+    expect(backing.width).toBe(Math.round(box!.width * 2))
+    expect(backing.height).toBe(Math.round(box!.height * 2))
+    const sizes = await page.evaluate(() => JSON.parse(document.body.dataset['liveFigureSizes'] ?? '[]') as Array<{ width: number; height: number }>)
+    expect(sizes.length).toBeGreaterThan(0)
+    expect(sizes.every(size => size.width === 56 && size.height === 56)).toBe(true)
+    expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
+  } finally {
+    await context.close()
+  }
+})

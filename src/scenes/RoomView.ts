@@ -10,6 +10,7 @@ import { TiledFloor } from './TiledFloor.ts'
 import {
   animationProgress, brickCount, placeAnimationsByKind, signScale, wallBricks, type PlaceAnimation,
 } from '../place-animation.ts'
+import { roomTextResolution } from '../room-appearance.ts'
 import { removableOnce } from '../scene-lifecycle.ts'
 
 export class RoomView {
@@ -92,7 +93,7 @@ export class RoomView {
       }
       const name = room.name.length > 32 ? `${room.name.slice(0, 31)}…` : room.name
       const text = scene.add.text(0, 0, name, {
-        fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#f8edcf', resolution: 2,
+        fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#f8edcf', resolution: roomTextResolution(window.devicePixelRatio),
         backgroundColor: '#273c30', padding: { x: 7, y: 4 }, fixedWidth: Math.min(300, width - 24), fixedHeight: 27,
       })
       text.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)

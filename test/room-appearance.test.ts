@@ -30,3 +30,9 @@ test('room names stay thirteen pixels while text resolution follows measured dev
   assert.equal(roomTextResolution(Number.NaN), 1)
   assert.deepEqual(roomNameStyle(2.5), { fontSize: 13, resolution: 2.5, paddingX: 4, paddingY: 2 })
 })
+
+test('moving between display densities changes only name texture resolution', () => {
+  const styles = [1, 2, 3, 1].map(roomNameStyle)
+  assert.deepEqual(styles.map(style => style.resolution), [1, 2, 3, 1])
+  assert.ok(styles.every(style => style.fontSize === ROOM_NAME_FONT_SIZE && style.paddingX === 4 && style.paddingY === 2))
+})
