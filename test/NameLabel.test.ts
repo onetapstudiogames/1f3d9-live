@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import Module from 'node:module'
 import test from 'node:test'
+import { visibleRoomLabels } from '../src/room-crowding.ts'
 
 test('NameLabel moves its existing full-name text inside a fixed mask', async () => {
   const noop = (): void => {}
@@ -41,12 +42,62 @@ test('NameLabel moves its existing full-name text inside a fixed mask', async ()
   assert.deepEqual(label.bounds(), { x: 38, y: 50, width: 124, height: 23 })
 })
 
+test('NameLabel uses measured short-name geometry for drawing, masking, bounds, and collisions', async () => {
+  const { NameLabel } = await loadNameLabel()
+  const graphics: FakeGraphics[] = []
+  const styles: Record<string, unknown>[] = []
+  const scene = { add: {
+    graphics: () => { const value = new FakeGraphics(); graphics.push(value); return value },
+    text: (_x: number, _y: number, value: string, style: Record<string, unknown>) => {
+      styles.push(style); return new FakeText(value)
+    },
+  }, make: { graphics: () => { const value = new FakeGraphics(); graphics.push(value); return value } } }
+  const first = new NameLabel(scene as never, 'Ada')
+  const second = new NameLabel(scene as never, 'Bea')
+  first.setAllowed(true); second.setAllowed(true)
+  first.update(100, 50, 1, 0); second.update(164, 50, 1, 0)
+
+  assert.deepEqual(first.bounds(), { x: 82, y: 50, width: 36, height: 23 })
+  assert.deepEqual(second.bounds(), { x: 146, y: 50, width: 36, height: 23 })
+  assert.deepEqual([...visibleRoomLabels([
+    { ...first.bounds()!, id: 'first', priority: 0 },
+    { ...second.bounds()!, id: 'second', priority: 0 },
+  ])], ['first', 'second'])
+  assert.deepEqual(graphics[0]!.roundedRects, [[-17, 2, 36, 23, 6], [-18, 0, 36, 23, 6]])
+  assert.deepEqual(graphics[1]!.rects, [[-12, 0, 24, 23]])
+  assert.equal(styles[0]!.fontSize, '13px')
+})
+
+async function loadNameLabel() {
+  const noop = (): void => {}
+  class StubCanvas {}
+  const context = new Proxy({ getImageData: () => ({ data: [0, 0, 0, 0] }) }, {
+    get: (target, key) => key in target ? Reflect.get(target, key) : noop,
+  })
+  Object.defineProperties(globalThis, {
+    window: { configurable: true, value: Object.assign(globalThis, { devicePixelRatio: 2 }) },
+    navigator: { configurable: true, value: { userAgent: 'node', maxTouchPoints: 0 } },
+    Image: { configurable: true, value: class { width = 1; height = 1 } },
+    HTMLCanvasElement: { configurable: true, value: StubCanvas },
+    document: { configurable: true, value: { documentElement: {}, createElement: () => Object.assign(new StubCanvas(), {
+      getContext: () => context, style: {}, addEventListener: noop, removeEventListener: noop,
+    }) } },
+  })
+  const loader = Module as unknown as { _load(request: string, parent: unknown, isMain: boolean): unknown }
+  const originalLoad = loader._load
+  loader._load = (request, parent, isMain) => request === 'phaser3spectorjs' ? {} : originalLoad(request, parent, isMain)
+  return import('../src/scenes/NameLabel.ts').finally(() => { loader._load = originalLoad })
+}
+
 class FakeGraphics {
   visible = true
+  roundedRects: number[][] = []
+  rects: number[][] = []
   setDepth() { return this }
+  clear() { this.roundedRects = []; this.rects = []; return this }
   fillStyle() { return this }
-  fillRoundedRect() { return this }
-  fillRect() { return this }
+  fillRoundedRect(...values: number[]) { this.roundedRects.push(values); return this }
+  fillRect(...values: number[]) { this.rects.push(values); return this }
   createGeometryMask() { return { destroy() {} } }
   setPosition() { return this }
   setScale() { return this }

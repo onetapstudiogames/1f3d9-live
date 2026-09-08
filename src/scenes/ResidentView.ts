@@ -48,7 +48,7 @@ export class ResidentView {
 
   update(resident: ResidentState, now: number, places: readonly ReplayPlace[] = [],
     viewport: Readonly<{ width: number; height: number }> = { width: 0, height: 0 }): VisibleSpeech | null {
-    const bob = residentBobOffset(resident.id, now, resident.walking || resident.ambientWalking === true, false)
+    const bob = residentBobOffset(resident.id, now, resident.walking || resident.ambientWalking === true)
     this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
     const appearance = reappearanceAlpha(resident.relocatedAt, now)
     this.sprite.setAlpha(appearance)

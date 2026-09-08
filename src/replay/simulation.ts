@@ -75,7 +75,17 @@ export type StepResidentsOptions = Readonly<{
   startMove?: (resident: ResidentState, event: ReplayEvent, all: Readonly<Record<number, ResidentState>>) => ResidentState | null | undefined
   advanceMove?: (resident: ResidentState, deltaMs: number) => ResidentState | undefined
   allowStarts?: boolean
+  sleepers?: ReadonlySet<number>
 }>
+
+/** Clears speech cards as soon as the current census identifies their residents as asleep. */
+export function dropSleepingResidentBubbles(state: Simulation, sleepers: ReadonlySet<number>): Simulation {
+  const ids = Object.keys(state.residents).map(Number).filter(id => sleepers.has(id) && state.residents[id]?.bubble)
+  if (!ids.length) return state
+  const residents: Record<number, ResidentState> = { ...state.residents }
+  for (const id of ids) residents[id] = Object.freeze({ ...residents[id]!, bubble: null })
+  return Object.freeze({ ...state, residents: Object.freeze(residents), pending: Object.values(residents).some(isPending) })
+}
 
 export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): Readonly<Record<number, number>> {
   const handles = residentIndex(census)
@@ -151,6 +161,37 @@ export function createResidents(
   return freezeSimulation(residents, actors, [], false, reservations, [])
 }
 
+/** Builds the plain current picture directly from the census, without replay history. */
+export function createPresentResidents(
+  census: readonly Resident[],
+  layout: NestedLayout,
+  reservations: ThingReservations = {},
+): Simulation {
+  const residents: Record<number, ResidentState> = {}
+  const awake: Record<number, ResidentState> = {}
+  const actors = new Map<string, number>()
+  for (const resident of census) {
+    const handle = typeof resident.handle === 'string' ? resident.handle.trim() : ''
+    if (!handle) continue
+    actors.set(handle, resident.id)
+    const state = { ...baseResident(resident.id, handle, resident.current_place_id), joinedAt: resident.joined_at }
+    residents[resident.id] = state
+    if (!resident.asleep) awake[resident.id] = state
+  }
+  placeStationary(awake, layout, reservations)
+  // Current-room presentation owns final crowding. A stale whole-city band must still
+  // supply every awake resident with a valid source point so projection can seat them.
+  for (const resident of Object.values(awake)) {
+    if (resident.visible || resident.placeId === null) continue
+    const room = layout.rooms[resident.placeId]
+    if (!room || !placeVisible(layout, resident.placeId)) continue
+    awake[resident.id] = { ...resident, x: room.standing.x + room.standing.width / 2,
+      y: room.standing.y + room.standing.height / 2, visible: true }
+  }
+  for (const [id, resident] of Object.entries(awake)) residents[Number(id)] = resident
+  return freezeSimulation(residents, actors, [], false, reservations, [])
+}
+
 export function prepareLiveResidents(state: Simulation, events: readonly ReplayEvent[]): Simulation {
   const residents = { ...state.residents }
   const actors = new Map(state.actors)
@@ -177,6 +218,9 @@ export function stepResidents(
   const residents: Record<number, ResidentState> = Object.fromEntries(
     Object.entries(state.residents).map(([id, resident]) => [id, { ...resident, queue: [...resident.queue], path: [...resident.path] }]),
   )
+  for (const id of options.sleepers ?? []) {
+    if (residents[id]?.bubble) residents[id] = { ...residents[id]!, bubble: null }
+  }
   const issues = [...state.issues]
   const candidates: TransferCandidate[] = []
   const startedInventions: StartedInvention[] = []
@@ -351,7 +395,9 @@ function startNext(
     const beforeEvent = next
     const queued = next.queue[0]!
     const event = queued.event
-    if (event.kind === 'note' && !roomNoteMayStart(event, { ...all, [next.id]: next }, nowMs)) return next
+    const sleeping = options.sleepers?.has(next.id) === true
+    if (event.kind === 'note' && !sleeping
+      && !roomNoteMayStart(event, { ...all, [next.id]: next }, nowMs, options.sleepers)) return next
     const queue = next.queue.slice(1)
     next = { ...next, lastActivityId: event.change_id }
     startedEvents.push(event)
@@ -458,6 +504,10 @@ function startNext(
       return { ...next, queue, walking: true, ambientWalking: false, ambientFrom: null, ambientDestination: null, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), walkSpeed: speed, destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
     }
     if (event.kind === 'note') {
+      if (sleeping) {
+        next = { ...next, queue }
+        continue
+      }
       next = handleNote(next, event, queue, all, nowMs, layout, issues, holdSpeed, reservations)
       if (next.bubble || next.showingNotice) return next
       continue

@@ -7,7 +7,19 @@ served to the page from `public/fixtures/` for tests. Re-fetch a fresh sample ra
 trusting these when a shape question comes up; the city's changelog at
 https://1f3d9.com/api/changes and its CHANGELOG say when a shape moves.
 
-## The replay file (the main input)
+## Current live startup
+
+The one-room page starts from current facts. It reads paged presence from
+`GET /api/residents?view=presence&limit=200`, the complete place directory from
+`GET /api/window?view=directory`, and the displayed room from
+`GET /api/place/<id>?view=outline`, plus the needed public drawings.
+`GET /api/changes` sets the current head cursor after the current-state reads. Any older rows
+in that head response are discarded. There is no history backfill. Every 30 seconds, current
+presence, directory, and room outline are read before `GET /api/changes?since=<cursor>&limit=200`.
+The replay contract below remains documented for older and historical tools; the current
+one-room page does not call it during startup.
+
+## The replay file (historical tools)
 
 `GET https://1f3d9.com/api/replay?span=1h|2h|6h|24h`
 

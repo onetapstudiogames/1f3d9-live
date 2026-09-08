@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
 import { mkdir, readFile } from 'node:fs/promises'
+import { keepFixtureOffline, liveFixtureUrl } from './live-fixture.ts'
 
-const fixtureUrl = '/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
+const fixtureUrl = liveFixtureUrl
 const removedControlIds = ['rewind', 'normal', 'fast', 'live-now', 'replay-day', 'nearby', 'city', 'follow-stop', 'show-sleepers', 'minimap-toggle', 'minimap-canvas', 'ui-toggle', 'activity-panel', 'activity-filter', 'activity-toggle']
 type Resident = { id: number; current_place_id: number }
 
@@ -12,22 +13,9 @@ async function fixtureResidents(): Promise<Resident[]> {
 }
 
 async function openFixture(page: Page): Promise<{ external: string[]; errors: string[] }> {
-  const external: string[] = []; const errors: string[] = []
-  const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
-  page.on('pageerror', error => errors.push(error.message))
-  await page.route('**/*', async route => {
-    const url = new URL(route.request().url())
-    if (url.origin !== fixtureOrigin) { external.push(url.href); await route.abort(); return }
-    const drawing = /^\/fixtures\/drawings\/resident-(\d+)\.json$/.exec(url.pathname)
-    if (drawing) {
-      try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/drawings/resident-${drawing[1]}.json`, 'utf8') }) }
-      catch { await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }) }
-      return
-    }
-    await route.continue()
-  })
+  const diagnostics = await keepFixtureOffline(page)
   await page.goto(fixtureUrl)
-  return { external, errors }
+  return diagnostics
 }
 
 async function waitUntilReady(page: Page): Promise<void> {
@@ -43,7 +31,7 @@ async function visibleFigures(page: Page): Promise<Array<{ id: number; x: number
 test('opens live in the busiest room with only the one-room controls', async ({ page }) => {
   await page.clock.install({ time: Date.parse('2026-09-07T01:30:42.383Z') })
   const diagnostics = await openFixture(page); await waitUntilReady(page)
-  await expect(page.locator('body')).toHaveAttribute('data-live-room', '8')
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '3')
   await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
   await expect(page.locator('select')).toHaveCount(2)
   await expect(page.locator('button')).toHaveCount(1)

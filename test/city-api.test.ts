@@ -33,14 +33,14 @@ test('public reads send only an anonymous JSON accept header', async (t) => {
   assert.ok(options?.signal instanceof AbortSignal)
 })
 
-test('place outline loader reads direct things once and keeps drawing flags strict', async (t) => {
+test('place outline loader reads fresh direct things and keeps drawing flags strict', async (t) => {
   const original = globalThis.fetch
   const calls: string[] = []
   globalThis.fetch = async (input, options) => {
     calls.push(String(input))
     assert.equal(options?.credentials, 'omit')
     assert.equal((options?.headers as Record<string, string>)['authorization'], undefined)
-    return Response.json({ place: { id: 3, quiet: false }, things: [
+    return Response.json({ place: { id: 3, name: ' the square ', parent_id: 2, owner: 'founder', owner_id: 1, quiet: false }, things: [
       { id: 9, name: ' parcel ', place_id: 3 },
       { id: 8, name: 'painted', place_id: 3, has_drawing: true },
       { id: 7, name: 'wrong room', place_id: 4, has_drawing: true },
@@ -49,12 +49,12 @@ test('place outline loader reads direct things once and keeps drawing flags stri
   t.after(() => { globalThis.fetch = original })
   const load = createPlaceOutlineLoader('?places=/fixtures/places')
   const [first, second] = await Promise.all([load(3), load(3)])
-  assert.equal(first, second)
-  assert.deepEqual(first, { placeId: 3, quiet: false, things: [
+  assert.notEqual(first, second)
+  assert.deepEqual(first, { placeId: 3, name: 'the square', parentId: 2, owner: 'founder', ownerId: 1, quiet: false, things: [
     { id: 9, name: 'parcel', placeId: 3, hasDrawing: false },
     { id: 8, name: 'painted', placeId: 3, hasDrawing: true },
   ], totalItems: 100, hasMore: true, lawNames: null })
-  assert.deepEqual(calls, ['/fixtures/places/place-3.json'])
+  assert.deepEqual(calls, ['/fixtures/places/place-3.json', '/fixtures/places/place-3.json'])
 })
 
 test('fetchCensus advances named fixture pages without live calls', async (t) => {

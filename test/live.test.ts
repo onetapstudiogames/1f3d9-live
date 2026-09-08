@@ -42,7 +42,7 @@ test('poll success resets backoff and failure keeps the committed marker', () =>
   assert.equal(failedAgain.retryMs, 60_000)
   const recovered = liveReadSucceeded(failedAgain, '45', [row('45')], 9_000)
   assert.equal(recovered.failures, 0)
-  assert.equal(recovered.retryMs, 15_000)
+  assert.equal(recovered.retryMs, 30_000)
   assert.equal(recovered.lastReadAt, 9_000)
   assert.equal(validContinuation('45', '45', true), false)
   assert.equal(validContinuation('45', '45', false), true)

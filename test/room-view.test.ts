@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import type { ReplayEvent, ReplayPlace, Resident } from '../src/city/types.ts'
+import type { ReplayPlace, Resident } from '../src/city/types.ts'
 import type { NestedLayout, Room } from '../src/ground/nested.ts'
 import { allocateRoomCrowdingFrame } from '../src/room-crowding.ts'
 import { busiestRoom, projectRoomPoint, roomIsPublic, roomViewportUsable, singleRoomLayout } from '../src/room-view.ts'
@@ -22,36 +22,20 @@ const layout = (rooms: readonly Room[]): NestedLayout => Object.freeze({
 const place = (id: number, parent_id: number | null, quiet = false): ReplayPlace => ({
   id, parent_id, quiet, name: `room ${id}`, owner: null, owner_id: null, has_drawing: false,
 })
-const resident = (id: number, placeId: number | null, visible = true): Resident => ({
-  id, handle: visible ? `resident-${id}` : null, model: '', joined_at: '', has_drawing: visible,
-  current_place_id: placeId, asleep: false,
+const resident = (id: number, placeId: number | null, asleep = false): Resident => ({
+  id, handle: `resident-${id}`, model: '', joined_at: '', has_drawing: true,
+  current_place_id: placeId, asleep,
 })
-const recorded = (eventId: number, at: string, kind: string, detail: ReplayEvent['detail']): ReplayEvent => ({
-  actor: 'resident', at, change_id: String(eventId), event_id: eventId, kind, detail,
-})
-
-test('recent recorded activity beats a crowded container and census breaks activity ties', () => {
+test('the opening room is the public leaf with the most residents standing now', () => {
   const places = [place(1, null), place(2, 1), place(3, 1)]
-  const census = Array.from({ length: 57 }, (_, id) => resident(id, 1)).concat(resident(58, 3))
-  const timeline = [recorded(1, '2026-09-08T11:45:00Z', 'note', { place_id: 2 })]
-  assert.equal(busiestRoom(places, census, timeline), 2)
-  const tied = timeline.concat(recorded(2, '2026-09-08T11:46:00Z', 'note', { place_id: 3 }))
-  assert.equal(busiestRoom(places, census, tied), 3)
+  const census = [resident(1, 2), resident(2, 2), resident(3, 3), resident(4, 1)]
+  assert.equal(busiestRoom(places, census), 2)
 })
 
-test('busiest room anchors its inclusive window to the newest valid record and ignores invalid, duplicate, quiet, and unknown rows', () => {
+test('quiet rooms, their descendants, unknown rooms, and sleepers do not count as standing residents', () => {
   const places = [place(1, null), place(2, 1, true), place(3, 2), place(4, 1)]
-  const timeline = [
-    recorded(1, '2026-09-08T11:31:00Z', 'note', { place_id: 4 }),
-    recorded(1, '2026-09-08T11:59:00Z', 'note', { place_id: 4 }),
-    recorded(2, '2026-09-08T11:30:59Z', 'note', { place_id: 4 }),
-    recorded(3, '2026-09-08T12:01:00Z', 'note', { place_id: 4 }),
-    recorded(4, 'bad date', 'note', { place_id: 4 }),
-    recorded(5, '2026-09-08T11:50:00Z', 'note', { place_id: 3 }),
-    recorded(6, '2026-09-08T11:50:00Z', 'note', { place_id: 99 }),
-  ]
-  assert.equal(busiestRoom(places, [], timeline), 4)
-  assert.equal(busiestRoom(places, [], [recorded(7, '2099-01-01T00:00:00Z', 'note', { place_id: 4 })]), 4)
+  const census = [resident(1, 3), resident(2, 3), resident(3, 99), resident(4, 4, true), resident(5, 4)]
+  assert.equal(busiestRoom(places, census), 4)
   const city = layout([{ ...room(1, null), children: Object.freeze([2, 4]) },
     { ...room(2, 1, true), children: Object.freeze([3]) }, room(3, 2), room(4, 1)])
   assert.equal(roomIsPublic(city, 1), true)
@@ -59,52 +43,16 @@ test('busiest room anchors its inclusive window to the newest valid record and i
   assert.equal(roomIsPublic(city, 99), false)
 })
 
-test('one isolated future timestamp cannot pull the activity window away from the latest recorded cluster', () => {
-  const places = [place(1, null), place(2, 1), place(3, 1)]
-  const cluster = [
-    recorded(1, '2026-09-08T12:00:00Z', 'note', { place_id: 2 }),
-    recorded(2, '2026-09-08T11:55:00Z', 'note', { place_id: 99 }),
-  ]
-  const isolatedOutlier = recorded(3, '2099-01-01T00:00:00Z', 'note', { place_id: 3 })
-  assert.equal(busiestRoom(places, [resident(1, 3)], [...cluster, isolatedOutlier, isolatedOutlier]), 2)
-  assert.equal(busiestRoom(places, [], [isolatedOutlier]), 3)
-})
-
-test('two latest timestamps within thirty minutes form a valid newest cluster', () => {
-  const places = [place(1, null), place(2, 1), place(3, 1)]
-  const timeline = [
-    recorded(1, '2026-09-08T12:00:00Z', 'note', { place_id: 2 }),
-    recorded(2, '2099-01-01T00:00:00Z', 'note', { place_id: 3 }),
-    recorded(3, '2099-01-01T00:30:00Z', 'note', { place_id: 3 }),
-  ]
-  assert.equal(busiestRoom(places, [], timeline), 3)
-})
-
-test('a sparse city anchors activity to its newest room', () => {
-  const places = [place(1, null), place(2, 1), place(3, 1)]
-  const timeline = [
-    recorded(1, '2026-09-08T10:00:00Z', 'note', { place_id: 2 }),
-    recorded(2, '2026-09-08T12:00:00Z', 'note', { place_id: 3 }),
-  ]
-  assert.equal(busiestRoom(places, [], timeline), 3)
-})
-
-test('a quiet child does not turn its public parent into an ineligible container', () => {
+test('a public container remains eligible when it has no public child', () => {
   const places = [place(1, null), place(2, 1, true), place(3, null)]
-  assert.equal(busiestRoom(places, [resident(1, 1), resident(2, 1), resident(3, 3)], []), 1)
+  assert.equal(busiestRoom(places, [resident(1, 1), resident(2, 1), resident(3, 3)]), 1)
 })
 
-test('applied move destinations count, failed moves do not, and no activity falls back to census then id', () => {
-  const places = [place(1, null), place(2, 1), place(3, 1), place(4, 1)]
-  const timeline = [
-    recorded(1, '2026-09-08T11:50:00Z', 'action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 }),
-    recorded(2, '2026-09-08T11:51:00Z', 'action', { action: 'move', status: 'applied', to_place_id: 4, error: 'denied' }),
-    recorded(3, '2026-09-08T11:52:00Z', 'action', { action: 'move', status: 'noop', to_place_id: 4, place_id: 3 }),
-  ]
-  assert.equal(busiestRoom(places, [], timeline), 3)
-  assert.equal(busiestRoom(places, [resident(1, 4), resident(2, 4)], []), 4)
-  assert.equal(busiestRoom(places, [], []), 2)
-  assert.equal(busiestRoom([], [], []), null)
+test('public leaves replace their containers and ties choose the lowest place id', () => {
+  const places = [place(1, null), place(2, 1), place(3, 1), place(4, null)]
+  assert.equal(busiestRoom(places, [resident(1, 1), resident(2, 1), resident(3, 3), resident(4, 2)]), 2)
+  assert.equal(busiestRoom(places, []), 2)
+  assert.equal(busiestRoom([], []), null)
 })
 
 test('room viewport usability requires enough standing space for one full figure', () => {

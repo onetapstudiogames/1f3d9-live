@@ -19,18 +19,14 @@ export class NameLabel {
   private anchorX = 0
   private anchorY = 0
   private zoom = 1
+  private width: number = NAME_LABEL.width
+  private textWidth: number = NAME_LABEL.textWidth
 
   constructor(scene: Phaser.Scene, name: string, kind: string | null = null, depth = 101) {
     this.name = name
     this.kindName = kind
     this.card = scene.add.graphics().setDepth(depth)
-    this.card.fillStyle(0x3a2f25, 0.16).fillRoundedRect(-NAME_LABEL.width / 2 + 1, 2,
-      NAME_LABEL.width, NAME_LABEL.height, 6)
-    this.card.fillStyle(0xfff4d8, 0.97).fillRoundedRect(-NAME_LABEL.width / 2, 0,
-      NAME_LABEL.width, NAME_LABEL.height, 6)
     this.clipShape = scene.make.graphics({ x: 0, y: 0 })
-    this.clipShape.fillStyle(0xffffff, 1).fillRect(-NAME_LABEL.textWidth / 2, 0,
-      NAME_LABEL.textWidth, NAME_LABEL.height)
     this.clip = this.clipShape.createGeometryMask()
     this.text = scene.add.text(0, 0, name, {
       fontFamily: 'system-ui, sans-serif', fontSize: `${NAME_LABEL.fontSize}px`, color: '#534b3b',
@@ -68,7 +64,7 @@ export class NameLabel {
     }
     this.card.setPosition(x, y).setScale(scale)
     this.clipShape.setPosition(x, y).setScale(scale)
-    const left = x - NAME_LABEL.textWidth * scale / 2
+    const left = x - this.textWidth * scale / 2
     const centerY = y + NAME_LABEL.height * scale / 2
     if (this.scrolling) {
       this.text.setPosition(left + marqueeOffset(this.text.width, elapsedMs) * scale, centerY).setScale(scale)
@@ -100,8 +96,8 @@ export class NameLabel {
   bounds(): NameLabelBounds | null {
     if (!this.allowed) return null
     const scale = 1 / this.zoom
-    return Object.freeze({ x: this.anchorX - NAME_LABEL.width * scale / 2, y: this.anchorY,
-      width: NAME_LABEL.width * scale, height: NAME_LABEL.height * scale })
+    return Object.freeze({ x: this.anchorX - this.width * scale / 2, y: this.anchorY,
+      width: this.width * scale, height: NAME_LABEL.height * scale })
   }
 
   destroy(): void {
@@ -116,6 +112,16 @@ export class NameLabel {
     const policy = labelContent(this.name, this.kindName, this.text.width, this.kind.width)
     this.scrolling = policy.scroll
     this.showKind = policy.showKind
+    this.width = policy.width
+    this.textWidth = policy.textWidth
+    this.card.clear()
+    this.card.fillStyle(0x3a2f25, 0.16).fillRoundedRect(-this.width / 2 + 1, 2,
+      this.width, NAME_LABEL.height, 6)
+    this.card.fillStyle(0xfff4d8, 0.97).fillRoundedRect(-this.width / 2, 0,
+      this.width, NAME_LABEL.height, 6)
+    this.clipShape.clear()
+    this.clipShape.fillStyle(0xffffff, 1).fillRect(-this.textWidth / 2, 0,
+      this.textWidth, NAME_LABEL.height)
     this.kind.setVisible(policy.showKind && this.allowed && this.shown)
   }
 

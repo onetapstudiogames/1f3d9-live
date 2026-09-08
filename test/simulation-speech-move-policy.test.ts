@@ -4,7 +4,7 @@ import test from 'node:test'
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
 import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
-import { createResidents, stepResidents } from '../src/replay/simulation.ts'
+import { createResidents, dropSleepingResidentBubbles, stepResidents } from '../src/replay/simulation.ts'
 
 const room = { id: 2, parentId: null, name: 'room', quiet: false, depth: 0, x: 0, y: 0, width: 320, height: 240,
   door: { x: 300, y: 120 }, standing: { x: 20, y: 20, width: 260, height: 180 }, children: [] }
@@ -80,4 +80,38 @@ test('a busy doorway keeps its move queued and announces it only when the walk s
   assert.equal(released.residents[7]!.queue.length, 0)
   assert.equal(released.residents[7]!.lastActivityId, '4')
   assert.deepEqual(released.startedEvents, [move])
+})
+
+test('a sleeper drops its active card before an awake queued note claims the room', () => {
+  const first = note('ada', '1')
+  const second = note('bea', '2')
+  let state = stepResidents(createResidents(replay, census, layout), [first], 0, 100, layout)
+  assert.equal(state.residents[7]!.bubble?.text, 'ada speaks')
+
+  state = stepResidents(state, [second], 0, 101, layout, 120, new Map(), undefined, { sleepers: new Set([7]) })
+  assert.equal(state.residents[7]!.bubble, null)
+  assert.equal(state.residents[8]!.bubble?.text, 'bea speaks')
+})
+
+test('a note delivered while asleep is recorded without a bubble and is not replayed after waking', () => {
+  const sleepingNote = note('ada', '1')
+  let state = stepResidents(createResidents(replay, census, layout), [sleepingNote], 0, 100, layout, 120, new Map(), undefined,
+    { sleepers: new Set([7]) })
+  assert.equal(state.residents[7]!.bubble, null)
+  assert.equal(state.residents[7]!.queue.length, 0)
+  assert.deepEqual(state.startedEvents, [sleepingNote])
+
+  const wakingNote = note('ada', '2')
+  const wokeState = stepResidents(state, [wakingNote], 0, 101, layout)
+  assert.equal(wokeState.residents[7]!.bubble?.text, 'ada speaks')
+  assert.deepEqual(wokeState.startedEvents, [wakingNote])
+})
+
+test('presence updates can immediately disqualify an active sleeper bubble between steps', () => {
+  const state = stepResidents(createResidents(replay, census, layout), [note('ada', '1')], 0, 100, layout)
+  const cleared = dropSleepingResidentBubbles(state, new Set([7]))
+  assert.equal(cleared.residents[7]!.bubble, null)
+  assert.equal(cleared.pending, false)
+  assert.equal(cleared.residents[8], state.residents[8])
+  assert.equal(dropSleepingResidentBubbles(cleared, new Set([7])), cleared)
 })

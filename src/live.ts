@@ -14,7 +14,7 @@ export type LiveReadState = Readonly<{
   retryMs?: number
 }>
 
-const POLL_MS = 15_000
+const POLL_MS = 30_000
 const MAX_RETRY_MS = 120_000
 
 export function liveNoteReferences(events: readonly ReplayEvent[], layout: NestedLayout):
@@ -49,7 +49,7 @@ export function liveReadSucceeded(
 
 export function liveReadFailed(state: LiveReadState): LiveReadState {
   const failures = state.failures + 1
-  return Object.freeze({ ...state, failures, retryMs: Math.min(MAX_RETRY_MS, POLL_MS * 2 ** failures) })
+  return Object.freeze({ ...state, failures, retryMs: Math.min(MAX_RETRY_MS, POLL_MS * 2 ** (failures - 1)) })
 }
 
 export function validContinuation(current: string, next: string, hasMore: boolean): boolean {

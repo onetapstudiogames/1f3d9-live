@@ -59,3 +59,11 @@ test('hidden crowding speech preserves the complete note', () => {
 test('asleep speakers do not become a temporary crowding fallback', () => {
   assert.equal(hiddenRoomSpeech({ 1: resident(1, 'asleep', 20) }, {}, layout, 2, new Set(), 50, new Set([1])), null)
 })
+
+test('the hidden-speaker fallback marks a cut body without changing its known words', () => {
+  const speaker = resident(1, 'speaker', 20)
+  const cut = { ...speaker, bubble: { ...speaker.bubble!, text: 'known\nwords', cut: true } }
+  assert.equal(hiddenRoomSpeech({ 1: cut }, {}, layout, 2, new Set(), 50), 'speaker: known\nwords (rest not read)')
+  assert.equal(hiddenRoomSpeech({ 1: { ...cut, bubble: { ...cut.bubble, cut: false } } }, {}, layout, 2, new Set(), 50),
+    'speaker: known\nwords')
+})

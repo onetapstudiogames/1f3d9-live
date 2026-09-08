@@ -6,15 +6,23 @@ export const NAME_LABEL = Object.freeze({
   pauseMs: 1_200,
   speed: 18,
   gap: 28,
+  padding: 12,
 })
 
-export type LabelContent = Readonly<{ showKind: boolean; scroll: boolean }>
+export type LabelContent = Readonly<{
+  showKind: boolean
+  scroll: boolean
+  width: number
+  textWidth: number
+}>
 
 export function labelContent(name: string, kind: string | null, nameWidth: number, kindWidth: number): LabelContent {
   const scroll = nameWidth > NAME_LABEL.textWidth
   const showKind = !scroll && name.length > 0 && kind !== null && kind.length > 0
     && nameWidth + kindWidth + 5 <= NAME_LABEL.textWidth
-  return Object.freeze({ showKind, scroll })
+  const contentWidth = scroll ? NAME_LABEL.textWidth : nameWidth + (showKind ? kindWidth + 5 : 0)
+  const width = Math.min(NAME_LABEL.width, contentWidth + NAME_LABEL.padding)
+  return Object.freeze({ showKind, scroll, width, textWidth: width - NAME_LABEL.padding })
 }
 
 export function marqueeOffset(textWidth: number, elapsedMs: number): number {

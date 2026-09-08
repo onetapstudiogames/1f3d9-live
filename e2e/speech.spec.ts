@@ -1,7 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { fixtureDirectory, json, liveFixtureUrl } from './live-fixture.ts'
 
-const fixtureUrl = '/?replay=/fixtures/replay-places.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
+const fixtureUrl = liveFixtureUrl
 const cardSelector = '.room-speech-card[data-note-id="13243"]'
 
 type SpeechSample = {
@@ -46,10 +47,13 @@ async function startSampling(page: Page): Promise<void> {
 async function keepFixtureOffline(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
   const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
+  const directory = await fixtureDirectory('public/fixtures/replay-places.json')
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())
     if (url.origin !== fixtureOrigin) { external.push(url.href); await route.abort(); return }
+    if (url.pathname === '/fixtures/map-current-page1.json') { await json(route, directory); return }
+    if (url.pathname === '/fixtures/change-cursor.json') { await json(route, { change_marker: '100123' }); return }
     const drawing = /^\/fixtures\/drawings\/resident-(\d+)\.json$/.exec(url.pathname)
     if (!drawing) { await route.continue(); return }
     try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/drawings/resident-${drawing[1]}.json`, 'utf8') }) }
@@ -58,7 +62,7 @@ async function keepFixtureOffline(page: Page): Promise<{ external: string[]; err
   return { external, errors }
 }
 
-test('a recorded long note stays whole beside its speaker through layout and room changes', async ({ page }) => {
+test('a newly witnessed long note stays whole beside its speaker through layout and room changes', async ({ page }) => {
   // Software-rendered CI needs wall time to draw every controlled frame. This budget
   // is separate from the unchanged 15-second speech lifetime in simulated time.
   test.setTimeout(120_000)
@@ -72,8 +76,6 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   const note = JSON.parse(await readFile('public/fixtures/notes/note-13243.json', 'utf8')) as {
     note: { id: number; body: string; place_id: number }
   }
-  const replay = JSON.parse(await readFile('public/fixtures/replay-places.json', 'utf8')) as { checkpoint: string }
-  expect(replay.checkpoint).toBe('100123')
   expect(note.note).toMatchObject({ id: 13243, place_id: 782 })
   expect(note.note.body).toHaveLength(1016)
 
@@ -95,10 +97,12 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   // between these tiny controlled steps, while the note response remains held.
   await expect.poll(async () => {
     await page.clock.runFor(16)
-    return changeRequested && await page.locator('body').getAttribute('data-live-ready') === 'true'
-  }, { timeout: 30_000 }).toBe(true)
+    return await page.locator('body').getAttribute('data-live-ready')
+  }, { timeout: 30_000 }).toBe('true')
   await page.locator('#place-picker').selectOption('782')
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '782')
+  await page.clock.fastForward(30_001)
+  await expect.poll(() => changeRequested).toBe(true)
   releaseChange()
   // This marker follows note enrichment and queueing. No animation time passes during the read.
   await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')

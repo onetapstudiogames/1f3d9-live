@@ -66,7 +66,6 @@ export class RoomMotion {
   private selectedRoomId: number | null = null
   private following: number | null = null
   private hidden: ReadonlySet<number> = new Set()
-  private suppressedMoveIds: ReadonlySet<string> = new Set()
   private sleepers: ReadonlySet<number> = new Set()
   private things: Readonly<Record<number, PresentedEntity>> = {}
   private rememberedThings = new Map<number, RoomMotionPose>()
@@ -87,7 +86,6 @@ export class RoomMotion {
     selectedRoomId: number | null,
     following: number | null,
     hidden: ReadonlySet<number>,
-    suppressedMoveIds: ReadonlySet<string>,
     sleepers: ReadonlySet<number> = new Set(),
   ): void {
     const priorSelectedRoomId = this.selectedRoomId
@@ -95,7 +93,7 @@ export class RoomMotion {
     const resized = viewport.width !== this.viewport.width || viewport.height !== this.viewport.height
     this.layout = layout; this.things = things; this.viewport = Object.freeze({ ...viewport })
     this.selectedRoomId = selectedRoomId; this.following = following
-    this.hidden = hidden; this.suppressedMoveIds = suppressedMoveIds; this.sleepers = sleepers
+    this.hidden = hidden; this.sleepers = sleepers
     const changedSleepers = new Set([...priorSleepers, ...sleepers].filter(id => priorSleepers.has(id) !== sleepers.has(id)))
     for (const id of changedSleepers) {
       this.remembered.delete(id); this.idleWalks.delete(id); this.idleDue.delete(id)
@@ -162,6 +160,21 @@ export class RoomMotion {
     }
   }
 
+  forgetResidents(ids: ReadonlySet<number>): void {
+    for (const id of ids) {
+      this.walks.delete(id)
+      this.remembered.delete(id)
+      this.idleWalks.delete(id)
+      this.idleDue.delete(id)
+      this.diagnosticFrames.delete(id)
+      this.summaries.delete(id)
+    }
+    this.unseated = new Set([...this.unseated].filter(key => {
+      const match = /^resident:\d+:(\d+)$/.exec(key)
+      return !match || !ids.has(Number(match[1]))
+    }))
+  }
+
   start(
     resident: ResidentState,
     event: ReplayEvent,
@@ -170,10 +183,6 @@ export class RoomMotion {
     this.lastResidents = all
     const move = recordedMove(event)
     if (!move || !this.layout?.rooms[move.fromId] || !this.layout.rooms[move.toId]) return undefined
-    if (this.suppressedMoveIds.has(event.change_id)) {
-      this.walks.delete(resident.id); this.remembered.delete(resident.id)
-      return resident
-    }
     if (this.sleepers.has(resident.id)) return this.finishHidden(resident, event.change_id, move.toId)
     const relevant = this.selectedRoomId === move.fromId || this.selectedRoomId === move.toId || this.following === resident.id
     if (!relevant || this.hidden.has(move.fromId) || this.hidden.has(move.toId) ||

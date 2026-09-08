@@ -1,119 +1,120 @@
-import { test, expect, type Page } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { fixtureDirectory, json, liveFixtureUrl } from './live-fixture.ts'
 
-const fixtureUrl = '/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
+type Change = { change_id: string; kind: string; actor: string; detail: Record<string, unknown>; created_at: string }
 
-async function repeatRecordedChange(page: Page): Promise<{ repeated: Promise<void> }> {
-  const source = JSON.parse(await readFile('public/fixtures/changes-live.json', 'utf8')) as {
-    changes: Array<{ change_id: string }>
-  }
-  const change = source.changes.find(row => row.change_id === '100297')
-  if (!change) throw new Error('The fixture is missing recorded change 100297.')
-  let reads = 0; let secondRead!: () => void
-  const repeated = new Promise<void>(resolve => { secondRead = resolve })
-  await page.route('**/fixtures/changes-live.json', async route => {
-    reads += 1
-    const firstPage = reads === 1
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
-      change_marker: '100298', changes: [change], returned_items: 1, unchanged: false,
-      has_more: firstPage, next_since: firstPage ? '100297' : '100298',
-    }) })
-    if (reads === 2) secondRead()
-  })
-  return { repeated }
+async function witnessedChange(): Promise<Change> {
+  const source = JSON.parse(await readFile('public/fixtures/changes-live.json', 'utf8')) as { changes: Change[] }
+  const row = source.changes.find(change => change.change_id === '100297')
+  if (!row) throw new Error('The fixture is missing recorded change 100297.')
+  return row
 }
 
-async function expectDeliveredOnce(page: Page, repeated: Promise<void>): Promise<void> {
-  await expect.poll(() => page.evaluate(() => JSON.parse(document.body.dataset['liveDeliveryCounts'] ?? '{}')['100297'] ?? 0),
-    { timeout: 30_000 }).toBe(1)
-  await repeated
-  await expect.poll(() => page.evaluate(() => JSON.parse(document.body.dataset['liveDeliveryCounts'] ?? '{}')['100297'] ?? 0)).toBe(1)
-}
-
-async function keepFixtureOffline(page: Page): Promise<{ external: string[]; errors: string[] }> {
-  const external: string[] = []; const errors: string[] = []
+async function installBase(page: Page, cursorBody: unknown = { change_marker: '100297' }) {
+  const external: string[] = []; const errors: string[] = []; const requests: string[] = []
   const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
+  const directory = await fixtureDirectory()
+  let censusReads = 0; let mapReads = 0
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())
+    requests.push(`${url.pathname}${url.search}`)
     if (url.origin !== fixtureOrigin) { external.push(url.href); await route.abort(); return }
+    if (url.pathname === '/fixtures/map-current-page1.json') { mapReads += 1; await json(route, directory); return }
+    if (url.pathname === '/fixtures/change-cursor.json') { await json(route, cursorBody); return }
+    if (url.pathname === '/fixtures/places/place-518.json') {
+      await json(route, { view: 'outline', place: { id: 518, name: 'the arrivals room', parent_id: 517,
+        owner: 'waypost', owner_id: 273, quiet: false, laws: [] }, things: [],
+        things_page: { total_items: 0, has_more: false } }); return
+    }
+    if (url.pathname === '/fixtures/notes/note-13273.json') {
+      await json(route, { note: { id: 13273, author: 'halfverse', place_id: 518, body: 'newly witnessed words' } }); return
+    }
+    if (url.pathname === '/fixtures/residents-presence-page1.json') censusReads += 1
     const drawing = /^\/fixtures\/drawings\/resident-(\d+)\.json$/.exec(url.pathname)
     if (!drawing) { await route.continue(); return }
     try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/drawings/resident-${drawing[1]}.json`, 'utf8') }) }
-    catch { await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }) }
+    catch { await json(route, {}, 404) }
   })
-  return { external, errors }
+  return { external, errors, requests, censusReads: () => censusReads, mapReads: () => mapReads }
 }
 
-test('a transient initial census failure retries the whole startup read', async ({ page }) => {
-  await page.clock.install({ time: new Date('2026-09-07T15:08:00.000Z') })
-  const diagnostics = await keepFixtureOffline(page)
-  let firstPageReads = 0
-  await page.route('**/fixtures/residents-presence-page1.json', async route => {
-    firstPageReads += 1
-    if (firstPageReads === 1) { await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }); return }
-    await route.continue()
+async function ready(page: Page): Promise<void> {
+  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
+}
+
+function emptyFeed(route: Route, marker = '100297'): Promise<void> {
+  return json(route, { change_marker: marker, next_since: marker, has_more: false, unchanged: true, returned_items: 0, changes: [] })
+}
+
+test('startup takes only the cursor head and opens with an empty witnessed log', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-08T12:00:00.000Z') })
+  const diagnostics = await installBase(page, { change_marker: '100297', changes: [{ change_id: '1', kind: 'note',
+    actor: 'old-voice', detail: { note_id: 1, place_id: 8 }, created_at: '2020-01-01T00:00:00.000Z', line: 'old words must stay absent' }] })
+  let feedReads = 0
+  await page.route('**/fixtures/changes-live.json', route => { feedReads += 1; return emptyFeed(route) })
+  await page.goto(liveFixtureUrl)
+  await ready(page)
+  expect(feedReads).toBe(0)
+  await expect(page.locator('#room-activity')).not.toContainText('old words must stay absent')
+  await expect(page.locator('#room-activity')).toBeEmpty()
+  expect(diagnostics.requests.some(url => url.includes('replay') || /\/note(?:s)?\//.test(url))).toBe(false)
+  expect(diagnostics.censusReads()).toBeGreaterThan(0); expect(diagnostics.mapReads()).toBe(1)
+  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
+})
+
+test('a newly witnessed change is delivered once and a successful read repaints current state', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-08T12:00:00.000Z') })
+  const diagnostics = await installBase(page, { change_marker: '100296' }); const change = await witnessedChange()
+  let feedReads = 0
+  await page.route('**/fixtures/changes-live.json', route => {
+    feedReads += 1
+    return json(route, { change_marker: '100297', next_since: '100297', has_more: false, unchanged: false, returned_items: 1, changes: [change] })
   })
-
-  await page.goto(fixtureUrl)
-  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'error')
-  await expect(page.locator('#follow-picker')).toBeDisabled()
-  await expect(page.locator('#place-picker')).toBeDisabled()
-  await expect(page.locator('#pause')).toBeDisabled()
-
+  await page.goto(liveFixtureUrl)
+  await ready(page)
+  await page.locator('#place-picker').selectOption('518')
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '518')
+  const initialRevision = Number(await page.locator('body').getAttribute('data-live-layout-revision'))
   await page.clock.fastForward(30_001)
-  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
-  expect(firstPageReads).toBe(2)
-  await expect(page.locator('#follow-picker')).toBeEnabled()
-  await expect(page.locator('#place-picker')).toBeEnabled()
-  await expect(page.locator('#pause')).toBeEnabled()
+  await expect.poll(() => feedReads).toBeGreaterThanOrEqual(1)
+  await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
+  await page.clock.runFor(16)
+  await expect.poll(() => page.evaluate(() => JSON.parse(document.body.dataset['liveDeliveryCounts'] ?? '{}')['100297'] ?? 0)).toBe(1)
+  await expect.poll(async () => Number(await page.locator('body').getAttribute('data-live-layout-revision'))).toBeGreaterThan(initialRevision)
+  expect(diagnostics.censusReads()).toBeGreaterThanOrEqual(2); expect(diagnostics.mapReads()).toBeGreaterThanOrEqual(2)
+  await page.clock.fastForward(30_001)
+  await expect.poll(() => feedReads).toBeGreaterThanOrEqual(2)
+  expect(await page.evaluate(() => JSON.parse(document.body.dataset['liveDeliveryCounts'] ?? '{}')['100297'] ?? 0)).toBe(1)
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 
-test('a change beyond the replay checkpoint is delivered once after a held census', async ({ page }) => {
-  const diagnostics = await keepFixtureOffline(page)
-  const { repeated } = await repeatRecordedChange(page)
-  let releaseCensus!: () => void
-  let censusRequested!: () => void
-  const held = new Promise<void>(resolve => { releaseCensus = resolve })
-  const requested = new Promise<void>(resolve => { censusRequested = resolve })
-  await page.route('**/fixtures/residents-presence-page1.json', async route => {
-    censusRequested()
-    await held
-    await route.fulfill({ contentType: 'application/json', body: await readFile('public/fixtures/residents-presence-page1.json', 'utf8') })
+test('a failed live read freezes the picture and recovers with one full repaint', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-08T12:00:00.000Z') })
+  const diagnostics = await installBase(page); let feedReads = 0
+  await page.route('**/fixtures/changes-live.json', async route => {
+    feedReads += 1
+    if (feedReads === 1) { await json(route, {}, 503); return }
+    await emptyFeed(route)
   })
-
-  await page.goto(fixtureUrl)
-  await requested
-  releaseCensus()
-
-  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
-  await expectDeliveredOnce(page, repeated)
-  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
-})
-
-test('a change beyond the replay checkpoint is delivered once after a held replay', async ({ page }) => {
-  const diagnostics = await keepFixtureOffline(page)
-  const { repeated } = await repeatRecordedChange(page)
-  let releaseReplay!: () => void
-  let replayRequested!: () => void
-  const held = new Promise<void>(resolve => { releaseReplay = resolve })
-  const requested = new Promise<void>(resolve => { replayRequested = resolve })
-  await page.route('**/fixtures/replay-24h.json', async route => {
-    replayRequested()
-    await held
-    await route.fulfill({ contentType: 'application/json', body: await readFile('public/fixtures/replay-24h.json', 'utf8') })
-  })
-
-  const censusResponse = page.waitForResponse(response =>
-    response.url().endsWith('/fixtures/residents-presence-page2.json') && response.ok())
-  await page.goto(fixtureUrl)
-  await requested
-  await (await censusResponse).finished()
-  await page.evaluate(async () => { await Promise.resolve(); await Promise.resolve() })
-  releaseReplay()
-
-  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
-  await expectDeliveredOnce(page, repeated)
+  await page.goto(liveFixtureUrl)
+  await ready(page)
+  await page.clock.fastForward(30_001)
+  await expect.poll(() => feedReads).toBe(1)
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'true')
+  await expect(page.locator('#live-status')).not.toBeEmpty()
+  const frozen = await page.evaluate(() => ({ figures: document.body.dataset['liveFigures'],
+    elapsed: document.body.dataset['liveElapsed'], revision: Number(document.body.dataset['liveLayoutRevision']) }))
+  await page.clock.fastForward(500)
+  expect(await page.evaluate(() => ({ figures: document.body.dataset['liveFigures'], elapsed: document.body.dataset['liveElapsed'] })))
+    .toEqual({ figures: frozen.figures, elapsed: frozen.elapsed })
+  await page.clock.fastForward(30_001)
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
+  await expect(page.locator('#live-status')).toBeEmpty()
+  await expect.poll(async () => Number(await page.locator('body').getAttribute('data-live-layout-revision'))).toBeGreaterThan(frozen.revision)
+  expect(diagnostics.censusReads()).toBeGreaterThanOrEqual(2); expect(diagnostics.mapReads()).toBeGreaterThanOrEqual(2)
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })

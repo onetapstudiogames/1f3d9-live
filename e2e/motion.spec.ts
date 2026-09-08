@@ -1,4 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
+import { json, liveFixtureUrl } from './live-fixture.ts'
 
 const now = '2026-09-08T12:00:00.000Z'
 const wallNow = '2026-09-08T12:01:00.000Z'
@@ -8,10 +9,6 @@ const places = [
   { id: 2, name: 'Source', parent_id: 1, owner: null, owner_id: null, quiet: false, has_drawing: false },
   { id: 3, name: 'Destination', parent_id: 1, owner: null, owner_id: null, quiet: false, has_drawing: false },
 ]
-const replay = {
-  span: '1h', window_start: '2026-09-08T11:00:00.000Z', window_end: now, checkpoint: '10', complete: true, row_ceiling: 200,
-  map: { places }, start: { walker: { origin_event_id: 1, place_id: 2 } }, counts: {}, timeline: [],
-}
 const census = { residents: [actor], returned_items: 1, has_more: false, next_before_id: null }
 
 type Motion = {
@@ -21,11 +18,13 @@ type Motion = {
 type Figure = { id: number; x: number; y: number }
 
 async function fixture(page: Page, event: Record<string, unknown>, note?: string): Promise<{
-  release: () => void; diagnostics: { external: string[]; errors: string[] }
+  release: () => void; requested: Promise<void>; diagnostics: { external: string[]; errors: string[] }
 }> {
   let release!: () => void
   const held = new Promise<void>(resolve => { release = resolve })
   let firstChanges = true
+  let changeRequested!: () => void
+  const requested = new Promise<void>(resolve => { changeRequested = resolve })
   const external: string[] = []; const errors: string[] = []
   const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
   page.on('pageerror', error => errors.push(error.message))
@@ -34,9 +33,11 @@ async function fixture(page: Page, event: Record<string, unknown>, note?: string
     if (url.origin !== fixtureOrigin) { external.push(url.href); await route.abort(); return }
     await route.fallback()
   })
-  await page.route('**/motion-replay.json', route => json(route, replay))
+  await page.route('**/motion-map.json', route => json(route, { view: 'directory', places }))
+  await page.route('**/motion-cursor.json', route => json(route, { change_marker: '10' }))
   await page.route('**/motion-census-page1.json', route => json(route, census))
   await page.route('**/motion-changes.json', async route => {
+    changeRequested()
     if (firstChanges) {
       firstChanges = false
       await held
@@ -46,21 +47,24 @@ async function fixture(page: Page, event: Record<string, unknown>, note?: string
   await page.route('**/motion-notes/note-501.json', route => note
     ? json(route, { note: { id: 501, author: 'walker', body: note, place_id: 2 } })
     : json(route, {}, 404))
-  return { release, diagnostics: { external, errors } }
+  return { release, requested, diagnostics: { external, errors } }
 }
 
-async function json(route: Route, body: unknown, status = 200): Promise<void> {
-  await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
-}
-
-async function readyAndFollow(page: Page, release: () => void): Promise<void> {
-  await page.goto('/?replay=/motion-replay.json&census=/motion-census-page1.json&changes=/motion-changes.json&notes=/motion-notes')
+async function readyAndFollow(page: Page, release: () => void, requested: Promise<void>): Promise<void> {
+  const params = liveFixtureUrl.replace('/?', '/?map=/motion-map.json&cursor=/motion-cursor.json&')
+    .replace('census=/fixtures/residents-presence-page1.json', 'census=/motion-census-page1.json')
+    .replace('map=/fixtures/map-current-page1.json&', '').replace('cursor=/fixtures/change-cursor.json&', '')
+    .replace('changes=/fixtures/changes-live.json', 'changes=/motion-changes.json')
+    .concat('&notes=/motion-notes')
+  await page.goto(params)
   await expect.poll(async () => {
     await page.clock.runFor(16)
     return await page.locator('body').getAttribute('data-live-ready')
   }, { timeout: 30_000 }).toBe('true')
   await page.locator('#follow-picker').selectOption('101')
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
+  await page.clock.fastForward(30_001)
+  await requested
   release()
   await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
 }
@@ -98,7 +102,7 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
   await page.clock.pauseAt(new Date(wallNow))
   const setup = await fixture(page, { change_id: '11', kind: 'action', actor: 'walker', created_at: wallNow,
     detail: { action: 'move', action_id: 11, status: 'applied', from_place_id: 2, to_place_id: 3 } })
-  await readyAndFollow(page, setup.release)
+  await readyAndFollow(page, setup.release, setup.requested)
 
   await expect.poll(async () => { await page.clock.runFor(16); return (await motion(page))?.phase }).toBe('departure')
   const samples: Array<{ elapsed: number; motion: Motion; figure: Figure; room: string | null }> = []
@@ -161,7 +165,7 @@ test('Pause finishes the current sentence, freezes it, and resumes the next sent
   const body = 'First sentence. Second sentence.'
   const setup = await fixture(page, { change_id: '11', kind: 'note', actor: 'walker', created_at: wallNow,
     detail: { note_id: 501, place_id: 2 } }, body)
-  await readyAndFollow(page, setup.release)
+  await readyAndFollow(page, setup.release, setup.requested)
   const card = page.locator('.room-speech-card[data-note-id="501"]')
   let partial: string | null = null
   for (let step = 0; step < 40; step += 1) {

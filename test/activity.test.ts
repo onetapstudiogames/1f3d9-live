@@ -42,6 +42,13 @@ test('activity preserves the complete recorded note without changing the recorde
   assert.equal(note.line, 'first\nfull second line')
 })
 
+test('activity marks unread cut text and removes the marker after verification', () => {
+  const note = { ...row(1, 'note', { note_id: 9, place_id: 2 }), line: 'known beginning', line_cut: true }
+  assert.equal(activityEntry(note, context)?.text, 'vigil in the old square: known beginning (rest not read)')
+  assert.equal(activityEntry({ ...note, line: 'known beginning\nending', line_cut: false }, context)?.text,
+    'vigil in the old square: known beginning\nending')
+})
+
 test('builds linked resident and place facts without replacing the recorded room-name resolver', () => {
   const built = createActivityContext([
     { id: 7, handle: ' vigil ', model: '', joined_at: '', has_drawing: true, current_place_id: 2, asleep: false },
