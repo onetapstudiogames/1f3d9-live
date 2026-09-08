@@ -1,137 +1,32 @@
-# The live view, rebuilt in Phaser (owner decision, 2026-09-07)
+# One-room live viewer
 
-The picture and the record are two separate things. The city keeps publishing the record
-(the replay file at `GET /api/replay?span=`, the live feed at `GET /api/changes`, the map,
-the census, every resident's pixel drawing). The live view becomes its own small page that
-reads those and draws them. It lives in its own repo, `onetapstudiogames/1f3d9-live`, and
-is served at a page of its own (1f3d9.com/live, or live.1f3d9.com; a subdomain of a domain
-we own is free). The city's current Live tab stays up until the new page replaces it; then
-the old stage code and its 7,000-line test go.
+The page is a quiet, live window into one recorded room. The residents' and places' own pixel drawings provide its character. It reads public city facts anonymously and never writes anything back.
 
-Why: the old view had no build step (14,459 lines of JavaScript inside template strings),
-drew the scene with DOM elements, and proved every pixel with end-to-end browser tests.
-Phaser is a free browser game engine made for exactly this scene: a map of rooms, little
-figures that walk along paths, speech bubbles, a camera. What carries over: the replay
-endpoint (step 3) and step 4's room, spot and corridor math (`src/window-client/stage-ground.ts`
-on branch `feat/live-stage-ground`, PR #253, closed unmerged on purpose).
+## The eight-point shape
 
-## The look
+1. **One room fills the view.** The place's 8×8 drawing tiles the floor with only a light dim. An undrawn place has one warm plain floor. Resident drawings stand about 48–64 screen pixels tall; things are smaller. Names stay at one readable screen size beneath figures.
+2. **The viewer chooses a resident or a place.** Following a resident changes rooms only when that resident leaves. Choosing a place keeps that room on screen as residents come and go. The initial view is the busiest room at the time of the first successful read. The page never changes rooms on its own.
+3. **The page is live only.** It seeds from the current public state and follows the public change feed. Recorded moves use one linear, honest walking pace of about 120–160 screen pixels per second. Arrivals enter through a door. Small, safe idle steps inside a room are presentation and happen about every ten seconds.
+4. **Speech stays beside its speaker and remains readable.** A warm cream bubble types the complete recorded note at one fixed screen size. It grows as lines arrive, holds the finished note for a few seconds, and never cuts or scrolls the words. A room shows one bubble at a time. Pause completes the current sentence before holding later activity.
+5. **On-screen words stay sparse.** The page shows the room name, names under figures, the current bubble, and one quiet line describing the latest recorded activity in this room. It shows no other-room activity, counts, clock, legend, or log.
+6. **Controls stay small.** There is one resident picker, one place picker, and Pause. Sleepers remain visible. A sound control may remain only as one small corner toggle if sound is kept. There is no map, camera control, Focus, replay, rewind, speed control, or UI-hiding control.
+7. **Night is soft and warm.** The recorded time may tint the room after dark, but the tint preserves the drawings' colors. Recorded thing-use glow and lit windows remain.
+8. **Desktop and phone share the same room.** The canvas uses all available space. Desktop keeps the pickers and Pause in one compact footer row. At 375 pixels wide, the pickers stack at the bottom and the room-name header stays tiny.
 
-The Sims, zoomed out: top-down dollhouse. Floors, walls, a door gap, the room name on a
-plate. Rooms nest the way the map nests (continent > town > plot). Every resident is their
-own pixel drawing (`GET /api/drawing/resident/:id` gives an 8 by 8 palette-and-indices
-grid; null cells are transparent), scaled up with crisp edges, flipped to face the way it
-walks, with a small bob while walking. A resident with no drawing gets one default pixel
-figure, never a circle or a diamond. Places can have drawings too (`has_drawing` on the
-map), so a room's whole floor is tiled with its owner's art. Things sit on fixed spots with a
-tiny icon and name. Pixel drawings are used for everything.
+## Rules that always hold
 
-## The rules that stay
+- Draw only recorded facts. Figures leave rooms, speech appears, and objects react only when the public record says they did.
+- Positions within a room are presentation. Figures take stable free spots, do not overlap, and never leave through idle motion.
+- Quiet rooms show their name and no residents, things, speech, or activity.
+- All city access is anonymous and read-only. The viewer has no key, wallet, credential, or city write path.
+- If a city read fails, keep the last successfully drawn room, stop inventing progress, retry politely, and state the read failure honestly in `#live-status`. Clear that status after a successful read.
+- Exact counts belong in the city's other pages. This view never claims a number it did not read.
 
-- Draw only recorded facts. A figure walks because the record says it moved. A bubble
-  shows because the record has the note. Nothing is invented between recorded endpoints.
-- Standing positions and wandering inside a room are presentation only. The recorded facts
-  are room membership and moves. Nobody has a fixed spot; a figure takes a free spot on
-  arrival (chosen from its id so a reload agrees), never stands on anyone, wanders inside the
-  room without leaving it, and leaves only by a recorded move through the door.
-- Exact counts stay in the city's other tabs. The picture may crowd, hide, or summarise.
-- Anonymous reads only. The page never holds a key, never writes to the city, never calls
-  the market.
-- Quiet rooms show their name and nobody inside.
+## Four pull requests
 
-## First version (one lane)
+1. **Page and live-room skeleton.** Replace the old page shell with one room, the resident and place pickers, Pause, the room activity line, and honest read status. Seed from current public data and continue with the live feed. Remove the old controls from the screen. This PR changes no floor art, bubble rendering, or motion behavior.
+2. **Art and readable words.** Tile place drawings across floors, add the warm undrawn-room floor, size resident and thing art, keep names and complete speech crisp at a fixed screen size, and soften night. Add pure, tested bubble-growth and night-tint functions.
+3. **Recorded motion.** Add the single honest walk pace, door departures and arrivals, safe idle steps, one-bubble queues, and pause-after-sentence behavior. Keep motion and timing in pure functions with unit tests.
+4. **Remove the old viewer.** Delete the files used only by the whole-city map, camera movement, minimap, replay UI, rewind, speeds, director, Focus, and activity log. Keep and update the recorded scene fixture and fake-clock test tooling.
 
-Rooms from the map, figures from the drawings, the clock, one recorded walk through a
-door and along the corridor, one speech bubble, pan and zoom, click a figure to follow.
-Reads the real replay file. Small tests: the layout and clock as plain functions, one
-browser check that it draws and clicks, screenshots in the PR.
-
-## Everything after, one lane each (owner said yes to all, 2026-09-07)
-
-Figures and rooms
-
-1. Day and night: the map tints from morning to night by the clock; windows light up after
-   dark; asleep residents (the census marks them) curl up with a little zzz.
-2. Newcomers arrive on the world's edge with a sparkle and a "new" tag for their first day,
-   from their join date.
-3. Quiet rooms as curtained windows with just the name.
-4. A place's own pixel drawing tiled across its floor, including the world root.
-
-Doing things
-
-5. Making a thing: a little puff, the thing lands on the floor with its name. Using it: a
-   glow pulse. Consuming it: it vanishes with crumbs.
-6. Giving: the thing floats from one figure to the other with a heart. Selling to the
-   market: a coin arc, and the thing walks off through the market door with the buyer.
-7. Founding a place: the walls draw themselves in brick by brick (founding is the paid act).
-   Renaming: the sign swaps.
-8. Inventing a kind or coining a trait: a lightbulb over the inventor.
-   Implemented from strict public invention rows: one short, speed-scaled pixel bulb and
-   recorded name follows the inventor's current visible figure; quiet or unmapped facts stay hidden.
-
-Talking and society
-
-9. Speech bubbles that type out letter by letter, scroll when long, and take a different
-   shape in the asking room and the telling room.
-   Implemented with recorded excerpts, grapheme-safe typing, bounded scrolling, and opaque
-   pixel backgrounds selected only by the verified asking or telling room.
-10. Signing an agreement: two figures meet and shake hands, the agreement number over them.
-    Implemented for verified two-party signatures when both visible figures share a clear, close meeting route;
-    otherwise no meeting is invented.
-11. The showing room's contest: a spotlight on whoever posts an act, tiny ballots dropping
-    in when votes land, confetti when the count is published.
-    Implemented from recorded room notes: every note gets the spotlight, strict `VOTE` notes
-    get a ballot, and only the verified first published-count note gets confetti. A note reference
-    whose excerpt cannot be read still gets a brief spotlight with no guessed contest meaning.
-12. Laws you can see: a place with damage turned on gets a red arena border; a blocked
-    resident gets a padlock with a countdown.
-    Partly implemented from public facts: a blocked attempt shows a short pixel lock labelled
-    with its recorded action. The owner removed the status panel and its law list. The
-    public record exposes neither a damage switch nor an expiry, so no arena or countdown is guessed.
-
-Watching
-
-13. Click any figure to follow; the camera glides. A minimap in the corner.
-    Implemented: the crisp minimap shows recorded room outlines, the followed figure and current view;
-    it navigates on click and can hide. Follow keeps its selection during manual navigation and
-    resumes smoothly on that resident's next recorded activity. The picker is always visible.
-14. Director mode: the camera picks the busiest room on its own and drifts between scenes
-    (the stream and screensaver mode).
-    Removed at the owner's request. The manual Focus button chooses visible current activity,
-    favoring conversations, gifts, making and founding over walks, then zooms out and pans smoothly.
-15. Sound, off by default: soft footsteps, a bubble pop, a chime when a place is founded.
-    Implemented as quiet synthesized cues through Phaser's sound output after a trusted gesture.
-    Only visible recorded walks, newly opened visible bubbles, and completed visible foundings sound;
-    pause, hidden rooms, offscreen activity, replay resets, and the default-off preference stay silent.
-16. The world root drawn as the sea, continents as islands; a move through the world is a
-    little boat ride.
-    Cancelled by the owner; PR #23 was closed unmerged. The root's real portrait is its floor,
-    and residents walk across it on recorded moves. Varied room proportions, stepped outlines,
-    staggered shelves and wider continent spacing are presentation, with matching walking rules.
-17. Owner's viewer revision: compact symbol controls, hide/show UI, mobile pinch zoom, clear
-    thing labels, and a scrollable Recent activity log with All/Chats filters and actual pixel
-    portraits for explicitly linked residents, rooms and things. Normal walks steadily at
-    40 world pixels per second; the 1× clock waits for actions to finish. Fast-forward uses
-    60× with readable event holds. History gaps reappear at the next
-    recorded room without an invented connecting route. The status block and speech footer
-    are removed. Art is current; log names and locations come from the record at that moment.
-    The page starts paused at now. Live reads now again; Replay starts the available saved day.
-    Rewind goes backward at 30× through the presentation witnessed in this open view, restoring
-    walks, things, effects and the log together. Forward resumes at the chosen pace without a jump.
-    Words wrap whole; awake figures bob and occasionally wander safely within their room.
-    Supported public action families have portrait log entries and short pixel cues, with richer
-    effects retained when their exact evidence exists. Temporary looking adds a glance and one
-    "is looking around" entry per newly seen burst. It names no target and is absent from saved days.
-
-## What the city may need to add (small server changes, one at a time)
-
-- Nothing for the first version: the replay file already allows cross-origin reads
-  (`Access-Control-Allow-Origin: *`) and the drawings are public.
-- Later items may want a public "asleep since" or "joined at" on the replay's start block,
-  and a public law summary per place; each is one small PR on the city with its door words.
-
-## Where this is tracked
-
-- This file (the owner's list). The new repo carries the same list as `docs/PLAN.md`.
-- City `docs/TASKS.md` points here; the old blueprint `docs/drafts/live-stage-blueprint.md`
-  is superseded and says so in its first line once the first version is up.
+Each pull request runs `npm run check` and includes real-city screenshots at 1280 pixels and 375 pixels wide. New pure behavior gets unit coverage. Browser checks cover only the small user flows. No pull request adds a runtime dependency without explaining why, edits `playwright.config.ts` to change browsers, or commits `dist/`.

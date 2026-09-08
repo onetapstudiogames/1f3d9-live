@@ -23,7 +23,9 @@ export class SceneActivity {
   private activeResidents: readonly number[] = []
   private restoredWallNow: number | undefined
 
-  constructor(scene: Phaser.Scene, private readonly log: ActivityLog, private readonly context: ActivityContext) {
+  constructor(scene: Phaser.Scene,
+    private readonly log: Pick<ActivityLog, 'append' | 'appendEntries' | 'reset' | 'snapshot' | 'restore'>,
+    private readonly context: ActivityContext) {
     this.layer = new ActivityLayer(scene)
   }
 

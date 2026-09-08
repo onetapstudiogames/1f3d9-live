@@ -22,7 +22,7 @@ export class RoomView {
     art: TiledFloor[]
   }>()
 
-  constructor(scene: Phaser.Scene, layout: NestedLayout, private plan: PlacePlan) {
+  constructor(scene: Phaser.Scene, layout: NestedLayout, private plan: PlacePlan, private readonly showNames = true) {
     // The mood covers the floor and walls; plates, figures and words keep their contrast.
     this.tint = scene.add.rectangle(0, 0, 1, 1).setScrollFactor(0).setDepth(0.25)
     const floors = [0x344d3c, 0x557354, 0x7e9262, 0xb3af7e, 0xc3b58b]
@@ -165,7 +165,7 @@ export class RoomView {
       const scale = Math.min(2.5, Math.max(1, 0.85 / camera.zoom))
       plate.group.setScale(scale)
       plate.text.setScale(animation?.renaming ? signScale(animationProgress(animation.renaming, now)) : 1, 1)
-      plate.group.setVisible(shown && plate.room.width * camera.zoom > 105 && plate.room.standing.height * camera.zoom > 27)
+      plate.group.setVisible(this.showNames && shown && plate.room.width * camera.zoom > 105 && plate.room.standing.height * camera.zoom > 27)
       const plateWidth = Math.min(300, (plate.room.width - 24) / scale - plate.nameOffset)
       if (plate.text.width !== plateWidth) plate.text.setFixedSize(plateWidth, 27)
     }
