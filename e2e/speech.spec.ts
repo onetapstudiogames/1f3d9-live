@@ -3,6 +3,46 @@ import { readFile } from 'node:fs/promises'
 
 const fixtureUrl = '/?replay=/fixtures/replay-places.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
 const fixtureOrigin = 'http://localhost:4173'
+const cardSelector = '.room-speech-card[data-note-id="13243"]'
+
+type SpeechSample = {
+  at: number; page: number; pageCount: number; revealed: string; visible: string
+  pageComplete: boolean; complete: boolean; side: string
+  cardTop: number; cardBottom: number; appTop: number; appBottom: number
+  scrollHeight: number; innerHeight: number; footerTop: number; footerBottom: number
+}
+type SpeechSamples = { frames: SpeechSample[]; started: boolean; complete: boolean; ended: string | null }
+type SampleWindow = Window & { speechSamples?: SpeechSamples }
+
+async function startSampling(page: Page): Promise<void> {
+  await page.evaluate(selector => {
+    const state: SpeechSamples = { frames: [], started: false, complete: false, ended: null }
+    ;(window as SampleWindow).speechSamples = state
+    const timer = window.setInterval(() => {
+      // Resolve the current DOM node on every sample, without waiting for a missing card.
+      const card = document.querySelector<HTMLElement>(selector)
+      if (!card || !card.getClientRects().length) {
+        if (state.started) { state.ended = card ? 'hidden' : 'removed'; window.clearInterval(timer) }
+        return
+      }
+      state.started = true
+      const box = card.getBoundingClientRect()
+      const app = document.querySelector<HTMLElement>('#app')!.getBoundingClientRect()
+      const footer = document.querySelector<HTMLElement>('#room-footer')!.getBoundingClientRect()
+      const frame: SpeechSample = {
+        at: Number(document.body.dataset['liveElapsed']), page: Number(card.dataset['page']),
+        pageCount: Number(card.dataset['pageCount']), revealed: card.dataset['revealed'] ?? '',
+        visible: card.querySelector<HTMLElement>('.room-speech-words')!.textContent ?? '',
+        pageComplete: card.dataset['pageComplete'] === 'true', complete: card.dataset['complete'] === 'true',
+        side: card.dataset['side'] ?? '', cardTop: box.top, cardBottom: box.bottom, appTop: app.top, appBottom: app.bottom,
+        scrollHeight: document.documentElement.scrollHeight, innerHeight: window.innerHeight,
+        footerTop: footer.top, footerBottom: footer.bottom,
+      }
+      state.frames.push(frame)
+      if (frame.complete) { state.complete = true; window.clearInterval(timer) }
+    }, 100)
+  }, cardSelector)
+}
 
 async function keepFixtureOffline(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
@@ -19,9 +59,15 @@ async function keepFixtureOffline(page: Page): Promise<{ external: string[]; err
 }
 
 test('a recorded long note stays whole beside its speaker through layout and room changes', async ({ page }) => {
+  // Software-rendered CI needs wall time to draw every controlled frame. This budget
+  // is separate from the unchanged 15-second speech lifetime in simulated time.
+  test.setTimeout(120_000)
   // This fixture needs a room short enough to require pages, independently of project defaults.
   await page.setViewportSize({ width: 1280, height: 640 })
-  await page.clock.install({ time: new Date('2026-09-07T13:54:04.254Z') })
+  // Install and pause before the app creates timers, reads or speech. The one-minute jump
+  // happens on the blank page, so it cannot consume a note or a pending read's timeout.
+  await page.clock.install({ time: new Date('2026-09-07T13:53:04.254Z') })
+  await page.clock.pauseAt(new Date('2026-09-07T13:54:04.254Z'))
   const diagnostics = await keepFixtureOffline(page)
   const note = JSON.parse(await readFile('public/fixtures/notes/note-13243.json', 'utf8')) as {
     note: { id: number; body: string; place_id: number }
@@ -32,11 +78,10 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   expect(note.note.body).toHaveLength(1016)
 
   let releaseChange!: () => void
-  let changeRequested!: () => void
+  let changeRequested = false
   const held = new Promise<void>(resolve => { releaseChange = resolve })
-  const requested = new Promise<void>(resolve => { changeRequested = resolve })
   await page.route('**/fixtures/changes-live.json', async route => {
-    changeRequested()
+    changeRequested = true
     await held
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
       change_marker: '100128', next_since: '100128', has_more: false, unchanged: false, returned_items: 1,
@@ -46,53 +91,58 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   })
 
   await page.goto(fixtureUrl)
-  await requested
-  await expect(page.locator('body')).toHaveAttribute('data-live-ready', 'true', { timeout: 30_000 })
+  // Boot may need animation frames; asynchronous fixture reads get real time to finish
+  // between these tiny controlled steps, while the note response remains held.
+  await expect.poll(async () => {
+    await page.clock.runFor(16)
+    return changeRequested && await page.locator('body').getAttribute('data-live-ready') === 'true'
+  }, { timeout: 30_000 }).toBe(true)
   await page.locator('#place-picker').selectOption('782')
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '782')
   releaseChange()
+  // This marker follows note enrichment and queueing. No animation time passes during the read.
+  await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
+  await startSampling(page)
 
-  const card = page.locator('.room-speech-card[data-note-id="13243"]')
-  await expect(card).toBeVisible({ timeout: 30_000 })
-  // Finish the held read before pausing; jumping ahead during it can fire its timeout.
-  // Then assertions cannot consume a page's hold between manual samples.
-  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000))
-  await expect(card).toHaveAttribute('data-page', '0')
-  await expect(card).toHaveAttribute('data-side', /^(above|below)$/)
-  const pages = new Map<number, string>()
-  const checkedPages = new Set<number>()
-  for (let elapsed = 0; elapsed < 14_900; elapsed += 100) {
-    const frame = await card.evaluate(element => ({ page: Number(element.dataset['page']),
-      pageCount: Number(element.dataset['pageCount']), revealed: element.dataset['revealed'] ?? '',
-      pageComplete: element.dataset['pageComplete'] === 'true', complete: element.dataset['complete'] === 'true' }))
-    const prior = pages.get(frame.page) ?? ''
-    if (frame.revealed.length >= prior.length) pages.set(frame.page, frame.revealed)
-    if (frame.pageComplete && !checkedPages.has(frame.page)) {
-      const completed = await card.evaluate(element => {
-        const cardBox = element.getBoundingClientRect()
-        const appBox = document.querySelector<HTMLElement>('#app')!.getBoundingClientRect()
-        const footerBox = document.querySelector<HTMLElement>('#room-footer')!.getBoundingClientRect()
-        return { visible: element.querySelector<HTMLElement>('.room-speech-words')!.textContent ?? '',
-          revealed: element.dataset['revealed'] ?? '', cardTop: cardBox.top, cardBottom: cardBox.bottom,
-          appTop: appBox.top, appBottom: appBox.bottom, scrollHeight: document.documentElement.scrollHeight,
-          innerHeight: window.innerHeight, footerTop: footerBox.top, footerBottom: footerBox.bottom }
-      })
-      expect(completed.visible.replaceAll('\n', '')).toBe(completed.revealed.replaceAll('\n', ''))
-      expect(completed.cardTop).toBeGreaterThanOrEqual(completed.appTop)
-      expect(completed.cardBottom).toBeLessThanOrEqual(completed.appBottom)
-      expect(completed.scrollHeight).toBeLessThanOrEqual(completed.innerHeight)
-      expect(completed.footerTop).toBeGreaterThanOrEqual(0)
-      expect(completed.footerBottom).toBeLessThanOrEqual(completed.innerHeight)
-      checkedPages.add(frame.page)
-    }
-    if (frame.complete) break
-    await page.clock.runFor(100)
+  let samples: SpeechSamples = { frames: [], started: false, complete: false, ended: null }
+  for (let elapsed = 0; elapsed < 15_000; elapsed += 500) {
+    // Sample every 100ms inside the page; avoid hundreds of per-frame protocol round trips.
+    await page.clock.runFor(500)
+    samples = await page.evaluate(() => (window as SampleWindow).speechSamples!)
+    expect(samples.ended, `card ended before the whole note: ${JSON.stringify(samples.frames.at(-1))}`).toBeNull()
+    if (samples.complete) break
   }
-  await expect(card).toHaveAttribute('data-complete', 'true')
-  const pageCount = Number(await card.getAttribute('data-page-count'))
+  expect(samples.complete, `last speech sample: ${JSON.stringify(samples.frames.at(-1))}`).toBe(true)
+  expect(samples.frames[0]?.page).toBe(0)
+  const pageCount = samples.frames.at(-1)!.pageCount
   expect(pageCount).toBeGreaterThan(1)
-  expect(checkedPages.size).toBe(pageCount)
-  expect([...Array(pageCount).keys()].map(index => pages.get(index) ?? '').join('')).toBe(note.note.body)
+  const pages: string[] = []
+  for (let index = 0; index < pageCount; index += 1) {
+    const frames = samples.frames.filter(frame => frame.page === index)
+    const typing = frames.filter(frame => !frame.pageComplete && frame.revealed.length > 0)
+    expect(new Set(typing.map(frame => frame.revealed)).size, `page ${index} types progressively`).toBeGreaterThan(1)
+    const held = frames.filter(frame => frame.pageComplete)
+    expect(held.length, `page ${index} completes`).toBeGreaterThan(0)
+    if (index < pageCount - 1) expect(held.at(-1)!.at - held[0]!.at, `page ${index} holds`).toBeGreaterThanOrEqual(200)
+    pages.push(held[0]!.revealed)
+  }
+  expect(pages.join('')).toBe(note.note.body)
+  for (const frame of samples.frames) {
+    expect(frame.side).toMatch(/^(above|below)$/)
+    expect(frame.visible.replaceAll('\n', '')).toBe(frame.revealed.replaceAll('\n', ''))
+    expect(frame.cardTop).toBeGreaterThanOrEqual(frame.appTop)
+    expect(frame.cardBottom).toBeLessThanOrEqual(frame.appBottom)
+    expect(frame.scrollHeight).toBeLessThanOrEqual(frame.innerHeight)
+    expect(frame.footerTop).toBeGreaterThanOrEqual(0)
+    expect(frame.footerBottom).toBeLessThanOrEqual(frame.innerHeight)
+  }
+
+  const card = page.locator(cardSelector)
+  // Sampling stopped at completion. Check the last page's hold without consuming real time.
+  await page.clock.runFor(200)
+  await expect(card).toBeVisible()
+  await expect(card).toHaveAttribute('data-complete', 'true')
+  await expect(card).toHaveAttribute('data-revealed', pages.at(-1)!)
 
   const initial = await card.boundingBox(); expect(initial).not.toBeNull()
   await page.setViewportSize({ width: 560, height: 720 })
@@ -129,5 +179,13 @@ test('a recorded long note stays whole beside its speaker through layout and roo
     horizontal: document.documentElement.scrollWidth > window.innerWidth,
     vertical: document.documentElement.scrollHeight > window.innerHeight,
   }))).toEqual({ horizontal: false, vertical: false })
+
+  // Expiry hides the card today; removing it is also a valid terminal state. Never
+  // wait for the expired note to reappear in order to sample it.
+  await page.clock.runFor(3_000)
+  expect(await page.evaluate(selector => {
+    const current = document.querySelector<HTMLElement>(selector)
+    return !current || current.getClientRects().length === 0
+  }, cardSelector)).toBe(true)
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
