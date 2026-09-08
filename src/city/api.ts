@@ -81,6 +81,7 @@ function nextFixturePage(url: string, pageNumber: number): string {
 
 export async function fetchCensus(search: string = browserSearch()): Promise<readonly Resident[]> {
   const fixture = searchValue(search, 'census')
+    ?? (fixtureMode(search) ? '/fixtures/residents-presence-page1.json' : null)
   let url = fixture || `${CITY_ORIGIN}/api/residents?view=presence&limit=200`
   const residents: Resident[] = []
   const cursors = new Set<number>()

@@ -1,7 +1,8 @@
 import type { ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout } from '../ground/nested.ts'
 import { createHandovers, stepHandovers } from '../handovers.ts'
-import { placeAnimation, advanceToPlaceMoment, stepPlaceAnimations, type PlaceAnimation } from '../place-animation.ts'
+import { placeAnimation, stepPlaceAnimations, type PlaceAnimation } from '../place-animation.ts'
+import { advancePresentation } from '../playback.ts'
 import { planPlaces } from '../places.ts'
 import { createThings, stepThings } from '../things.ts'
 import { createClock, dueEvents, prepareTimeline } from './index.ts'
@@ -29,8 +30,6 @@ export function measureReplay(replay: ReplayFile, census: readonly Resident[], s
   let clock = createClock(replay.window_start, replay.window_end, speed)
   const timeline = prepareTimeline(replay.timeline)
   const placePlan = planPlaces(replay)
-  const placeMoments = [...placePlan.foundings.values(), ...[...placePlan.renamings.values()].flat()]
-    .map(event => event.time).sort((left, right) => left - right)
   let placeAnimations: readonly PlaceAnimation[] = [...placePlan.foundings.values()]
     .filter(event => event.time === clock.start)
     .map(event => placeAnimation('founding', event.placeId, event.changeId, 0, speed))
@@ -46,7 +45,7 @@ export function measureReplay(replay: ReplayFile, census: readonly Resident[], s
       return Object.freeze({ speed, walkCount: walks.size, totalPath: Math.round(totalPath), longestPath: Math.round(longestPath), dayDurationMs: elapsed })
     }
     elapsed += FRAME_MS
-    if (!pending) clock = advanceToPlaceMoment(clock, FRAME_MS, placeMoments)
+    clock = advancePresentation(clock, FRAME_MS, pending, timeline[cursor]?.time ?? null)
     const due = dueEvents(timeline, cursor, clock.time)
     cursor = due.cursor
     const incoming = due.events.flatMap(event => {

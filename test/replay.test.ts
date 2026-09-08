@@ -160,6 +160,8 @@ test('hold lengths shrink with the chosen speed and stop at a floor', () => {
   assert.equal(walkDuration(1_000, 60), 5_600)
   assert.equal(walkDuration(1_000, 300), 1_200)
   assert.equal(walkDuration(0, 100_000), 1_200)
+  assert.equal(walkDuration(400, 1), 10_000)
+  assert.equal(walkDuration(10_000, 1), 250_000)
 })
 
 test('walk pace spends visible time near each room and accelerates only the far middle', () => {
@@ -173,6 +175,8 @@ test('walk pace spends visible time near each room and accelerates only the far 
   const doors = [0, 2_000, 8_000, distance]
   assert.ok(walkProgress(distance, 0.25, doors) < 0.21)
   assert.ok(walkProgress(distance, 0.75, doors) > 0.79)
+  assert.equal(walkProgress(distance, 0.2, doors, 1), 0.2)
+  assert.equal(walkProgress(distance, 0.8, doors, 1), 0.8)
 })
 
 test('a faster speed shortens every hold and never inverts the order of the speeds', () => {

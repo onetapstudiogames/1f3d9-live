@@ -9,6 +9,8 @@ export class AgreementLayer {
   private active: readonly StartedHandshake[] = []
   private readonly views = new Map<string, View>()
   add(started: readonly StartedHandshake[]): void { this.active = Object.freeze([...this.active, ...started]) }
+  snapshot(): readonly StartedHandshake[] { return this.active }
+  restore(active: readonly StartedHandshake[]): void { this.active = active; this.frames = [] }
 
   private frames: readonly { active: StartedHandshake; frame: NonNullable<ReturnType<typeof handshakeFrame>> }[] = []
   project(now: number): ReadonlyMap<number, Point> {

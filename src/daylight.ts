@@ -1,4 +1,5 @@
 import type { Room } from './ground/nested.ts'
+import { roomOutline } from './ground/room-shape.ts'
 
 export type Daylight = Readonly<{ color: number; alpha: number }>
 export type WindowRectangle = Readonly<{ x: number; y: number; width: number; height: number }>
@@ -49,17 +50,20 @@ export function windowsLit(recordedTime: number): boolean {
   return hour !== undefined && (hour >= 20 || hour < 6)
 }
 
-type Wall = 'top' | 'right' | 'bottom' | 'left'
-type Candidate = Readonly<{ wall: Wall; center: number; rectangle: WindowRectangle }>
+type Candidate = Readonly<{ center: Point; from: Point; to: Point; rectangle: WindowRectangle }>
+type Point = Readonly<{ x: number; y: number }>
 
-const candidate = (room: Room, wall: Wall, fraction: number): Candidate => {
-  const horizontal = wall === 'top' || wall === 'bottom'
-  const center = Math.round((horizontal ? room.x : room.y) + (horizontal ? room.width : room.height) * fraction)
+const candidate = (from: Point, to: Point, fraction: number): Candidate => {
+  const horizontal = from.y === to.y
+  const along = Math.round((horizontal ? from.x : from.y) + (horizontal ? to.x - from.x : to.y - from.y) * fraction)
+  const direction = horizontal ? Math.sign(to.x - from.x) : Math.sign(to.y - from.y)
+  const inward = horizontal ? { x: 0, y: direction * 5 } : { x: -direction * 5, y: 0 }
+  const center = horizontal ? { x: along, y: from.y } : { x: from.x, y: along }
   const width = horizontal ? 12 : 6
   const height = horizontal ? 6 : 12
-  const x = wall === 'left' ? room.x + 2 : wall === 'right' ? room.x + room.width - width - 2 : center - width / 2
-  const y = wall === 'top' ? room.y + 2 : wall === 'bottom' ? room.y + room.height - height - 2 : center - height / 2
-  return Object.freeze({ wall, center, rectangle: Object.freeze({ x, y, width, height }) })
+  return Object.freeze({ center: Object.freeze(center), from, to, rectangle: Object.freeze({
+    x: center.x + inward.x - width / 2, y: center.y + inward.y - height / 2, width, height,
+  }) })
 }
 
 const score = (roomId: number, index: number): number => {
@@ -69,23 +73,22 @@ const score = (roomId: number, index: number): number => {
 }
 
 const clearsDoor = (room: Room, item: Candidate): boolean => {
-  const doorOnWall = item.wall === 'top' ? room.door.y === room.y
-    : item.wall === 'bottom' ? room.door.y === room.y + room.height
-      : item.wall === 'left' ? room.door.x === room.x
-        : room.door.x === room.x + room.width
+  const horizontal = item.from.y === item.to.y
+  const doorOnWall = horizontal ? room.door.y === item.from.y && room.door.x >= Math.min(item.from.x, item.to.x)
+    && room.door.x <= Math.max(item.from.x, item.to.x) : room.door.x === item.from.x
+    && room.door.y >= Math.min(item.from.y, item.to.y) && room.door.y <= Math.max(item.from.y, item.to.y)
   if (!doorOnWall) return true
-  const doorCenter = item.wall === 'top' || item.wall === 'bottom' ? room.door.x : room.door.y
-  return Math.abs(item.center - doorCenter) >= 34
+  return Math.hypot(item.center.x - room.door.x, item.center.y - room.door.y) >= 34
 }
 
 export function roomWindows(room: Room): readonly WindowRectangle[] {
   const fractions = [0.14, 0.3, 0.5, 0.7, 0.86]
-  const candidates = (['top', 'right', 'bottom', 'left'] as const)
-    .flatMap(wall => fractions.map(fraction => candidate(room, wall, fraction)))
+  const candidates = roomOutline(room)
+    .flatMap(([from, to]) => fractions.map(fraction => candidate(from, to, fraction)))
     .filter(item => {
-      const wallStart = item.wall === 'top' || item.wall === 'bottom' ? room.x : room.y
-      const wallEnd = item.wall === 'top' || item.wall === 'bottom' ? room.x + room.width : room.y + room.height
-      return item.center - wallStart >= 24 && wallEnd - item.center >= 24 && clearsDoor(room, item)
+      const length = Math.hypot(item.to.x - item.from.x, item.to.y - item.from.y)
+      const offset = Math.hypot(item.center.x - item.from.x, item.center.y - item.from.y)
+      return offset >= 24 && length - offset >= 24 && clearsDoor(room, item)
     })
     .map((item, index) => Object.freeze({ item, rank: score(room.id, index) }))
     .sort((left, right) => left.rank - right.rank)

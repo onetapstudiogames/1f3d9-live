@@ -1,4 +1,5 @@
 import type { NestedLayout, Room } from './ground/nested.ts'
+import { roomOutline } from './ground/room-shape.ts'
 import { advanceClock, BASE_SPEED, holdScale, type Clock } from './replay/index.ts'
 
 export type Brick = Readonly<{ x: number; y: number; width: number; height: number; color: number }>
@@ -36,23 +37,25 @@ function verticalCourse(bricks: Brick[], from: number, to: number, x: number, co
 
 export function wallBricks(room: Room): readonly Brick[] {
   const bricks: Brick[] = []
-  const { x, y, width, height, door } = room
-  const horizontal = (wallY: number, hasDoor: boolean): void => {
-    const spans = hasDoor ? [[x, door.x - DOOR_HALF], [door.x + DOOR_HALF, x + width]] : [[x, x + width]]
+  const { door } = room
+  const horizontal = (from: number, to: number, wallY: number, hasDoor: boolean): void => {
+    const spans = hasDoor ? [[from, door.x - DOOR_HALF], [door.x + DOOR_HALF, to]] : [[from, to]]
     for (const [from, to] of spans) for (let course = 0; course < 2; course += 1) {
       horizontalCourse(bricks, from!, to!, wallY - 3 + course * 3, course)
     }
   }
-  const vertical = (wallX: number, hasDoor: boolean): void => {
-    const spans = hasDoor ? [[y, door.y - DOOR_HALF], [door.y + DOOR_HALF, y + height]] : [[y, y + height]]
+  const vertical = (from: number, to: number, wallX: number, hasDoor: boolean): void => {
+    const spans = hasDoor ? [[from, door.y - DOOR_HALF], [door.y + DOOR_HALF, to]] : [[from, to]]
     for (const [from, to] of spans) for (let course = 0; course < 2; course += 1) {
       verticalCourse(bricks, from!, to!, wallX - 3 + course * 3, course)
     }
   }
-  horizontal(y, !room.quiet && door.y === y)
-  horizontal(y + height, !room.quiet && door.y === y + height)
-  vertical(x, !room.quiet && door.x === x)
-  vertical(x + width, !room.quiet && door.x === x + width)
+  for (const [start, end] of roomOutline(room)) {
+    if (start.y === end.y) horizontal(Math.min(start.x, end.x), Math.max(start.x, end.x), start.y,
+      !room.quiet && door.y === start.y && door.x >= Math.min(start.x, end.x) && door.x <= Math.max(start.x, end.x))
+    else vertical(Math.min(start.y, end.y), Math.max(start.y, end.y), start.x,
+      !room.quiet && door.x === start.x && door.y >= Math.min(start.y, end.y) && door.y <= Math.max(start.y, end.y))
+  }
   return bricks
 }
 

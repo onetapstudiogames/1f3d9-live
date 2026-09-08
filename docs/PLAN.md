@@ -23,7 +23,7 @@ own pixel drawing (`GET /api/drawing/resident/:id` gives an 8 by 8 palette-and-i
 grid; null cells are transparent), scaled up with crisp edges, flipped to face the way it
 walks, with a small bob while walking. A resident with no drawing gets one default pixel
 figure, never a circle or a diamond. Places can have drawings too (`has_drawing` on the
-map), so a room's floor or sign can be its owner's art. Things sit on fixed spots with a
+map), so a room's whole floor is tiled with its owner's art. Things sit on fixed spots with a
 tiny icon and name. Pixel drawings are used for everything.
 
 ## The rules that stay
@@ -55,7 +55,7 @@ Figures and rooms
 2. Newcomers arrive on the world's edge with a sparkle and a "new" tag for their first day,
    from their join date.
 3. Quiet rooms as curtained windows with just the name.
-4. A place's own pixel drawing as its floor or sign.
+4. A place's own pixel drawing tiled across its floor, including the world root.
 
 Doing things
 
@@ -67,7 +67,7 @@ Doing things
    Renaming: the sign swaps.
 8. Inventing a kind or coining a trait: a lightbulb over the inventor.
    Implemented from strict public invention rows: one short, speed-scaled pixel bulb and
-   recorded name follows the inventor's current visible figure; quiet or unmapped facts stay plain status.
+   recorded name follows the inventor's current visible figure; quiet or unmapped facts stay hidden.
 
 Talking and society
 
@@ -77,7 +77,7 @@ Talking and society
    pixel backgrounds selected only by the verified asking or telling room.
 10. Signing an agreement: two figures meet and shake hands, the agreement number over them.
     Implemented for verified two-party signatures when both visible figures share a clear, close meeting route;
-    otherwise the public record stays visible as a plain status rather than inventing a meeting.
+    otherwise no meeting is invented.
 11. The showing room's contest: a spotlight on whoever posts an act, tiny ballots dropping
     in when votes land, confetti when the count is published.
     Implemented from recorded room notes: every note gets the spotlight, strict `VOTE` notes
@@ -85,25 +85,43 @@ Talking and society
     whose excerpt cannot be read still gets a brief spotlight with no guessed contest meaning.
 12. Laws you can see: a place with damage turned on gets a red arena border; a blocked
     resident gets a padlock with a countdown.
-    Partly implemented from public facts: nearby live rooms list their current law names,
-    and a blocked attempt shows a short pixel lock labelled with its recorded action. The
+    Partly implemented from public facts: a blocked attempt shows a short pixel lock labelled
+    with its recorded action. The owner removed the status panel and its law list. The
     public record exposes neither a damage switch nor an expiry, so no arena or countdown is guessed.
 
 Watching
 
 13. Click any figure to follow; the camera glides. A minimap in the corner.
     Implemented: the crisp minimap shows recorded room outlines, the followed figure and current view;
-    it navigates on click and can hide on a phone. Follow keeps an acquired figure inside the view.
+    it navigates on click and can hide. Follow keeps its selection during manual navigation and
+    resumes smoothly on that resident's next recorded activity. The picker is always visible.
 14. Director mode: the camera picks the busiest room on its own and drifts between scenes
     (the stream and screensaver mode).
-    Implemented: the optional Director glides among rooms with recent recorded moves, notes,
-    or made things, lingering before it rotates. Any manual camera control turns it off.
+    Removed at the owner's request. The manual Focus button chooses visible current activity,
+    favoring conversations, gifts, making and founding over walks, then zooms out and pans smoothly.
 15. Sound, off by default: soft footsteps, a bubble pop, a chime when a place is founded.
     Implemented as quiet synthesized cues through Phaser's sound output after a trusted gesture.
     Only visible recorded walks, newly opened visible bubbles, and completed visible foundings sound;
     pause, hidden rooms, offscreen activity, replay resets, and the default-off preference stay silent.
 16. The world root drawn as the sea, continents as islands; a move through the world is a
     little boat ride.
+    Cancelled by the owner; PR #23 was closed unmerged. The root's real portrait is its floor,
+    and residents walk across it on recorded moves. Varied room proportions, stepped outlines,
+    staggered shelves and wider continent spacing are presentation, with matching walking rules.
+17. Owner's viewer revision: compact symbol controls, hide/show UI, mobile pinch zoom, clear
+    thing labels, and a scrollable Recent activity log with All/Chats filters and actual pixel
+    portraits for explicitly linked residents, rooms and things. Normal walks steadily at
+    40 world pixels per second; the 1× clock waits for actions to finish. Fast-forward uses
+    60× with readable event holds. History gaps reappear at the next
+    recorded room without an invented connecting route. The status block and speech footer
+    are removed. Art is current; log names and locations come from the record at that moment.
+    The page starts paused at now. Live reads now again; Replay starts the available saved day.
+    Rewind goes backward at 30× through the presentation witnessed in this open view, restoring
+    walks, things, effects and the log together. Forward resumes at the chosen pace without a jump.
+    Words wrap whole; awake figures bob and occasionally wander safely within their room.
+    Supported public action families have portrait log entries and short pixel cues, with richer
+    effects retained when their exact evidence exists. Temporary looking adds a glance and one
+    "is looking around" entry per newly seen burst. It names no target and is absent from saved days.
 
 ## What the city may need to add (small server changes, one at a time)
 

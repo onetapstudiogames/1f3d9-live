@@ -43,6 +43,7 @@ export function holdScale(speed: number): number {
 
 export function walkDuration(distance: number, speed: number = BASE_SPEED): number {
   const safeDistance = Number.isFinite(distance) && distance > 0 ? distance : 0
+  if (speed === 1) return safeDistance / 40 * 1_000
   const extra = Math.max(0, Math.log2(Math.max(1, safeDistance / WALK_BASE_DISTANCE))) * WALK_LOG_STEP_MS
   const base = Math.min(WALK_LONGEST_MS, WALK_SHORTEST_MS + extra)
   return Math.max(WALK_FLOOR_MS, base * holdScale(speed))
@@ -50,10 +51,11 @@ export function walkDuration(distance: number, speed: number = BASE_SPEED): numb
 
 // The first and last few pixels are the parts a viewer can read: leaving a spot,
 // using the doors, and settling. Long corridor middles consume the remaining time.
-export function walkProgress(distance: number, elapsedShare: number, slowCentres: readonly number[] = [0, distance]): number {
+export function walkProgress(distance: number, elapsedShare: number, slowCentres: readonly number[] = [0, distance], speed: number = BASE_SPEED): number {
   const total = Number.isFinite(distance) && distance > 0 ? distance : 0
   const time = Number.isFinite(elapsedShare) ? Math.min(1, Math.max(0, elapsedShare)) : 0
   if (total === 0 || time === 0 || time === 1) return time
+  if (speed === 1) return time
   const ranges = slowCentres
     .filter(Number.isFinite)
     .map(value => [Math.max(0, value - WALK_NEAR_DISTANCE), Math.min(total, value + WALK_NEAR_DISTANCE)] as const)

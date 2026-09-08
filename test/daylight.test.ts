@@ -1,3 +1,4 @@
+import { roomContains, roomOutline } from '../src/ground/room-shape.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -40,14 +41,6 @@ test('windows light from 20:00 inclusive until 06:00 exclusive in UTC', () => {
   assert.equal(windowsLit(atUtc(6)), false)
 })
 
-const wallOf = (window: Readonly<{ x: number; y: number; width: number; height: number }>, room: Room): 'top' | 'right' | 'bottom' | 'left' => {
-  if (window.y === room.y + 2) return 'top'
-  if (window.x + window.width === room.x + room.width - 2) return 'right'
-  if (window.y + window.height === room.y + room.height - 2) return 'bottom'
-  if (window.x === room.x + 2) return 'left'
-  assert.fail(`window in room ${String(room.id)} is not on a wall`)
-}
-
 const assertSafeWindows = (room: Room): void => {
   const windows = roomWindows(room)
   assert.ok(windows.length >= 1 && windows.length <= 3)
@@ -58,19 +51,15 @@ const assertSafeWindows = (room: Room): void => {
     assert.ok(window.x >= room.x && window.y >= room.y)
     assert.ok(window.x + window.width <= room.x + room.width)
     assert.ok(window.y + window.height <= room.y + room.height)
-    const wall = wallOf(window, room)
-    const horizontal = wall === 'top' || wall === 'bottom'
-    const center = horizontal ? window.x + window.width / 2 : window.y + window.height / 2
-    const wallStart = horizontal ? room.x : room.y
-    const wallEnd = horizontal ? room.x + room.width : room.y + room.height
-    assert.ok(center - wallStart >= 24 && wallEnd - center >= 24, 'window clears corners')
-    const doorOnWall = horizontal
-      ? room.door.y === (wall === 'top' ? room.y : room.y + room.height)
-      : room.door.x === (wall === 'left' ? room.x : room.x + room.width)
-    if (doorOnWall) {
-      const doorCenter = horizontal ? room.door.x : room.door.y
-      assert.ok(Math.abs(center - doorCenter) >= 34, 'window and its halo clear the 44-pixel doorway gap')
+    const center = { x: window.x + window.width / 2, y: window.y + window.height / 2 }
+    const wall = roomOutline(room).find(([a, b]) => a.y === b.y
+      ? Math.abs(center.y - a.y) === 5 && center.x >= Math.min(a.x, b.x) + 24 && center.x <= Math.max(a.x, b.x) - 24
+      : Math.abs(center.x - a.x) === 5 && center.y >= Math.min(a.y, b.y) + 24 && center.y <= Math.max(a.y, b.y) - 24)
+    assert.ok(wall, `window in room ${room.id} must clear corners on its actual outline`)
+    for (const point of [{ x: window.x, y: window.y }, { x: window.x + window.width, y: window.y + window.height }]) {
+      assert.equal(roomContains(room, point), true)
     }
+    assert.ok(Math.hypot(center.x - room.door.x, center.y - room.door.y) >= 34, 'window clears the doorway')
   }
 }
 

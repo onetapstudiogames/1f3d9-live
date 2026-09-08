@@ -32,8 +32,24 @@ samples under `test/fixtures/`) before any work.
 6. **Pixel drawings for everything.** A resident with no drawing gets one default pixel
    figure, never a circle or a diamond. Crisp scaling (`pixelArt: true`), flip to face,
    small bob while walking.
-7. **Honest status.** If the record cannot be read, the page says so in plain words and
-   keeps the last drawn state; no loading screens, no invented motion while waiting.
+7. **Keep the last state.** If a read fails, keep the last drawn state and retry without
+   invented motion. Owner revision of 2026-09-07 removes the status paragraph and speech
+   disclaimers entirely. Read failures remain in internal diagnostics, with no replacement panel.
+
+Owner revision of 2026-09-07: one compact set of controls, an always-visible resident picker,
+normal steady walking and fast-forward (60×), and a manual Focus button. Manual navigation retains the
+selected resident and preferences; tracking waits for that resident's next recorded action.
+No Director mode and no sea or boats. The world root uses its own tiled portrait and ordinary
+recorded walking. Rooms may vary in shape, with matching floors, walls, doors and routes.
+The bottom activity log uses recorded words and explicitly linked pixel portraits.
+The view opens at now, paused. Pause is always ⏸; ▶ and ⏩ start forward playback.
+Live re-reads the current city; Replay starts at the beginning of the available saved day.
+Rewind plays the witnessed presentation backward at 30×, including the log. Its in-memory
+history resets on Live/Replay; resuming forward restores that moment and discards its later
+presentation. Normal walks stay at 40 world pixels per second, and recorded time waits for
+their related actions. Ambient bobbing and small room walks create no events or Follow trigger.
+Temporary looking presence is read anonymously, shown once per new witnessed burst, and never
+invented in the city's saved replay. No looked-at object is identified by that signal.
 
 ## Stack and layout
 
@@ -49,8 +65,8 @@ samples under `test/fixtures/`) before any work.
 
 ## Definition of done for every PR
 
-- `npm run check` green: typecheck, unit tests (`node --test`), build, and the Playwright
-  smoke test, which writes `docs/screenshots/latest.png`.
+- `npm run check` green: typecheck, unit tests (`node --test`), build, and the saved-fixture
+  browser checks. Capture the real live-city screenshots separately after the page is ready.
 - Two screenshots in the PR body (desktop 1280 wide, phone 375 wide) of the real live city,
   so the owner sees it before it merges. The owner watches on Vercel previews.
 - Every new pure function has a test. Browser tests stay few and boring: does it draw, does
@@ -66,8 +82,9 @@ samples under `test/fixtures/`) before any work.
   and never let a lane spawn gpt-6-astra subagents.** The Codex sandbox cannot push and cannot
   write `.git`; the orchestrator gates and pushes from its own clone. See the city's memory
   notes the owner keeps for the lane mechanics (scratch Codex CLI 0.153+, `--add-dir <clone>/.git`).
-- One clone per agent. Reviews run in fresh clones and reproduce the PR body's claims rather
-  than trusting them. Wait loops fail closed.
+- Start from a fresh clone. The owner approved one consolidated branch for the viewer revisions,
+  with independent workers owning distinct files. Reviews still run in fresh clones and
+  reproduce the PR body's claims. Use focused checks during work, then the full check and CI.
 - Merge on approve and green CI. Lows fixed after approve. Every PR body says which items of
   docs/PLAN.md it lands.
 - The owner has ADHD and wants plain words: short numbered steps, no jargon, no day

@@ -220,6 +220,10 @@ test('every recorded applied move follows actual tree doors without entering sib
     for (let index = 1; index < path.length; index += 1) {
       for (const room of Object.values(layout.rooms)) {
         if (!entered.has(room.id)) assert.equal(crosses(path[index - 1]!, path[index]!, room), false, `${detail.action} ${String(from.id)}→${String(to.id)} entered sibling ${String(room.id)}`)
+        if (room.notch && entered.has(room.id)) assert.equal(crosses(path[index - 1]!, path[index]!, {
+          ...room, x: room.x + room.width - room.notch.width, y: room.y + room.height - room.notch.height,
+          width: room.notch.width, height: room.notch.height,
+        }), false, `route crosses the missing corner of room ${room.id}`)
       }
     }
     routed += 1

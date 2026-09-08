@@ -2,6 +2,7 @@ import type { ReplayEvent, ReplayFile, Resident } from '../city/types.ts'
 import { initialResidents, residentIndex } from '../city/residents.ts'
 import type { NestedLayout, Point } from '../ground/nested.ts'
 import { pointAlongPath, sidestepPath, walkPath } from '../ground/path.ts'
+import { roomContains } from '../ground/room-shape.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
 import { appliedMove, bubbleFor, bubbleVisible, walkDuration, walkProgress, BASE_SPEED, type Bubble } from './index.ts'
 import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
@@ -12,6 +13,7 @@ import { agreementSignature, handshakeDuration, planHandshake, type AgreementSig
 import type { AgreementPair } from '../city/agreements.ts'
 import { showingNoticeFor, type ShowingMoment } from '../showing.ts'
 import { blockedAttemptFor, blockedAttemptDuration, type BlockMoment } from '../laws.ts'
+import { IDLE_WALK_SPEED, idleDestination, idleSegmentClear, nextIdleAt } from './idle.ts'
 
 export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
@@ -35,12 +37,21 @@ export type ResidentState = Readonly<{
   path: readonly Point[]
   walkElapsed: number
   walkDuration: number
+  walkSpeed?: number
   destinationId: number | null
   destination: Point | null
   walkEventId: string | null
+  lastActivityId?: string
+  relocatedAt?: number
   transferUntil: number | null
   inventionUntil?: number | null
   agreementUntil?: number | null
+  ambientWalking?: boolean
+  ambientFrom?: Point | null
+  ambientDestination?: Point | null
+  ambientElapsed?: number
+  ambientDuration?: number
+  nextAmbientAt?: number
   showingNotice?: ShowingMoment | null
   blockedAttempt?: BlockMoment | null
 }>
@@ -54,6 +65,7 @@ export type Simulation = Readonly<{
   startedTransfers: readonly StartedTransfer[]
   startedInventions?: readonly StartedInvention[]
   startedHandshakes?: readonly StartedHandshake[]
+  startedEvents?: readonly ReplayEvent[]
 }>
 
 export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): Readonly<Record<number, number>> {
@@ -159,6 +171,7 @@ export function stepResidents(
   const candidates: TransferCandidate[] = []
   const startedInventions: StartedInvention[] = []
   const agreementCandidates: AgreementCandidate[] = []
+  const startedEvents: ReplayEvent[] = []
   for (const event of events) {
     if (event.kind === 'register') {
       const registration = registrationFor(event)
@@ -179,6 +192,7 @@ export function stepResidents(
   }
 
   const elapsed = Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 0
+  const holdSpeed = Math.max(60, speed)
   for (const id of Object.keys(residents).map(Number).sort((a, b) => a - b)) {
     let resident = residents[id]!
     if (resident.transferUntil !== null && nowMs >= resident.transferUntil) resident = { ...resident, transferUntil: null }
@@ -191,7 +205,8 @@ export function stepResidents(
     if (resident.walking) resident = advanceWalk(resident, elapsed, layout)
     if (!resident.walking && !resident.bubble && !resident.sparkle && !resident.showingNotice && !resident.blockedAttempt
       && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null) {
-      resident = startNext(resident, residents, nowMs, layout, issues, speed, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs)
+      if (resident.queue.length > 0 && resident.ambientWalking) resident = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null }
+      resident = startNext(resident, residents, nowMs, layout, issues, speed, holdSpeed, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs, startedEvents)
     }
     residents[id] = resident
   }
@@ -201,11 +216,11 @@ export function stepResidents(
     if (!partners) { addIssue(issues, 'handover'); continue }
     // Both ends stand still for the float. The copy is drawn between the two figures the record
     // named, so a partner who walked off mid-float would leave the icon landing on empty floor.
-    const until = nowMs + transferDuration(speed)
+    const until = nowMs + transferDuration(holdSpeed)
     residents[candidate.actorId] = { ...residents[candidate.actorId]!, transferUntil: until }
     const partner = residents[candidate.transfer.partnerId]
     if (partner) residents[candidate.transfer.partnerId] = { ...partner, transferUntil: until }
-    startedTransfers.push(Object.freeze({ transfer: candidate.transfer, changeId: candidate.changeId, partners, startedAt: nowMs, speed }))
+    startedTransfers.push(Object.freeze({ transfer: candidate.transfer, changeId: candidate.changeId, partners, startedAt: nowMs, speed: holdSpeed }))
   }
   const startedHandshakes: StartedHandshake[] = []
   for (const candidate of agreementCandidates) {
@@ -213,13 +228,91 @@ export function stepResidents(
     const projected = Object.fromEntries(Object.values(residents).map(row => [row.id, handshakeResident(row, canDraw?.(row) ?? true)]))
     const plan = planHandshake(candidate.signature, projected, layout, state.reservations, nowMs)
     if (!plan) { addIssue(issues, 'agreement'); continue }
-    const until = nowMs + handshakeDuration(speed)
+    const until = nowMs + handshakeDuration(holdSpeed)
     residents[plan.leftId] = { ...residents[plan.leftId]!, agreementUntil: until }
     residents[plan.rightId] = { ...residents[plan.rightId]!, agreementUntil: until }
-    startedHandshakes.push(Object.freeze({ plan, speed }))
+    startedHandshakes.push(Object.freeze({ plan, speed: holdSpeed }))
   }
   return Object.freeze({ ...freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations, startedTransfers),
-    startedInventions: Object.freeze(startedInventions), startedHandshakes: Object.freeze(startedHandshakes) })
+    startedInventions: Object.freeze(startedInventions), startedHandshakes: Object.freeze(startedHandshakes), startedEvents: Object.freeze(startedEvents) })
+}
+
+export function stepIdleResidents(
+  state: Simulation,
+  deltaMs: number,
+  nowMs: number,
+  layout: NestedLayout,
+  asleepIds: ReadonlySet<number> = new Set(),
+  canDraw: (resident: ResidentState) => boolean = () => true,
+): Simulation {
+  const elapsed = Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 0
+  const residents: Record<number, ResidentState> = { ...state.residents }
+  for (const id of Object.keys(residents).map(Number).sort((a, b) => a - b)) {
+    let resident = residents[id]!
+    const busy = resident.walking || resident.queue.length > 0 || resident.bubble !== null || resident.sparkle !== null
+      || resident.showingNotice != null || resident.blockedAttempt != null || resident.transferUntil !== null
+      || resident.inventionUntil != null || resident.agreementUntil != null
+    const eligible = !busy && !asleepIds.has(id) && canDraw(resident) && resident.placeId !== null && resident.visible
+      && placeVisible(layout, resident.placeId)
+    if (resident.ambientWalking && resident.ambientFrom && resident.ambientDestination) {
+      if (!eligible || resident.placeId === null) {
+        residents[id] = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null,
+          ambientElapsed: 0, ambientDuration: 0, nextAmbientAt: nextIdleAt(id, nowMs) }
+        continue
+      }
+      const ambientElapsed = Math.min(resident.ambientDuration ?? 0, (resident.ambientElapsed ?? 0) + elapsed)
+      const share = resident.ambientDuration ? ambientElapsed / resident.ambientDuration : 1
+      const proposed = { x: resident.ambientFrom.x + (resident.ambientDestination.x - resident.ambientFrom.x) * share,
+        y: resident.ambientFrom.y + (resident.ambientDestination.y - resident.ambientFrom.y) * share }
+      const occupied = idleObstacles(id, resident.placeId, residents, state.reservations)
+      const room = layout.rooms[resident.placeId]
+      if (!room || !roomContains(room, proposed) || !idleSegmentClear(resident, proposed, occupied)) {
+        residents[id] = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null,
+          ambientElapsed: 0, ambientDuration: 0, nextAmbientAt: nextIdleAt(id, nowMs) }
+        continue
+      }
+      resident = { ...resident, x: proposed.x, y: proposed.y,
+        flipX: resident.ambientDestination.x < resident.ambientFrom.x, ambientElapsed }
+      if (share >= 1) resident = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null,
+        ambientElapsed: 0, ambientDuration: 0, nextAmbientAt: nextIdleAt(id, nowMs) }
+      residents[id] = resident
+      continue
+    }
+    if (!eligible || resident.placeId === null) continue
+    const dueAt = resident.nextAmbientAt ?? nextIdleAt(id, 0)
+    if (nowMs < dueAt) { residents[id] = { ...resident, nextAmbientAt: dueAt }; continue }
+    const room = layout.rooms[resident.placeId]
+    if (!room) continue
+    const occupied = idleObstacles(id, resident.placeId, residents, state.reservations)
+    const destination = idleDestination(id, Math.floor(dueAt / 1_000), resident, room.standing, occupied)
+    if (!destination) { residents[id] = { ...resident, nextAmbientAt: nextIdleAt(id, nowMs) }; continue }
+    const distance = Math.hypot(destination.x - resident.x, destination.y - resident.y)
+    residents[id] = { ...resident, ambientWalking: true, ambientFrom: { x: resident.x, y: resident.y }, ambientDestination: destination,
+      ambientElapsed: 0, ambientDuration: distance / IDLE_WALK_SPEED * 1_000, nextAmbientAt: undefined }
+  }
+  return Object.freeze({ ...state, residents: Object.freeze(Object.fromEntries(Object.entries(residents).map(([id, resident]) => [id, Object.freeze(resident)]))), startedEvents: Object.freeze([]) })
+}
+
+function idleObstacles(id: number, placeId: number, residents: Readonly<Record<number, ResidentState>>, reservations: ThingReservations): Point[] {
+  return [...Object.values(residents).filter(other => other.id !== id && other.placeId === placeId)
+    .flatMap(other => [{ x: other.x, y: other.y }, ...(other.destinationId === placeId && other.destination ? [other.destination] : [])]),
+  ...(reservations[placeId] ?? []).map(spot => ({ x: spot.x + 16, y: spot.y + 16 }))]
+}
+
+export function retimeResidentWalks(state: Simulation, speed: number, layout: NestedLayout): Simulation {
+  if (!Number.isFinite(speed) || speed <= 0) return state
+  let changed = false
+  const residents = Object.fromEntries(Object.entries(state.residents).map(([id, resident]) => {
+    if (!resident.walking) return [id, resident]
+    const distance = pathDistance(resident.path)
+    const oldShare = resident.walkDuration ? resident.walkElapsed / resident.walkDuration : 1
+    const pathShare = walkProgress(distance, oldShare, walkSlowCentres(resident, layout), resident.walkSpeed ?? BASE_SPEED)
+    const duration = walkDuration(distance, speed)
+    const elapsedShare = inverseWalkProgress(distance, pathShare, walkSlowCentres(resident, layout), speed)
+    changed = true
+    return [id, Object.freeze({ ...resident, walkSpeed: speed, walkDuration: duration, walkElapsed: duration * elapsedShare })]
+  }))
+  return changed ? Object.freeze({ ...state, residents: Object.freeze(residents) }) : state
 }
 
 function startNext(
@@ -229,13 +322,16 @@ function startNext(
   layout: NestedLayout,
   issues: string[],
   speed: number,
+  holdSpeed: number,
   reservations: ThingReservations,
   candidates: TransferCandidate[],
   startedInventions: StartedInvention[],
   agreementCandidates: AgreementCandidate[],
   agreementPairs: ReadonlyMap<string, AgreementPair>,
+  startedEvents: ReplayEvent[],
 ): ResidentState {
   let next = resident
+  if (!next.queue.length) return next
   // Keep every new placement and queue turn clear of the projected meeting, including
   // a note that anchors an otherwise unplaced figure. Existing words finish normally.
   if (Object.values(all).some(row => row.agreementUntil != null && row.agreementUntil > nowMs)) return next
@@ -243,12 +339,14 @@ function startNext(
     const queued = next.queue[0]!
     const event = queued.event
     const queue = next.queue.slice(1)
+    next = { ...next, lastActivityId: event.change_id }
+    startedEvents.push(event)
     const detail = event.detail
     const blocked = blockedAttemptFor(event)
     if (blocked) {
       next = { ...next, queue }
       if (next.placeId === null || !next.visible || !placeVisible(layout, next.placeId)) { addIssue(issues, 'blocked'); continue }
-      return { ...next, blockedAttempt: Object.freeze({ attempt: blocked, expiresAt: nowMs + blockedAttemptDuration(speed) }) }
+      return { ...next, blockedAttempt: Object.freeze({ attempt: blocked, expiresAt: nowMs + blockedAttemptDuration(holdSpeed) }) }
     }
     if (event.kind === 'agreement_sign') {
       const signature = agreementSignature(event, agreementPairs)
@@ -259,7 +357,7 @@ function startNext(
     }
     const invention = inventionFor(event)
     if (invention) {
-      const expiresAt = nowMs + inventionDuration(speed)
+      const expiresAt = nowMs + inventionDuration(holdSpeed)
       startedInventions.push(Object.freeze({ invention, residentId: next.id, expiresAt }))
       return { ...next, queue, inventionUntil: expiresAt }
     }
@@ -270,7 +368,7 @@ function startNext(
       return next
     }
     if (event.kind === 'register') {
-      next = arrive({ ...next, queue }, all, nowMs, layout, issues, speed, reservations)
+      next = arrive({ ...next, queue }, all, nowMs, layout, issues, holdSpeed, reservations)
       if (next.sparkle) return next
       continue
     }
@@ -282,7 +380,7 @@ function startNext(
       if (source) {
         // A first placement skips nothing; only a figure that already stood somewhere lost a route.
         if (next.placeId !== null) addIssue(issues, 'route-gap')
-        next = { ...next, queue, placeId: detail.from_place_id, x: source.x, y: source.y, visible: placeVisible(layout, detail.from_place_id) }
+        next = { ...next, queue, placeId: detail.from_place_id, x: source.x, y: source.y, relocatedAt: nowMs, visible: placeVisible(layout, detail.from_place_id) }
         continue
       }
     }
@@ -311,7 +409,7 @@ function startNext(
           continue
         }
         addIssue(issues, 'route-gap')
-        next = { ...next, placeId: fromId, x: source.x, y: source.y, visible: placeVisible(layout, fromId) }
+        next = { ...next, placeId: fromId, x: source.x, y: source.y, relocatedAt: nowMs, visible: placeVisible(layout, fromId) }
       }
       // A same-room applied move only anchors the figure; appliedMove says when there is a real walk.
       const walk = appliedMove(event)
@@ -336,10 +434,10 @@ function startNext(
         continue
       }
       const distance = path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
-      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
+      return { ...next, queue, walking: true, ambientWalking: false, ambientFrom: null, ambientDestination: null, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), walkSpeed: speed, destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
     }
     if (event.kind === 'note') {
-      next = handleNote(next, event, queue, all, nowMs, layout, issues, speed, reservations)
+      next = handleNote(next, event, queue, all, nowMs, layout, issues, holdSpeed, reservations)
       if (next.bubble || next.showingNotice) return next
       continue
     }
@@ -398,7 +496,7 @@ function handleNote(
       return { ...resident, queue }
     }
     if (resident.placeId !== null) addIssue(issues, 'route-gap')
-    next = { ...resident, placeId, x: destination.x, y: destination.y, visible: placeVisible(layout, placeId) }
+    next = { ...resident, placeId, x: destination.x, y: destination.y, relocatedAt: nowMs, visible: placeVisible(layout, placeId) }
   }
   const bubble = bubbleFor({ ...event, detail: { ...event.detail, place_id: placeId ?? undefined } }, nowMs, speed)
   const room = placeId === null ? undefined : layout.rooms[placeId]
@@ -410,18 +508,35 @@ function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLay
   const walkElapsed = Math.min(resident.walkDuration, resident.walkElapsed + deltaMs)
   const distance = pathDistance(resident.path)
   const elapsedShare = resident.walkDuration ? walkElapsed / resident.walkDuration : 1
-  const slowCentres = [0, distance]
+  const slowCentres = walkSlowCentres(resident, layout)
+  const sampled = pointAlongPath(resident.path, walkProgress(distance, elapsedShare, slowCentres, resident.walkSpeed ?? BASE_SPEED))
+  if (!sampled.done) return { ...resident, walkElapsed, x: sampled.x, y: sampled.y, flipX: sampled.flipX, visible: visibleAt(sampled, layout) }
+  const placeId = resident.destinationId
+  return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, walkSpeed: undefined, destinationId: null, destination: null, walkEventId: null }
+}
+
+function walkSlowCentres(resident: ResidentState, layout: NestedLayout): number[] {
+  const distance = pathDistance(resident.path)
+  const centres = [0, distance]
   for (const id of [resident.placeId, resident.destinationId]) {
     const door = id === null ? undefined : layout.rooms[id]?.door
     if (door) {
       const at = distanceAtPoint(resident.path, door)
-      if (at !== null) slowCentres.push(at)
+      if (at !== null) centres.push(at)
     }
   }
-  const sampled = pointAlongPath(resident.path, walkProgress(distance, elapsedShare, slowCentres))
-  if (!sampled.done) return { ...resident, walkElapsed, x: sampled.x, y: sampled.y, flipX: sampled.flipX, visible: visibleAt(sampled, layout) }
-  const placeId = resident.destinationId
-  return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null }
+  return centres
+}
+
+function inverseWalkProgress(distance: number, wanted: number, slowCentres: readonly number[], speed: number): number {
+  let low = 0
+  let high = 1
+  for (let index = 0; index < 40; index += 1) {
+    const middle = (low + high) / 2
+    if (walkProgress(distance, middle, slowCentres, speed) < wanted) low = middle
+    else high = middle
+  }
+  return (low + high) / 2
 }
 
 function pathDistance(path: readonly Point[]): number {
@@ -479,7 +594,7 @@ function placeStationary(residents: Record<number, ResidentState>, layout: Neste
 }
 
 function visibleAt(point: Point, layout: NestedLayout): boolean {
-  const containing = Object.values(layout.rooms).filter(room => point.x >= room.x && point.x <= room.x + room.width && point.y >= room.y && point.y <= room.y + room.height).sort((a, b) => b.depth - a.depth)[0]
+  const containing = Object.values(layout.rooms).filter(room => roomContains(room, point)).sort((a, b) => b.depth - a.depth)[0]
   return containing ? placeVisible(layout, containing.id) : true
 }
 

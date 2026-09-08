@@ -9,6 +9,7 @@ export class MinimapView {
   private readonly dynamic: HTMLCanvasElement
   private readonly plan: MinimapPlan
   private dynamicKey = ''
+  private readonly clicked: (event: MouseEvent) => void
 
   constructor(layout: NestedLayout, foundingIds: ReadonlySet<number>, move: (point: Point) => void) {
     this.plan = minimapPlan(layout, foundingIds)
@@ -17,12 +18,14 @@ export class MinimapView {
     this.base = document.createElement('canvas'); this.base.width = this.plan.width; this.base.height = this.plan.height
     this.dynamic = document.createElement('canvas'); this.dynamic.width = this.plan.width; this.dynamic.height = this.plan.height
     drawRooms(this.base.getContext('2d')!, this.plan.staticRooms, '#8ba681')
-    this.canvas.addEventListener('click', event => {
+    this.clicked = event => {
       const bounds = this.canvas.getBoundingClientRect()
       move(minimapWorldPoint(this.plan, (event.clientX - bounds.left) * this.plan.width / bounds.width,
         (event.clientY - bounds.top) * this.plan.height / bounds.height))
-    })
+    }
+    this.canvas.addEventListener('click', this.clicked)
   }
+  destroy(): void { this.canvas.removeEventListener('click', this.clicked) }
 
   update(camera: Readonly<{ worldView: Readonly<{ x: number; y: number; width: number; height: number }> }>,
     followed: Point | null, hiddenIds: ReadonlySet<number>): void {
@@ -54,7 +57,7 @@ export class MinimapView {
     const panel = document.getElementById('minimap')
     const toggle = document.getElementById('minimap-toggle')
     if (panel) panel.hidden = !visible
-    if (toggle) { toggle.textContent = visible ? 'Hide map' : 'Show map'; toggle.setAttribute('aria-expanded', String(visible)) }
+    if (toggle) { toggle.textContent = '▦'; toggle.setAttribute('aria-label', visible ? 'Hide map' : 'Show map'); toggle.title = visible ? 'Hide map' : 'Show map'; toggle.setAttribute('aria-expanded', String(visible)) }
     document.body.dataset['liveMinimapVisible'] = String(visible)
   }
 }
@@ -71,5 +74,10 @@ export function keepFollowedInView(camera: { scrollX: number; scrollY: number; w
 
 function drawRooms(context: CanvasRenderingContext2D, rooms: readonly MiniRect[], color: string): void {
   context.strokeStyle = color; context.lineWidth = 1
-  for (const room of rooms) context.strokeRect(room.x + 0.5, room.y + 0.5, Math.max(1, room.width - 1), Math.max(1, room.height - 1))
+  for (const room of rooms) {
+    if (!room.outline) { context.strokeRect(room.x + 0.5, room.y + 0.5, Math.max(1, room.width - 1), Math.max(1, room.height - 1)); continue }
+    context.beginPath()
+    room.outline.forEach((point, index) => index ? context.lineTo(point.x + 0.5, point.y + 0.5) : context.moveTo(point.x + 0.5, point.y + 0.5))
+    context.closePath(); context.stroke()
+  }
 }
