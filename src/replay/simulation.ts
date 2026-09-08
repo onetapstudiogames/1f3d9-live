@@ -14,6 +14,7 @@ import type { AgreementPair } from '../city/agreements.ts'
 import { showingNoticeFor, type ShowingMoment } from '../showing.ts'
 import { blockedAttemptFor, blockedAttemptDuration, type BlockMoment } from '../laws.ts'
 import { IDLE_WALK_SPEED, idleDestination, idleSegmentClear, nextIdleAt } from './idle.ts'
+import { residentReservationFootprint } from '../resident-footprint.ts'
 
 export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
@@ -562,15 +563,15 @@ function freeDestination(id: number, placeId: number, all: Readonly<Record<numbe
   const eligible = Object.values(all).filter(item => item.id === id || holds(item))
   const previous: Record<string, StageStandingSpot> = {}
   for (const spot of reservations[placeId] ?? []) previous[spot.key] = spot
-  for (const item of eligible) {
+  const residentObstacles = eligible.flatMap(item => {
     const point = item.id === id ? null : item.walking ? item.destination : { x: item.x, y: item.y }
-    if (point) previous[`resident:${String(item.id)}`] = { key: `resident:${String(item.id)}`, kind: 'resident', x: point.x - 16, y: point.y - 16, width: 32, height: 32 }
-  }
+    return point ? [residentReservationFootprint(`resident:${String(item.id)}`, point)] : []
+  })
   const entries = [
     ...(reservations[placeId] ?? []).map(spot => ({ key: spot.key, kind: 'thing' as const })),
-    ...eligible.map(item => ({ key: `resident:${String(item.id)}`, kind: 'resident' as const })),
+    { key: `resident:${String(id)}`, kind: 'resident' as const },
   ]
-  const spots = stageFindFreeSpots(entries, room.standing, previous)
+  const spots = stageFindFreeSpots(entries, room.standing, previous, [], residentObstacles)
   const spot = spots[`resident:${String(id)}`]
   return spot ? Object.freeze({ x: spot.x + 16, y: spot.y + 16 }) : null
 }

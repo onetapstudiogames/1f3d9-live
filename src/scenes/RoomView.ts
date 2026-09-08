@@ -1,4 +1,4 @@
-import Phaser from 'phaser'
+import type Phaser from 'phaser'
 import type { NestedLayout, Room } from '../ground/nested.ts'
 import { daylightAt, roomWindows, windowsLit } from '../daylight.ts'
 import type { Drawing } from '../city/types.ts'
@@ -13,7 +13,13 @@ import {
 import { roomTextResolution } from '../room-appearance.ts'
 import { removableOnce } from '../scene-lifecycle.ts'
 
+const LINEAR_FILTER: Phaser.Textures.FilterMode = 0
+const NEAREST_FILTER: Phaser.Textures.FilterMode = 1
+const SCENE_SHUTDOWN = 'shutdown'
+
 export class RoomView {
+  private plan: PlacePlan
+  private readonly showNames: boolean
   private plates = new Map<number, {
     group: Phaser.GameObjects.Container; text: Phaser.GameObjects.Text; room: Room; nameOffset: number
   }>()
@@ -26,7 +32,9 @@ export class RoomView {
     art: TiledFloor[]
   }>()
 
-  constructor(scene: Phaser.Scene, layout: NestedLayout, private plan: PlacePlan, private readonly showNames = true) {
+  constructor(scene: Phaser.Scene, layout: NestedLayout, plan: PlacePlan, showNames = true) {
+    this.plan = plan
+    this.showNames = showNames
     // The mood covers the floor and walls; plates, figures and words keep their contrast.
     this.tint = scene.add.rectangle(0, 0, 1, 1).setScrollFactor(0).setDepth(0.25)
     const floor = undrawnFloor()
@@ -96,11 +104,11 @@ export class RoomView {
         fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#f8edcf', resolution: roomTextResolution(window.devicePixelRatio),
         backgroundColor: '#273c30', padding: { x: 7, y: 4 }, fixedWidth: Math.min(300, width - 24), fixedHeight: 27,
       })
-      text.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
+      text.texture.setFilter(LINEAR_FILTER)
       const group = scene.add.container(x + 12, y + 12, [text]).setDepth(room.depth + 1)
       this.plates.set(room.id, { group, text, room, nameOffset: 0 })
     }
-    this.removeShutdownListener = removableOnce(scene.events, Phaser.Scenes.Events.SHUTDOWN, () => this.destroy())
+    this.removeShutdownListener = removableOnce(scene.events, SCENE_SHUTDOWN, () => this.destroy())
   }
 
   setPlan(plan: PlacePlan): void { this.plan = plan }
@@ -130,7 +138,7 @@ export class RoomView {
       }
       paint.generateTexture(key, floor.tileSize, floor.tileSize)
       paint.destroy()
-      scene.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST)
+      scene.textures.get(key).setFilter(NEAREST_FILTER)
     }
     const depth = plate.room.depth / 1000
     surface.art = roomFloorRects(plate.room, 4).map(rect => new TiledFloor(scene, key, rect,
@@ -163,6 +171,8 @@ export class RoomView {
       const fullName = recordedRoomName(this.plan, plate.room, recordedTime)
       const name = fullName && fullName.length > 32 ? `${fullName.slice(0, 31)}…` : fullName ?? ''
       if (plate.text.text !== name) plate.text.setText(name)
+      const resolution = roomTextResolution(window.devicePixelRatio)
+      if (plate.text.style.resolution !== resolution) plate.text.setResolution(resolution)
       const scale = Math.min(2.5, Math.max(1, 0.85 / camera.zoom))
       plate.group.setScale(scale)
       plate.text.setScale(animation?.renaming ? signScale(animationProgress(animation.renaming, now)) : 1, 1)

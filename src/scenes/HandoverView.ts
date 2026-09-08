@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import type { stepHandovers, HandoverState, HandoverStep } from '../handovers.ts'
 import type { Simulation } from '../replay/simulation.ts'
 import { roomFigureStyle } from '../room-appearance.ts'
-import { RESIDENT_HEART_RECTS, residentOverlayAnchor } from '../resident-overlays.ts'
+import { RESIDENT_HEART_RECTS, thingOverlayAnchor } from '../resident-overlays.ts'
 
 type Motion = ReturnType<typeof stepHandovers>['motions'][number]
 
@@ -43,7 +43,7 @@ export class HandoverView {
       .setPosition(motion.x, motion.y).setAlpha(motion.alpha).setVisible(motion.visible)
     this.heart.clear().setVisible(motion.visible && Boolean(motion.heart))
     if (motion.heart) {
-      const anchor = residentOverlayAnchor(motion, motion.heart)
+      const anchor = thingOverlayAnchor(motion, motion.heart)
       this.heart.setPosition(anchor.x, anchor.y)
       for (const pixel of RESIDENT_HEART_RECTS) {
         this.heart.fillStyle(pixel.color, motion.alpha).fillRect(pixel.x, pixel.y, pixel.width, pixel.height)

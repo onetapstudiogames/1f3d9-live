@@ -28,6 +28,7 @@ import { motionSpeed } from '../viewer.ts'
 import { createActivityContext, type ActivityContext } from '../activity.ts'
 import { createHistoricalActivityContext } from '../activity-context.ts'
 import { advancePresentation } from '../playback.ts'
+import { residentReservationFootprint } from '../resident-footprint.ts'
 import { SceneHistory, type PresentationState } from './SceneHistory.ts'
 import { SceneActivity } from './SceneActivity.ts'
 import { readNoteWords, readPlacePlan, readResidentDrawings, readVisibleThingDetails } from './SceneDetails.ts'
@@ -385,7 +386,7 @@ export class CityScene extends Phaser.Scene {
     for (const resident of Object.values(this.residents.residents)) {
       const points = [resident.placeId !== null && resident.visible ? { placeId: resident.placeId, key: `resident:${resident.id}`, x: resident.x, y: resident.y } : null,
         resident.destinationId !== null && resident.destination ? { placeId: resident.destinationId, key: `destination:${resident.id}`, ...resident.destination } : null]
-      for (const point of points) if (point) (blockers[point.placeId] ??= []).push({ key: point.key, kind: 'resident', x: point.x - 16, y: point.y - 16, width: 32, height: 32 })
+      for (const point of points) if (point) (blockers[point.placeId] ??= []).push(residentReservationFootprint(point.key, point))
     }
     this.things = reserveLiveThingEvents(this.things, events, this.layout, blockers as ThingReservations)
     this.residents = prepareLiveResidents(Object.freeze({ ...this.residents, reservations: this.things.reservations }), events)
@@ -563,7 +564,7 @@ export class CityScene extends Phaser.Scene {
     const blockers: StageStandingSpot[] = Object.values(this.residents.residents).flatMap(resident => {
       const points = [resident.placeId === outline.placeId && resident.visible ? { key: `resident:${resident.id}`, x: resident.x, y: resident.y } : null,
         resident.destinationId === outline.placeId && resident.destination ? { key: `destination:${resident.id}`, ...resident.destination } : null]
-      return points.flatMap(point => point ? [{ key: point.key, kind: 'resident' as const, x: point.x - 16, y: point.y - 16, width: 32, height: 32 }] : [])
+      return points.flatMap(point => point ? [residentReservationFootprint(point.key, point)] : [])
     })
     const before = this.things
     this.things = addPresentThings(before, outline, this.layout, this.recordThingIds, blockers)

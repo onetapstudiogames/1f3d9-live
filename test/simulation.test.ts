@@ -242,6 +242,21 @@ test('a full destination reports no free spot rather than no path', () => {
   assert.deepEqual(next.issues, ['Some rooms had no free spot left, so those figures were not moved into them.'])
 })
 
+test('a moving resident cannot take space covered by another resident 56-pixel footprint', () => {
+  const tightDestination = { ...layout, rooms: { ...rooms,
+    3: { ...rooms[3], standing: { x: 0, y: 0, width: 160, height: 160 } } } } as unknown as NestedLayout
+  const start = { 'resident:7': { origin_event_id: 1, place_id: 2 },
+    'resident:8': { origin_event_id: 1, place_id: 3 } }
+  const initial = createResidents(replay(start), census, tightDestination)
+  const residentEight = { ...initial.residents[8]!, x: 75, y: 75 }
+  const state = { ...initial, residents: { ...initial.residents, 8: residentEight } }
+  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 })
+  const next = stepResidents(state, [move], 0, 0, tightDestination)
+
+  assert.equal(next.residents[7]!.walking, false)
+  assert.deepEqual(next.issues, ['Some rooms had no free spot left, so those figures were not moved into them.'])
+})
+
 test('same-room applied move establishes an absent resident without walking', () => {
   const establishing = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 2 })
   const absent = { ...replay({}), timeline: [establishing] }

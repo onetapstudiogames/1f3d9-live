@@ -4,7 +4,7 @@ import type { ResidentView } from './ResidentView.ts'
 import type { Point } from '../ground/nested.ts'
 import { visibleFigureMidpoint } from '../room-anchors.ts'
 import { roomTextResolution } from '../room-appearance.ts'
-import { RESIDENT_HAND_RECTS, residentOverlayDistance } from '../resident-overlays.ts'
+import { RESIDENT_HAND_RECTS, residentGlyphDistance, residentOverlayDistance } from '../resident-overlays.ts'
 
 type View = Readonly<{ hands: Phaser.GameObjects.Graphics; label: Phaser.GameObjects.Text }>
 
@@ -43,7 +43,7 @@ export class AgreementLayer {
       const hidden = hiddenPlaces.has(active.plan.placeId) || midpoint === null
       view.hands.clear().setVisible(frame.hands && !hidden)
       if (frame.hands) for (const cell of RESIDENT_HAND_RECTS) view.hands.fillStyle(cell.color, cell.alpha)
-        .fillRect(cell.x, cell.y + residentOverlayDistance(frame.shake), cell.width, cell.height)
+        .fillRect(cell.x, cell.y + residentGlyphDistance(frame.shake), cell.width, cell.height)
       const x = midpoint?.x ?? 0; const y = midpoint?.y ?? 0
       const resolution = roomTextResolution(window.devicePixelRatio)
       if (view.label.style.resolution !== resolution) view.label.setResolution(resolution)

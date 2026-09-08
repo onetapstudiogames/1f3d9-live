@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import type { InventionState } from '../inventions.ts'
 import type { Simulation } from '../replay/simulation.ts'
 import { roomTextResolution } from '../room-appearance.ts'
-import { RESIDENT_BULB_RECTS, residentOverlayDistance } from '../resident-overlays.ts'
+import { RESIDENT_BULB_RECTS, residentBulbAnchor, residentOverlayDistance } from '../resident-overlays.ts'
 
 type InventionView = Readonly<{ bulb: Phaser.GameObjects.Graphics; name: Phaser.GameObjects.Text }>
 
@@ -32,8 +32,8 @@ export class InventionLayer {
       }
       const resolution = roomTextResolution(window.devicePixelRatio)
       if (view.name.style.resolution !== resolution) view.name.setResolution(resolution)
-      view.bulb.setPosition((resident?.x ?? 0) + residentOverlayDistance(-9),
-        (resident?.y ?? 0) + residentOverlayDistance(-58)).setVisible(visible)
+      const bulbAnchor = residentBulbAnchor(resident ?? { x: 0, y: 0 })
+      view.bulb.setPosition(bulbAnchor.x, bulbAnchor.y).setVisible(visible)
       view.name.setPosition((resident?.x ?? 0) + residentOverlayDistance(13),
         (resident?.y ?? 0) + residentOverlayDistance(-47))
         .setScale(Math.min(3, Math.max(1, 0.7 / zoom))).setVisible(visible)

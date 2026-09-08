@@ -3,7 +3,8 @@ import test from 'node:test'
 
 import type { ReplayEvent, ReplayFile } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
-import { addPresentThings, consumedThing, createdThing, createThings, effectFrame, movedThing, planThingSpots, recordThingIds, stepThings, usedThing } from '../src/things.ts'
+import { addPresentThings, consumedThing, createdThing, createThings, effectFrame, movedThing, planThingSpots, recordThingIds, reserveLiveThingEvents, stepThings, usedThing } from '../src/things.ts'
+import { residentReservationFootprint } from '../src/resident-footprint.ts'
 
 const rooms = {
   1: { id: 1, parentId: null, name: 'world', quiet: false, depth: 0, x: 0, y: 0, width: 300, height: 220, door: { x: 150, y: 220 }, standing: { x: 20, y: 20, width: 240, height: 160 }, children: [2] },
@@ -72,6 +73,17 @@ test('outline placement treats off-inset figures as fixed obstacles and refuses 
   const spot = placed.reservations[1]!.find(item => item.key === 'thing:90')!
   assert.ok(Math.hypot(spot.x - blocker.x, spot.y - blocker.y) >= 48)
   assert.equal(addPresentThings(createThings(replay({}), layout), { ...outline, quiet: true }, layout, new Set(), []).things[90], undefined)
+})
+
+test('live thing reservations cannot place 32-pixel art inside a 56-pixel resident footprint', () => {
+  const tight = { ...layout, rooms: { ...layout.rooms,
+    1: { ...layout.rooms[1]!, standing: { x: 0, y: 0, width: 160, height: 160 } } } } as NestedLayout
+  const made = event('thing_created', { thing_id: 91, place_id: 1, name: 'parcel' })
+  const blocker = residentReservationFootprint('resident:8', { x: 75, y: 75 })
+  const placed = reserveLiveThingEvents(createThings(replay({}), tight), [made], tight, { 1: [blocker] })
+
+  assert.equal(placed.reservations[1], undefined)
+  assert.ok(placed.issues.includes('Some new thing destinations could not be placed, so no floor position was invented.'))
 })
 
 test('replay-known ids include thing transfer assets', () => {
