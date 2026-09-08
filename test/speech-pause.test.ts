@@ -20,6 +20,39 @@ test('sentence punctuation includes closing quotes and ignores decimal points', 
   assert.equal(speechPauseAt(bubble(text), [page([text], 1_000, 3_200)], 1_500), 2_500)
 })
 
+test('short capitalized abbreviations do not end a sentence', () => {
+  for (const abbreviation of ['Dr.', 'Jr.', 'Mr.', 'Mrs.', 'Ms.', 'Sr.', 'St.']) {
+    const text = `${abbreviation} Smith walked home. Later`
+    const plan = [page([text], 1_000, 1_000 + text.length * 100)]
+    const target = speechPauseAt(bubble(text), plan, 1_000)
+    assert.equal(
+      pagedBubbleFrame(bubble(text), target, 320, 200, value => value.length, plan).revealed,
+      `${abbreviation} Smith walked home.`,
+    )
+  }
+})
+
+test('ordinary short capitalized words still end sentences', () => {
+  const text = 'Go. Walk home.'
+  const plan = [page([text], 1_000, 1_000 + text.length * 100)]
+  const target = speechPauseAt(bubble(text), plan, 1_000)
+  assert.equal(pagedBubbleFrame(bubble(text), target, 320, 200, value => value.length, plan).revealed, 'Go.')
+})
+
+test('internal-dot abbreviations do not end a sentence', () => {
+  for (const [text, sentence] of [
+    ['Meet at 9 a.m. tomorrow. Later', 'Meet at 9 a.m. tomorrow.'],
+    ['The U.S. team arrived. Later', 'The U.S. team arrived.'],
+  ] as const) {
+    const plan = [page([text], 1_000, 1_000 + text.length * 100)]
+    const target = speechPauseAt(bubble(text), plan, 1_000)
+    assert.equal(
+      pagedBubbleFrame(bubble(text), target, 320, 200, value => value.length, plan).revealed,
+      sentence,
+    )
+  }
+})
+
 test('Unicode sentence punctuation completes a sentence', () => {
   assert.equal(speechPauseAt(bubble('秋風や。次へ'), [page(['秋風や。次へ'], 1_000, 1_700)], 1_000), 1_000 + 700 * 3 / 6)
 })

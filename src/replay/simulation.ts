@@ -22,7 +22,7 @@ export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; p
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
 type AgreementCandidate = Readonly<{ signature: AgreementSignature; actorId: number }>
 
-type QueuedEvent = Readonly<{ event: ReplayEvent }>
+type QueuedEvent = Readonly<{ event: ReplayEvent; heldByRoom?: boolean }>
 
 export type ResidentState = Readonly<{
   id: number
@@ -351,7 +351,9 @@ function startNext(
     const beforeEvent = next
     const queued = next.queue[0]!
     const event = queued.event
-    if (event.kind === 'note' && !roomNoteMayStart(event, { ...all, [next.id]: next }, nowMs)) return next
+    if (event.kind === 'note' && !roomNoteMayStart(event, { ...all, [next.id]: next }, nowMs)) {
+      return queued.heldByRoom ? next : { ...next, queue: [{ ...queued, heldByRoom: true }, ...next.queue.slice(1)] }
+    }
     const queue = next.queue.slice(1)
     next = { ...next, lastActivityId: event.change_id }
     startedEvents.push(event)
@@ -639,10 +641,10 @@ function isPending(resident: ResidentState): boolean {
     || resident.blockedAttempt != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
 }
 
-// A visible card alone does not hold live delivery. Earlier queued turns must
-// start before the next batch, so different residents cannot speak out of order.
+// A visible card and notes held only for that room's turn do not hold live
+// delivery. Other queued work must start before the next batch.
 export function blocksLiveDelivery(state: Simulation): boolean {
-  return Object.values(state.residents).some(resident => resident.queue.length > 0 || resident.walking || resident.sparkle !== null
+  return Object.values(state.residents).some(resident => resident.queue.some(queued => !queued.heldByRoom) || resident.walking || resident.sparkle !== null
     || resident.showingNotice != null || resident.blockedAttempt != null || resident.transferUntil !== null
     || resident.inventionUntil != null || resident.agreementUntil != null)
 }

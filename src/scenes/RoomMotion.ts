@@ -93,7 +93,13 @@ export class RoomMotion {
     this.layout = layout; this.things = things; this.viewport = Object.freeze({ ...viewport })
     this.selectedRoomId = selectedRoomId; this.following = following
     this.hidden = hidden; this.suppressedMoveIds = suppressedMoveIds
-    if (priorSelectedRoomId !== selectedRoomId) this.cancelIdle()
+    if (priorSelectedRoomId !== selectedRoomId) {
+      this.cancelIdle()
+      // An unseen arrival needs a fresh seating attempt when its room is opened.
+      for (const [id, summary] of this.summaries) if (summary.roomId === selectedRoomId && !this.walks.has(id)) {
+        this.remembered.delete(id); this.summaries.delete(id)
+      }
+    }
     if (resized) {
       this.idleWalks.clear(); this.diagnosticFrames.clear()
       for (const id of [...this.remembered.keys()]) if (!this.walks.has(id)) this.remembered.delete(id)
@@ -156,8 +162,6 @@ export class RoomMotion {
       this.walks.delete(resident.id); this.remembered.delete(resident.id)
       return resident
     }
-    if ([...this.walks.values()].some(active => roomMovesConflict(move, active.plan))) return null
-    this.cancelIdle()
     const relevant = this.selectedRoomId === move.fromId || this.selectedRoomId === move.toId || this.following === resident.id
     if (!relevant || this.hidden.has(move.fromId) || this.hidden.has(move.toId) ||
         !roomViewportUsable(this.viewport.width, this.viewport.height)) {
@@ -165,22 +169,25 @@ export class RoomMotion {
       return finishResident(resident, event.change_id, move.toId,
         worldStandingPoint(this.layout.rooms[move.toId]!), roomIsPublic(this.layout, move.toId) && !this.hidden.has(move.toId))
     }
+    if ([...this.walks.values()].some(active => roomMovesConflict(move, active.plan))) return null
+    this.cancelIdle()
     const sourceVisible = this.selectedRoomId === move.fromId || this.following === resident.id
+    const arrivalVisible = this.selectedRoomId === move.toId || this.following === resident.id
     const source = displayRoom(this.layout.rooms[move.fromId]!, this.viewport)
     const target = displayRoom(this.layout.rooms[move.toId]!, this.viewport)
     this.primeRoom(move.fromId, all)
-    this.primeRoom(move.toId, all)
+    if (arrivalVisible) this.primeRoom(move.toId, all)
     const cachedOrigin = this.remembered.get(resident.id)
     const origin = !sourceVisible ? null : cachedOrigin?.placeId === move.fromId ? cachedOrigin :
       projectedResident(resident, this.layout.rooms[move.fromId]!, source)
     if (sourceVisible && !origin) return this.finishHidden(resident, event.change_id, move.toId)
     const sourceObstacles = [...this.obstacles(move.fromId, source, all, resident.id),
       ...this.routeReservations(move.fromId, resident.id)]
-    const targetObstacles = [...this.obstacles(move.toId, target, all, resident.id),
-      ...this.routeReservations(move.toId, resident.id)]
+    const targetObstacles = arrivalVisible ? [...this.obstacles(move.toId, target, all, resident.id),
+      ...this.routeReservations(move.toId, resident.id)] : []
     const preferredWorld = worldStandingPoint(this.layout.rooms[move.toId]!)
     const preferred = projectRoomPoint(preferredWorld, this.layout.rooms[move.toId]!, target)!
-    const targetPoint = arrivalSpot(target, preferred, targetObstacles)
+    const targetPoint = arrivalVisible ? arrivalSpot(target, preferred, targetObstacles) : null
     let plan = targetPoint && createRoomWalk(sourceVisible ? source : undefined, target, origin ?? targetPoint,
       targetPoint, sourceObstacles, targetObstacles)
     let hideOnDone = false
@@ -207,8 +214,9 @@ export class RoomMotion {
   advance(resident: ResidentState, deltaMs: number): ResidentState | undefined {
     const active = this.walks.get(resident.id)
     if (!active) return undefined
-    if (!roomViewportUsable(this.viewport.width, this.viewport.height)) return resident
-    if (active.unshowable) return this.finishHidden(resident, resident.walkEventId ?? '', active.plan.toId, active.targetWorld)
+    if (!roomViewportUsable(this.viewport.width, this.viewport.height) || active.unshowable) {
+      return this.finishHidden(resident, resident.walkEventId ?? '', active.plan.toId, active.targetWorld)
+    }
     active.elapsedMs = Math.min(active.plan.durationMs, active.elapsedMs + Math.max(0, Number.isFinite(deltaMs) ? deltaMs : 0))
     const sample = sampleRoomWalk(active.plan, active.elapsedMs)
     this.remembered.set(resident.id, pose(sample, !sample.done))

@@ -6,7 +6,7 @@ import { nestedLayout } from '../src/ground/nested.ts'
 import { presentRoom } from '../src/room-presentation.ts'
 import { singleRoomLayout } from '../src/room-view.ts'
 import type { RoomCrowdingState } from '../src/room-crowding.ts'
-import { stepResidents, type ResidentState, type Simulation } from '../src/replay/simulation.ts'
+import { blocksLiveDelivery, stepResidents, type ResidentState, type Simulation } from '../src/replay/simulation.ts'
 import { RoomMotion } from '../src/scenes/RoomMotion.ts'
 
 const layout = nestedLayout([
@@ -60,6 +60,43 @@ const step = (controller: RoomMotion, state: Simulation, events: readonly Replay
 
 const separated = (left: Readonly<{ x: number; y: number }>, right: Readonly<{ x: number; y: number }>): boolean =>
   Math.abs(left.x - right.x) >= 60 || Math.abs(left.y - right.y) >= 60
+
+test('an unusable viewport finishes a walk hidden, releases delivery, and redraws at its destination after growth', () => {
+  const controller = new RoomMotion()
+  let state = simulation(resident(1, 'walker', 2))
+  renderCycle(controller, state, 1)
+  state = step(controller, state, [move('walker', '103')], 0, 0)
+  state = step(controller, state, [], 100, 100)
+  assert.equal(state.residents[1]!.walking, true)
+  assert.equal(blocksLiveDelivery(state), true)
+
+  controller.configure(layout, {}, { width: 100, height: 100 }, 1, null, new Set(), new Set())
+  state = step(controller, state, [], 16, 116)
+  assert.equal(state.residents[1]!.walking, false)
+  assert.equal(state.residents[1]!.placeId, 1)
+  assert.equal(state.residents[1]!.lastActivityId, '103')
+  assert.equal(blocksLiveDelivery(state), false)
+  assert.equal(controller.presentation(1).poses.get(1)?.visible, false)
+
+  const grown = renderCycle(controller, state, 1)
+  assert.equal(grown.residents[1]!.visible, true)
+  assert.equal(grown.residents[1]!.placeId, 1)
+  assert.equal(grown.residents[1]!.walking, false)
+})
+
+test('a source-only departure releases delivery and its resident is seated when the destination is selected', () => {
+  const controller = new RoomMotion()
+  let state = simulation(resident(1, 'walker', 2))
+  renderCycle(controller, state, 2)
+  state = step(controller, state, [move('walker', '104')], 0, 0)
+  assert.equal(blocksLiveDelivery(state), true)
+  state = step(controller, state, [], state.residents[1]!.walkDuration, 10_000)
+  assert.equal(blocksLiveDelivery(state), false)
+  assert.equal(state.residents[1]!.placeId, 1)
+  const destination = renderCycle(controller, state, 1)
+  assert.equal(destination.residents[1]!.visible, true)
+  assert.equal(destination.residents[1]!.walking, false)
+})
 
 test('stationary production frames reuse the same placements on consecutive render cycles', () => {
   const controller = new RoomMotion()

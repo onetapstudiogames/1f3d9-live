@@ -87,7 +87,7 @@ test('destination-only arrival changes logical room immediately and walks onscre
   assert.equal(controller.diagnostics()[0]?.phase, 'arrival')
 })
 
-test('resize replans an active walk through the new door and a too-small view holds it', () => {
+test('resize replans an active walk through the new door', () => {
   const controller = new RoomMotion()
   controller.configure(layout, {}, { width: 400, height: 320 }, 1, 7, new Set(), new Set())
   controller.remember({ 7: { ...resident(), x: 130, y: 130 } }, {})
@@ -99,15 +99,57 @@ test('resize replans an active walk through the new door and a too-small view ho
   const resized = controller.diagnostics()[0]!
   assert.notDeepEqual(resized.door, oldDoor)
   assert.ok(resized.path.some(point => point.x === resized.door.x && point.y === resized.door.y))
-  const heldAt = current.walkElapsed
-  controller.configure(layout, {}, { width: 100, height: 100 }, 1, 7, new Set(), new Set())
-  current = controller.advance(current, 1_000)!
-  assert.equal(current.walkElapsed, heldAt)
   controller.configure(layout, {}, { width: 450, height: 340 }, 1, 7, new Set(), new Set())
   current = controller.advance(current, 16)!
   assert.equal(current.walkElapsed, 16, 'recovery replans and resumes in the usable viewport')
   assert.notDeepEqual(controller.diagnostics()[0]?.door, resized.door)
 })
+
+test('a source-only walk clears at the door without reserving or walking an invisible arrival', () => {
+  const controller = new RoomMotion()
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, null, new Set(), new Set())
+  const started = controller.start(resident(), move(), { 7: resident() })!
+  assert.equal(started.walking, true)
+  const departure = controller.diagnostics()[0]!.path
+  const departureMs = departure.slice(1).reduce((sum, point, index) => sum +
+    Math.hypot(point.x - departure[index]!.x, point.y - departure[index]!.y), 0) / 140 * 1_000
+  assert.equal(started.walkDuration, departureMs)
+  assert.equal(controller.presentation(2).routes.flatMap(route => route.points).length, 0,
+    'the unseen arrival reserves no route')
+  const beforeExit = controller.advance(started, departureMs - 1)!
+  assert.equal(beforeExit.walking, true)
+  assert.equal(beforeExit.placeId, 1)
+  const finished = controller.advance(beforeExit, 1)!
+  assert.equal(finished.walking, false)
+  assert.equal(finished.placeId, 2)
+  assert.equal(finished.walkEventId, null)
+  assert.equal(controller.presentation(2).poses.get(7)?.visible, false)
+})
+
+for (const condition of ['off-screen', 'hidden', 'too-small'] as const) {
+  test(`a move that is ${condition} finishes immediately even when it shares a room with an active walk`, () => {
+    const threeRooms = nestedLayout([
+      { id: 1, parent_id: null, name: 'one' },
+      { id: 2, parent_id: 1, name: 'two' },
+      { id: 3, parent_id: 2, name: 'three' },
+    ])
+    const controller = new RoomMotion()
+    controller.configure(threeRooms, {}, { width: 400, height: 320 }, 1, 7, new Set(), new Set())
+    const first = controller.start(resident(), move(), { 7: resident() })!
+    assert.equal(first.walking, true)
+    const small = condition === 'too-small'
+    controller.configure(threeRooms, {}, { width: small ? 100 : 400, height: small ? 100 : 320 },
+      1, 7, new Set(condition === 'hidden' ? [2] : []), new Set())
+    const next = resident({ id: 8, handle: 'eight', placeId: condition === 'off-screen' ? 2 : 1 })
+    const event = { ...move('13'), actor: 'eight', detail: { ...move().detail,
+      from_place_id: next.placeId!, to_place_id: condition === 'off-screen' ? 3 : 2 } }
+    const finished = controller.start(next, event, { 7: first, 8: next })
+    assert.ok(finished, 'an invisible move cannot wait for the displayed doorway')
+    assert.equal(finished.walking, false)
+    assert.equal(finished.placeId, event.detail.to_place_id)
+    assert.equal(finished.lastActivityId, '13')
+  })
+}
 
 test('a simultaneous arrival waits its recorded turn at the busy doorway', () => {
   const controller = new RoomMotion()

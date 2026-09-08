@@ -52,9 +52,17 @@ function pauseBoundaries(lines: readonly string[]): number[] {
     if (!/[.!?。！？]/u.test(all[index]!)) continue
     let end = index + 1
     while (end < all.length && /^["'’”)}\]]$/u.test(all[end]!)) end += 1
-    if (/[。！？]/u.test(all[index]!) || end === all.length || /^\s$/u.test(all[end]!)) boundaries.add(end)
+    const endsSentence = /[。！？]/u.test(all[index]!) || end === all.length || /^\s$/u.test(all[end]!)
+    if (endsSentence && !isPeriodAbbreviation(all, index)) boundaries.add(end)
   }
   return [...boundaries].filter(index => index > 0).sort((left, right) => left - right)
+}
+
+function isPeriodAbbreviation(graphemes: readonly string[], periodIndex: number): boolean {
+  if (graphemes[periodIndex] !== '.') return false
+  const token = graphemes.slice(0, periodIndex + 1).join('').match(/[\p{Letter}.]+$/u)?.[0]
+  return token !== undefined
+    && (/^(?:Dr|Jr|Mr|Mrs|Ms|Sr|St)\.$/u.test(token) || /^(?:\p{Letter}\.){2,}$/u.test(token))
 }
 
 function continuesWord(previous: string | undefined, next: string | undefined): boolean {
