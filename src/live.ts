@@ -58,13 +58,6 @@ export function validContinuation(current: string, next: string, hasMore: boolea
   return after >= before && (!hasMore || after > before)
 }
 
-export function wakeActiveSleepers(
-  sleepers: ReadonlySet<number>, residents: Simulation['residents'], events: readonly ReplayEvent[],
-): ReadonlySet<number> {
-  const active = new Set(events.flatMap(event => typeof event.actor === 'string' ? [event.actor.trim()] : []))
-  return new Set([...sleepers].filter(id => !active.has(residents[id]?.handle ?? '')))
-}
-
 function numericId(value: string): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER

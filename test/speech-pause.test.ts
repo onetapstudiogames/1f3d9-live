@@ -1,42 +1,34 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-
 import { pauseAdvance, speechPauseAt } from '../src/speech-pause.ts'
-import { pagedBubbleFrame, type SpeechBubble, type SpeechPageMoment } from '../src/speech.ts'
+import { speechCardFrame, speechCardPlan, type SpeechBubble } from '../src/speech.ts'
+const bubble = (text: string): SpeechBubble => ({ text, cut: false, placeId: 3, startedAt: 1_000, charInterval: 100, expiresAt: 8_000 })
+const measure = (text: string): number => [...text].length
 
-const bubble = (text: string): SpeechBubble => ({ text, cut: false, placeId: 3, startedAt: 1_000, charInterval: 100, expiresAt: 5_000 })
-const page = (lines: readonly string[], start = 1_000, revealEnd = 3_000, end = 4_000): SpeechPageMoment => ({ lines, start, revealEnd, end })
-
-test('pause finishes the current sentence when it ends before the display line', () => {
-  const current = bubble('Hi there. More words')
-  const plan = [page(['Hi there. More words'])]
-  const target = speechPauseAt(current, plan, 1_300)
-  assert.equal(target, 1_800)
-  assert.equal(pagedBubbleFrame(current, target, 320, 200, text => text.length, plan).revealed, 'Hi there.')
+test('pause finishes the current sentence before the measured line', () => {
+  const current = bubble('Hi there. More words'); const plan = speechCardPlan(current, 320, measure)
+  assert.equal(speechCardFrame(current, speechPauseAt(current, plan, 1_300), 320, 200, measure, plan).revealed, 'Hi there.')
 })
-
-test('sentence punctuation includes closing quotes and ignores decimal points', () => {
-  const text = 'Value 3.2 units. Later'
-  assert.equal(speechPauseAt(bubble(text), [page([text], 1_000, 3_200)], 1_500), 2_500)
+test('pause uses measured whole lines and explicit newlines without leaking the next grapheme', () => {
+  const wrapped = bubble('alpha beta gamma'); const wrappedPlan = speechCardPlan(wrapped, 12, measure)
+  assert.equal(speechCardFrame(wrapped, speechPauseAt(wrapped, wrappedPlan, 1_200), 36, 200, measure, wrappedPlan).revealed, 'alpha ')
+  const explicit = bubble('hello\nworld'); const explicitPlan = speechCardPlan(explicit, 320, measure)
+  assert.equal(speechCardFrame(explicit, speechPauseAt(explicit, explicitPlan, 1_100), 320, 200, measure, explicitPlan).revealed, 'hello\n')
 })
-
-test('short capitalized abbreviations do not end a sentence', () => {
+test('short capitalized title abbreviations do not end a sentence', () => {
   for (const abbreviation of ['Dr.', 'Jr.', 'Mr.', 'Mrs.', 'Ms.', 'Sr.', 'St.']) {
     const text = `${abbreviation} Smith walked home. Later`
-    const plan = [page([text], 1_000, 1_000 + text.length * 100)]
-    const target = speechPauseAt(bubble(text), plan, 1_000)
-    assert.equal(
-      pagedBubbleFrame(bubble(text), target, 320, 200, value => value.length, plan).revealed,
-      `${abbreviation} Smith walked home.`,
-    )
+    const current = bubble(text)
+    const plan = speechCardPlan(current, 320, measure)
+    assert.equal(speechCardFrame(current, speechPauseAt(current, plan, 1_000), 320, 200, measure, plan).revealed,
+      `${abbreviation} Smith walked home.`)
   }
 })
 
-test('ordinary short capitalized words still end sentences', () => {
-  const text = 'Go. Walk home.'
-  const plan = [page([text], 1_000, 1_000 + text.length * 100)]
-  const target = speechPauseAt(bubble(text), plan, 1_000)
-  assert.equal(pagedBubbleFrame(bubble(text), target, 320, 200, value => value.length, plan).revealed, 'Go.')
+test('an ordinary short capitalized word still ends a sentence', () => {
+  const current = bubble('Go. Walk home.')
+  const plan = speechCardPlan(current, 320, measure)
+  assert.equal(speechCardFrame(current, speechPauseAt(current, plan, 1_000), 320, 200, measure, plan).revealed, 'Go.')
 })
 
 test('internal-dot abbreviations do not end a sentence', () => {
@@ -44,44 +36,35 @@ test('internal-dot abbreviations do not end a sentence', () => {
     ['Meet at 9 a.m. tomorrow. Later', 'Meet at 9 a.m. tomorrow.'],
     ['The U.S. team arrived. Later', 'The U.S. team arrived.'],
   ] as const) {
-    const plan = [page([text], 1_000, 1_000 + text.length * 100)]
-    const target = speechPauseAt(bubble(text), plan, 1_000)
-    assert.equal(
-      pagedBubbleFrame(bubble(text), target, 320, 200, value => value.length, plan).revealed,
-      sentence,
-    )
+    const current = bubble(text); const plan = speechCardPlan(current, 320, measure)
+    assert.equal(speechCardFrame(current, speechPauseAt(current, plan, 1_000), 320, 200, measure, plan).revealed, sentence)
   }
 })
 
+test('decimal points do not end a sentence', () => {
+  const current = bubble('Value 3.2 units. Later')
+  const plan = speechCardPlan(current, 320, measure)
+  assert.equal(speechCardFrame(current, speechPauseAt(current, plan, 1_000), 320, 200, measure, plan).revealed,
+    'Value 3.2 units.')
+})
+
 test('Unicode sentence punctuation completes a sentence', () => {
-  assert.equal(speechPauseAt(bubble('秋風や。次へ'), [page(['秋風や。次へ'], 1_000, 1_700)], 1_000), 1_000 + 700 * 3 / 6)
+  const current = bubble('秋風や。次へ')
+  const plan = speechCardPlan(current, 320, measure)
+  assert.equal(speechCardFrame(current, speechPauseAt(current, plan, 1_000), 320, 200, measure, plan).revealed, '秋風や。')
 })
 
-test('pause finishes the measured current display line', () => {
-  assert.equal(speechPauseAt(bubble('alpha beta gamma'), [page(['alpha beta ', 'gamma'])], 1_200), 2_250)
+test('pause timing counts a joined emoji as one grapheme', () => {
+  const current = bubble('👩🏽‍💻 ok. Later')
+  const plan = speechCardPlan(current, 320, measure)
+  assert.equal(speechCardFrame(current, speechPauseAt(current, plan, 1_000), 320, 200, measure, plan).revealed,
+    '👩🏽‍💻 ok.')
 })
-
-test('explicit newlines complete the current line', () => {
-  assert.equal(speechPauseAt(bubble('hello\nworld'), [page(['hello\n', 'world'], 1_000, 2_100)], 1_100), 1_500)
+test('completed, absent, or unplanned speech pauses now', () => {
+  const current = bubble('hello'); assert.equal(speechPauseAt(null, speechCardPlan(current), 1_200), 1_200)
+  assert.equal(speechPauseAt(current, null, 1_200), 1_200); assert.equal(speechPauseAt(current, speechCardPlan(current), current.expiresAt), current.expiresAt)
 })
-
-test('pause timing counts Unicode graphemes rather than UTF-16 units', () => {
-  assert.equal(speechPauseAt(bubble('👩🏽‍💻 ok. Later'), [page(['👩🏽‍💻 ok. Later'], 1_000, 2_100)], 1_000), 1_400)
-})
-
-test('a page boundary is bounded by reveal and hold end', () => {
-  const plan = [page(['unfinished'], 1_000, 1_800, 2_500), page(['next.'], 2_500, 3_000, 4_000)]
-  assert.equal(speechPauseAt(bubble('unfinishednext.'), plan, 1_700), 1_720)
-  assert.equal(speechPauseAt(bubble('unfinishednext.'), plan, 1_900), 1_900)
-})
-
-test('no current bubble, missing plan, and completed pages pause now', () => {
-  assert.equal(speechPauseAt(null, [page(['hello'])], 1_200), 1_200)
-  assert.equal(speechPauseAt(bubble('hello'), [], 1_200), 1_200)
-  assert.equal(speechPauseAt(bubble('hello'), [page(['hello'], 1_000, 1_500, 2_000)], 1_500), 1_500)
-})
-
-test('pauseAdvance lands exactly on a crossed deadline', () => {
+test('pauseAdvance lands exactly on an armed deadline', () => {
   assert.deepEqual(pauseAdvance(20, 100, 110), { delta: 10, paused: true })
   assert.deepEqual(pauseAdvance(10, 100, 110), { delta: 10, paused: true })
 })

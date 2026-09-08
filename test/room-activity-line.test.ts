@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ActivityContext, ActivityEntry } from '../src/activity.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { RoomActivityLine } from '../src/scenes/RoomActivityLine.ts'
+import { activityEntriesForRoom, roomActivityScrollTop, roomActivityStripHeight, RoomActivityLine } from '../src/scenes/RoomActivityLine.ts'
 
 const context: ActivityContext = {
   resident: name => ({ type: 'resident', id: 1, name, hasDrawing: false }),
@@ -15,7 +15,7 @@ const entry = (key: string, roomId?: number | null, anchorRoomId?: number | null
   entities: Object.freeze([]), roomId, anchorRoomId,
 })
 
-test('presents direct, anchored, and both endpoints of stored room activity', () => {
+test('presents direct, anchored, and both endpoints oldest first', () => {
   const line = { textContent: '' } as HTMLElement
   const log = new RoomActivityLine(line, context)
   const move: ActivityEntry = Object.freeze({ ...entry('3', 3, 3), kind: 'move',
@@ -25,7 +25,7 @@ test('presents direct, anchored, and both endpoints of stored room activity', ()
       { type: 'place' as const, id: 3, name: 'room 3', hasDrawing: false },
     ]) })
   log.appendEntries([entry('1', 2), entry('2', null, 4), move])
-  for (const [roomId, text] of [[2, 'event 3'], [3, 'event 3'], [4, 'event 2']] as const) {
+  for (const [roomId, text] of [[2, 'event 1\nevent 3'], [3, 'event 3'], [4, 'event 2']] as const) {
     log.selectRoom(roomId)
     assert.equal(line.textContent, text)
   }
@@ -59,6 +59,38 @@ test('renders the newest stored activity when selecting, restoring, and resettin
   assert.equal(line.textContent, '')
 })
 
+test('filters room history, sorts oldest first, and caps each room at 100 complete entries', () => {
+  const roomTwo = Array.from({ length: 105 }, (_, index) => Object.freeze({
+    ...entry(String(index + 1), 2), time: 2_000 - index, text: `full ${index}\nbody`,
+  }))
+  const visible = activityEntriesForRoom([...roomTwo, entry('other', 3)], 2)
+  assert.equal(visible.length, 100)
+  assert.equal(visible[0]?.text, 'full 99\nbody')
+  assert.equal(visible.at(-1)?.text, 'full 0\nbody')
+})
+
+test('keeps user scrollback on growth and follows new entries only from the bottom', () => {
+  assert.equal(roomActivityScrollTop({ scrollTop: 20, clientHeight: 60, scrollHeight: 200 }, 240), 20)
+  assert.equal(roomActivityScrollTop({ scrollTop: 140, clientHeight: 60, scrollHeight: 200 }, 240), 180)
+  assert.equal(roomActivityScrollTop({ scrollTop: 12, clientHeight: 60, scrollHeight: 200 }, 240, true), 180)
+})
+
+test('uses three desktop lines and two phone lines without growing the page', () => {
+  assert.equal(roomActivityStripHeight(1280), 60)
+  assert.equal(roomActivityStripHeight(601), 60)
+  assert.equal(roomActivityStripHeight(600), 40)
+  assert.equal(roomActivityStripHeight(375), 40)
+})
+
+test('does not repeat a hidden full note already present in room history', () => {
+  const line = { textContent: '' } as HTMLElement
+  const log = new RoomActivityLine(line, context)
+  log.selectRoom(2)
+  log.appendEntries([Object.freeze({ ...entry('1', 2), text: 'speaker in room 2: exact\nwords' })])
+  log.setUnshownSpeech('speaker: exact\nwords')
+  assert.equal(line.textContent, 'speaker in room 2: exact\nwords')
+})
+
 test('keeps each room latest line from a loaded window larger than the live history limit', () => {
   const line = { textContent: '' } as HTMLElement
   const log = new RoomActivityLine(line, context)
@@ -75,7 +107,8 @@ test('keeps each room latest line from a loaded window larger than the live hist
   log.reset(rows, 2_000)
   assert.equal(line.textContent, 'author in room 2: room two latest')
   log.selectRoom(3)
-  assert.equal(line.textContent, 'author in room 3: room three 100')
+  assert.equal(line.textContent?.split('\n').length, 100)
+  assert.equal(line.textContent?.split('\n').at(-1), 'author in room 3: room three 100')
   log.selectRoom(999)
   assert.equal(line.textContent, '')
 })
@@ -131,14 +164,14 @@ test('uses wall time before change id for live presence, restore, and out-of-ord
   const older = Object.freeze({ ...entry('49', 2), time: 900, text: 'older' })
 
   assert.deepEqual(log.appendEntries([record, looking]).map(row => row.key), ['50', 'presence'])
-  assert.equal(line.textContent, 'looking')
+  assert.equal(line.textContent, 'record\nlooking')
   assert.deepEqual(log.appendEntries([older]).map(row => row.key), ['49'])
-  assert.equal(line.textContent, 'looking')
+  assert.equal(line.textContent, 'older\nrecord\nlooking')
 
   const restored = new RoomActivityLine(line, context)
   restored.restore(log.snapshot())
   restored.selectRoom(2)
-  assert.equal(line.textContent, 'looking')
+  assert.equal(line.textContent, 'older\nrecord\nlooking')
 })
 
 test('shows unshown speech as a temporary fallback and restores activity when it clears or the room changes', () => {
@@ -148,7 +181,7 @@ test('shows unshown speech as a temporary fallback and restores activity when it
   log.selectRoom(2)
 
   log.setUnshownSpeech('speaker: exact words')
-  assert.equal(line.textContent, 'speaker: exact words')
+  assert.equal(line.textContent, 'event 1\nspeaker: exact words')
   log.setUnshownSpeech(null)
   assert.equal(line.textContent, 'event 1')
   log.setUnshownSpeech('speaker: exact words')

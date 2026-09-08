@@ -49,9 +49,13 @@ test('uses note id then resident id as stable ties and preserves exact recorded 
   assert.equal(hiddenRoomSpeech({ 1: olderId }, {}, layout, 2, new Set(), 50), 'alpha:  exact  words ')
 })
 
-test('hidden crowding speech uses a one-line excerpt without changing the full bubble', () => {
+test('hidden crowding speech preserves the complete note', () => {
   const fullText = 'first line\nsecond line'
   const speaker = { ...resident(1, 'alpha', 20), bubble: { ...resident(1, 'alpha', 20).bubble!, text: fullText } }
-  assert.equal(hiddenRoomSpeech({ 1: speaker }, {}, layout, 2, new Set(), 50), 'alpha: first line…')
+  assert.equal(hiddenRoomSpeech({ 1: speaker }, {}, layout, 2, new Set(), 50), 'alpha: first line\nsecond line')
   assert.equal(speaker.bubble.text, fullText)
+})
+
+test('asleep speakers do not become a temporary crowding fallback', () => {
+  assert.equal(hiddenRoomSpeech({ 1: resident(1, 'asleep', 20) }, {}, layout, 2, new Set(), 50, new Set([1])), null)
 })

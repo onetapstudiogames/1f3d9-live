@@ -25,7 +25,8 @@ export function roomFigurePriority(row: Figure, following: number | null): numbe
 export function presentRoom<R extends Figure, T extends Entity>(residents: Readonly<Record<number, R>>,
   things: Readonly<Record<number, T>>, source: NestedLayout | undefined, target: NestedLayout | undefined,
   hidden: ReadonlySet<number>, previous: RoomPlacements | RoomCrowdingState = {}, following: number | null = null,
-  agreements: ReadonlyMap<number, Point> = new Map(), motion?: RoomPresentationMotion): Readonly<{
+  agreements: ReadonlyMap<number, Point> = new Map(), motion?: RoomPresentationMotion,
+  sleepers: ReadonlySet<number> = new Set()): Readonly<{
     residents: Readonly<Record<number, R>>; things: Readonly<Record<number, T>>; placements: RoomPlacements
     crowding: RoomCrowdingState; hiddenSpeakerIds: readonly number[]
   }> {
@@ -38,6 +39,7 @@ export function presentRoom<R extends Figure, T extends Entity>(residents: Reado
     return Object.freeze(position ? { ...row, ...position } : { ...row, visible: false })
   }
   const figures = Object.values(residents).map(row => {
+    if (sleepers.has(row.id)) return Object.freeze({ ...row, visible: false })
     const projected = project(row, agreements.get(row.id) ?? row)
     const pose = motion?.poses.get(row.id)
     if (!pose || agreements.has(row.id) || row.placeId !== pose.placeId || !target?.rooms[pose.placeId]

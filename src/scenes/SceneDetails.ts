@@ -58,6 +58,14 @@ export async function readNoteWords(events: readonly ReplayEvent[], layout: Nest
   return Object.freeze(result)
 }
 
+export async function readInitialNoteWords(events: readonly ReplayEvent[], layout: NestedLayout,
+  read: Parameters<typeof readNoteWords>[2], issue: Issue): Promise<readonly ReplayEvent[]> {
+  const cut = events.filter(event => event.kind === 'note' && event.line_cut === true)
+  const complete = await readNoteWords(cut, layout, read, issue)
+  const byId = new Map(complete.map(event => [event.change_id, event]))
+  return Object.freeze(events.map(event => byId.get(event.change_id) ?? event))
+}
+
 export async function readVisibleThingDetails(things: ThingSimulation['things'], hidden: ReadonlySet<number>, readIds: Set<number>,
   readThing: (id: number) => Promise<Thing | null>, readDrawing: DrawingReader,
   applyName: (id: number, name: string) => void, applyDrawing: (id: number, drawing: Drawing) => void, issue: Issue): Promise<void> {

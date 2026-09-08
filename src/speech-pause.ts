@@ -1,49 +1,24 @@
-import { splitGraphemes, type SpeechBubble, type SpeechPageMoment } from './speech.ts'
-
+import { splitGraphemes, type SpeechBubble, type SpeechCardPlan } from './speech.ts'
 export type PauseAdvance = Readonly<{ delta: number; paused: boolean }>
-
-/** Limits one presentation step to an armed pause deadline. */
 export function pauseAdvance(delta: number, now: number, deadline: number | null): PauseAdvance {
   if (deadline === null || now + delta < deadline) return Object.freeze({ delta, paused: false })
   return Object.freeze({ delta: Math.max(0, deadline - now), paused: true })
 }
-
-/**
- * Returns the absolute presentation time at which Pause may freeze speech.
- * `plan` must be the measured SpeechPageMoment[] used for the visible BubbleView.
- * The result completes the current sentence or measured display line and never
- * advances beyond the current page's reveal/hold window.
- */
-export function speechPauseAt(
-  bubble: SpeechBubble | null,
-  plan: readonly SpeechPageMoment[] | null | undefined,
-  now: number,
-): number {
-  if (!bubble || !plan?.length || !Number.isFinite(now)) return now
-  const moment = plan.find(page => now >= page.start && now < page.end)
-  if (!moment || now >= moment.revealEnd) return now
-  const graphemes = splitGraphemes(moment.lines.join(''))
-  if (!graphemes.length || moment.revealEnd <= moment.start) return now
-  const revealSpan = moment.revealEnd - moment.start
+export function speechPauseAt(bubble: SpeechBubble | null, plan: SpeechCardPlan | null | undefined, now: number): number {
+  if (!bubble || !plan || !Number.isFinite(now) || now < plan.start || now >= plan.revealEnd || plan.effectiveCharInterval <= 0) return now
+  const graphemes = splitGraphemes(bubble.text)
   const revealedCount = Math.min(graphemes.length,
-    Math.max(0, Math.floor((now - moment.start) / (revealSpan / graphemes.length)) + 1))
-  const boundary = pauseBoundaries(moment.lines)
-    .find(index => index >= revealedCount)
-  if (boundary === undefined) return Math.max(now, Math.min(moment.revealEnd, moment.end))
-  // pagedBubbleFrame reveals grapheme one at page.start, then one more at each
-  // interval. Subtract one interval so the boundary itself does not leak the
-  // first grapheme following a completed sentence or line.
-  const target = moment.start + revealSpan * (boundary - 1) / graphemes.length
-  return Math.max(now, Math.min(target, moment.revealEnd, moment.end))
+    Math.max(0, Math.floor((now - plan.start) / plan.effectiveCharInterval) + 1))
+  const boundary = pauseBoundaries(plan.lines).find(index => index >= revealedCount)
+  if (boundary === undefined) return Math.max(now, plan.revealEnd)
+  return Math.max(now, Math.min(plan.start + plan.effectiveCharInterval * (boundary - 1), plan.revealEnd))
 }
-
 function pauseBoundaries(lines: readonly string[]): number[] {
   const all = splitGraphemes(lines.join(''))
   const boundaries = new Set<number>()
   let offset = 0
   for (const line of lines) {
-    const lineLength = splitGraphemes(line).length
-    offset += lineLength
+    offset += splitGraphemes(line).length
     const previous = all[offset - 1]
     const next = all[offset]
     if (previous?.endsWith('\n') || !continuesWord(previous, next)) boundaries.add(offset)
@@ -57,7 +32,6 @@ function pauseBoundaries(lines: readonly string[]): number[] {
   }
   return [...boundaries].filter(index => index > 0).sort((left, right) => left - right)
 }
-
 function isPeriodAbbreviation(graphemes: readonly string[], periodIndex: number): boolean {
   if (graphemes[periodIndex] !== '.') return false
   const token = graphemes.slice(0, periodIndex + 1).join('').match(/[\p{Letter}.]+$/u)?.[0]

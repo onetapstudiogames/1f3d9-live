@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Live room</title>
   <link rel="stylesheet" href="/src/style.css">
+  <link rel="stylesheet" href="/src/room-activity.css">
+  <link rel="stylesheet" href="/src/speech-card.css">
 </head>
 <body>
   <main id="viewer">
@@ -15,7 +17,7 @@
     <div id="speech-layer"></div>
     <footer id="room-footer">
       <div id="room-copy">
-        <p id="room-activity" aria-live="polite"></p>
+        <div id="room-activity" role="log" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
         <p id="live-status" role="status" aria-live="polite"></p>
       </div>
       <div id="room-controls" aria-label="Room controls">

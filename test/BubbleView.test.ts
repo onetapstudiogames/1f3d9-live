@@ -21,6 +21,8 @@ class StubElement {
   clientWidth = 200
   clientHeight = 100
   intrinsicHeight = 0
+  scrollTop = 0
+  scrollHeight = 640
   removed = false
   styleWrites = 0
   rectReads = 0
@@ -46,7 +48,7 @@ class StubElement {
   }
 }
 
-test('BubbleView reuses safe DOM text and keeps paged speech in the room', t => {
+test('BubbleView reuses safe DOM text and keeps scrolling speech in the room', t => {
   const previous = globalThis.document
   const app = new StubElement()
   const layer = new StubElement()
@@ -77,11 +79,10 @@ test('BubbleView reuses safe DOM text and keeps paged speech in the room', t => 
   assert.equal(card.dataset['residentId'], '4')
   assert.equal(card.dataset['noteId'], '7')
   assert.equal(card.dataset['complete'], 'true')
-  assert.equal(card.dataset['pageComplete'], 'true')
   assert.equal(card.dataset['revealed'], frame.revealed)
   assert.equal(card.style.width, `${frame.width}px`)
-  assert.equal(card.style.height, 'auto')
-  assert.equal(card.style.minHeight, `${frame.height}px`)
+  assert.equal(card.style.height, `${frame.height}px`)
+  assert.equal(card.children[0]!.scrollTop, 540)
   assert.ok(Number.parseFloat(card.style.top) + 40 <= 100)
   const textWrites = card.children[0]!.textWrites
   const datasetWrites = card.datasetWrites
@@ -101,14 +102,14 @@ test('BubbleView reuses safe DOM text and keeps paged speech in the room', t => 
     startedAt: 1_000, charInterval: 100, expiresAt: 5_000 }
   view.update(pausingBubble, { x: 100, y: 40 }, { width: 200, height: 100 }, 'plain', 1_300)
   const pauseAt = view.pauseAt(1_300)
-  assert.equal(pauseAt, 1_800)
+  assert.equal(pauseAt, 1_600)
   const pausedFrame = view.update(pausingBubble, { x: 100, y: 40 }, { width: 200, height: 100 }, 'plain', pauseAt)!
   assert.equal(pausedFrame.revealed, 'Hi there.')
   const wrappedBubble = { ...pausingBubble, text: 'alpha beta gamma' }
+  card.children[0]!.clientWidth = 50
   view.update(wrappedBubble, { x: 50, y: 40 }, { width: 100, height: 100 }, 'plain', 1_200)
   const linePauseAt = view.pauseAt(1_200)
   const lineFrame = view.update(wrappedBubble, { x: 50, y: 40 }, { width: 100, height: 100 }, 'plain', linePauseAt)!
-  assert.equal(linePauseAt, 1_500)
   assert.equal(lineFrame.revealed, 'alpha ')
   view.update(null, { x: 0, y: 0 }, { width: 200, height: 100 }, 'plain', 0)
   assert.equal(card.style.display, 'none')

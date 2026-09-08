@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { RESIDENT_BULB_RECTS, RESIDENT_HAND_RECTS, RESIDENT_LOCK_RECTS, RESIDENT_SLEEP_RECTS,
+import { RESIDENT_BULB_RECTS, RESIDENT_HAND_RECTS, RESIDENT_LOCK_RECTS,
   THING_HEART_RECTS, activityCueRects, residentActivityRects, residentBulbAnchor,
   residentGlyphDistance, thingOverlayAnchor, residentOverlayDistance, residentOverlayRects } from '../src/resident-overlays.ts'
 import { cueFrame, emptyCueState, stepActivityCues } from '../src/activity-cues.ts'
@@ -16,7 +16,6 @@ test('every resident glyph uses the production 32-to-56 overlay scale', () => {
   assert.deepEqual(RESIDENT_BULB_RECTS[0], { x: 10.5, y: 0, width: 10.5, height: 3.5, color: 0xffef83, alpha: 1 })
   assert.deepEqual(THING_HEART_RECTS[0], { x: 0, y: 0, width: 8 / 3, height: 8 / 3, color: 0xd65b70, alpha: 1 })
   assert.deepEqual(RESIDENT_HAND_RECTS[0], { x: -10.5, y: 0, width: 3.5, height: 3.5, color: 0xc78b62, alpha: 1 })
-  assert.deepEqual(RESIDENT_SLEEP_RECTS[0], { x: 0, y: 0, width: 10.5, height: 3.5, color: 0xe9dfb9, alpha: 1 })
 })
 
 test('resident glyph anchors and animated offsets share the production distance helper', () => {

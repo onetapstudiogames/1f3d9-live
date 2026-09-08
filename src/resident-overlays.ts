@@ -92,10 +92,3 @@ export const THING_HEART_RECTS = scaledRects(
   distance => thingGlyphDistance(distance * ORIGINAL_GLYPH_CELL_SIZE),
 )
 export const RESIDENT_HAND_RECTS = pixelRects(HAND_PIXELS, 0xc78b62)
-export const RESIDENT_SLEEP_RECTS = residentOverlayRects(
-  ([[0, 0], [6, -7], [12, -14]] as const).flatMap(([x, y]) => [
-    { x, y, width: 6, height: 2, color: 0xe9dfb9, alpha: 1 },
-    { x: x + 2, y: y + 2, width: 2, height: 2, color: 0xe9dfb9, alpha: 1 },
-    { x, y: y + 4, width: 6, height: 2, color: 0xe9dfb9, alpha: 1 },
-  ]),
-)

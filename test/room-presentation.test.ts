@@ -111,3 +111,14 @@ test('screen poses cannot expose a quiet room or hide its public speaker for lac
   const hidden = presentRoom({ 1: speaker }, {}, world, target, new Set([2]), {}, null, new Map(), motion)
   assert.equal(hidden.residents[1]!.visible, false)
 })
+
+test('a sleeper is excluded before motion, crowding, and hidden-speaker fallback', () => {
+  const speaker = { ...actor(1), bubble: { text: 'old words' } }
+  const motion = { poses: new Map([[1, { x: 10, y: 20, placeId: 2, visible: true, moving: true }]]), reservations: [] }
+  const frame = presentRoom({ 1: speaker, 2: actor(2) }, {}, world, target, new Set(), {}, null,
+    new Map(), motion, new Set([1]))
+  assert.equal(frame.residents[1]!.visible, false)
+  assert.equal(frame.placements['resident:1'], undefined)
+  assert.deepEqual(frame.hiddenSpeakerIds, [])
+  assert.equal(frame.residents[2]!.visible, true)
+})
