@@ -3,25 +3,24 @@ import { fetchReplay, fetchCensus, createDrawingLoader, createThingLoader, creat
 import type { PlaceOutline, ReplayFile, Resident } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
 import { createClock, dueEvents, prepareTimeline, type Clock, type TimelineRow } from '../replay/index.ts'
-import { createResidents, prepareLiveResidents, stepResidents, roomCapacity, type Simulation } from '../replay/simulation.ts'
+import { createResidents, prepareLiveResidents, stepResidents, stepIdleResidents, retimeResidentWalks, roomCapacity, type Simulation } from '../replay/simulation.ts'
 import { residentNamePlate } from '../city/residents.ts'
 import { RoomView } from './RoomView.ts'
 import { ResidentView, addDrawingTexture } from './ResidentView.ts'
 import { roomsInCamera } from '../camera.ts'
 import { sleepingResidents } from '../sleep.ts'
-import { placesWithDrawings } from '../room-art.ts'
 import { addPresentThings, createThings, recordThingIds, stepThings, type ThingSimulation } from '../things.ts'
 import type { StageStandingSpot } from '../ground/stage-ground.ts'
 import { ThingView, addThingTexture } from './ThingView.ts'
 import { createHandovers, stepHandovers, type HandoverState } from '../handovers.ts'
-import { HandoverView } from './HandoverView.ts'
-import { hiddenRooms, planPlaces, recordedRoomName, type NameSpan, type PlacePlan } from '../places.ts'
+import { HandoverLayer } from './HandoverView.ts'
+import { hiddenRooms, planPlaces, recordedRoomName, type PlacePlan } from '../places.ts'
 import {
-  advanceToPlaceMoment, contentHiddenRooms, placeAnimation, stepPlaceAnimations, type PlaceAnimation,
+  contentHiddenRooms, placeAnimation, stepPlaceAnimations, type PlaceAnimation,
 } from '../place-animation.ts'
-import { readShowSleepers, saveShowSleepers } from '../preferences.ts'
+import { readShowSleepers } from '../preferences.ts'
 import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
-import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
+import { liveReadFailed, liveReadSucceeded, newLiveEvents, settleAtNow, validContinuation, wakeActiveSleepers, type LiveReadState } from '../live.ts'
 import { reserveLiveThingEvents, type ThingReservations } from '../things.ts'
 import { stepInventions, type InventionState } from '../inventions.ts'
 import { InventionLayer } from './InventionLayer.ts'
@@ -33,12 +32,18 @@ import { keepFollowedInView, MinimapView } from './MinimapView.ts'
 import { refreshFollowPicker } from './follow-controls.ts'
 import { updateViewControls } from './view-controls.ts'
 import { SceneSound } from './SceneSound.ts'
-import { cameraFrame, followActivity, focusTarget, motionSpeed, zoomAt, type FocusTarget } from '../viewer.ts'
-import { connectViewerInput, connectUiVisibility, syncPlaybackControls } from './ViewerInput.ts'
-import { createActivityContext } from '../activity.ts'
+import { cameraFrame, followActivity, focusTarget, motionSpeed, zoomAt } from '../viewer.ts'
+import { currentFocusTargets } from '../focus-targets.ts'
+import { connectViewerControls, connectUiVisibility, syncPlaybackControls } from './ViewerInput.ts'
+import { createActivityContext, type ActivityContext } from '../activity.ts'
+import { createHistoricalActivityContext } from '../activity-context.ts'
 import { mountActivityLog, type ActivityLog } from './ActivityLog.ts'
 import { PixelPortrait } from './PixelPortrait.ts'
 import { clearThingLabels } from '../thing-labels.ts'
+import { advancePresentation, playbackCommand, type PlaybackCommand } from '../playback.ts'
+import { SceneHistory, type PresentationState } from './SceneHistory.ts'
+import { SceneActivity } from './SceneActivity.ts'
+import { readNoteWords, readPlaceDrawings, readPlacePlan, readResidentDrawings, readVisibleThingDetails } from './SceneDetails.ts'
 
 export class CityScene extends Phaser.Scene {
   private replay?: ReplayFile
@@ -51,6 +56,12 @@ export class CityScene extends Phaser.Scene {
   private polling = false
   private liveReadError = false
   private liveCaughtUp = false
+  private liveDeliveredMarker = 0
+  private liveNotBefore = 0
+  private pollGeneration = 0
+  private pollTimer?: number
+  private presenceReadAt = 0; private presenceReading = false; private presenceLost = false
+  private jumpingLive = false
   private readonly readNote = createNoteExcerptLoader()
   private readonly readAgreement = createAgreementPairLoader()
   private agreementPairs: ReadonlyMap<string, AgreementPair> = new Map()
@@ -61,7 +72,7 @@ export class CityScene extends Phaser.Scene {
   private things?: ThingSimulation
   private handovers?: HandoverState
   private handoverFrame?: ReturnType<typeof stepHandovers>
-  private handoverViews = new Map<string, HandoverView>()
+  private readonly handoverLayer = new HandoverLayer(this)
   private inventions: InventionState = Object.freeze({ moments: [], pending: false, issues: [] }); private inventionLayer?: InventionLayer
   private thingViews = new Map<number, ThingView>()
   private thingNames = new Map<number, string>()
@@ -85,9 +96,15 @@ export class CityScene extends Phaser.Scene {
   private readonly readResidentDrawing = createDrawingLoader()
   private readonly readPlaceDrawing = createDrawingLoader(undefined, 'place')
   private activityLog?: ActivityLog
+  private activity?: SceneActivity
+  private activityBase?: ActivityContext
+  private historicalActivity?: ActivityContext
+  private lookingAwake: ReadonlySet<number> = new Set()
+  private readonly history = new SceneHistory()
+  private backward = false
+  private reviewingLive = false
   private readonly sounds = new SceneSound(this)
   private placePlan?: PlacePlan
-  private placeMoments: readonly number[] = []
   private placeAnimations: readonly PlaceAnimation[] = []
   private hiddenPlaces: ReadonlySet<number> = new Set()
   private contentsHidden: ReadonlySet<number> = new Set()
@@ -98,7 +115,7 @@ export class CityScene extends Phaser.Scene {
   private lastFollowChoices = ''
   private cursor = 0
   private elapsed = 0
-  private paused = false
+  private paused = true
   private following: number | null = null
   private followAcquired = false
   private viewPlaceId: number | null = null
@@ -118,13 +135,27 @@ export class CityScene extends Phaser.Scene {
     syncPlaybackControls(this.paused, this.playbackSpeed)
     this.sounds.connect()
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.sounds.destroy())
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.pollGeneration += 1; window.clearTimeout(this.pollTimer); this.minimap?.destroy() })
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, connectUiVisibility())
     void this.loadCity()
   }
-  private async loadCity(): Promise<void> {
+  private async loadCity(reads?: readonly [PromiseSettledResult<ReplayFile>, PromiseSettledResult<readonly Resident[]>]): Promise<void> {
     try {
-      const [record, censusRead] = await Promise.allSettled([fetchReplay(), fetchCensus()])
+      const [record, censusRead] = reads ?? await Promise.allSettled([fetchReplay(), fetchCensus()])
       if (record.status === 'rejected') throw record.reason
+      if (reads) {
+        this.pollGeneration += 1; window.clearTimeout(this.pollTimer); this.polling = false
+        this.rooms?.destroy(); this.minimap?.destroy(); this.activity?.destroy(); this.activityLog?.destroy()
+        this.agreementLayer.clear(); this.inventionLayer?.clear(); this.sounds.reset()
+        for (const view of this.figures.values()) view.destroy()
+        for (const view of this.thingViews.values()) view.destroy()
+        this.handoverLayer.clear()
+        this.figures.clear(); this.thingViews.clear()
+        this.elapsed = 0; this.cursor = 0; this.liveHistory = []; this.liveQueue = []; this.liveCatchup = []
+        this.liveCaughtUp = false; this.handoverFrame = undefined
+        this.inventions = Object.freeze({ moments: [], pending: false, issues: [] })
+        this.outlineReads.clear(); this.outlinePending.clear(); this.outlineGeneration += 1
+      }
       const census = censusRead.status === 'fulfilled' ? censusRead.value : []
       this.census = census
       if (censusRead.status === 'rejected') {
@@ -146,7 +177,10 @@ export class CityScene extends Phaser.Scene {
       this.handovers = settled.handovers
       this.residents = settled.residents
       this.connectActivityLog()
-      this.activityLog?.reset(this.replay.timeline, this.clock.end)
+      this.activity?.reset(this.replay.timeline, this.clock.end)
+      this.observeLooking(census)
+      this.liveDeliveredMarker = Number(this.replay.checkpoint)
+      this.liveNotBefore = Date.now()
       this.placeAnimations = []
       this.liveState = Object.freeze({ marker: this.replay.checkpoint, seen: new Set<string>(), failures: 0, lastReadAt: null, retryMs: 0 })
       this.rooms = new RoomView(this, this.layout, this.placePlan!)
@@ -161,7 +195,9 @@ export class CityScene extends Phaser.Scene {
       addThingTexture(this, 'thing-default', null)
       this.drawThings()
       this.drawResidents()
-      this.showWholeCity()
+      this.history.reset(this.presentationState())
+      if (!reads) this.showWholeCity()
+      else if (this.following !== null) this.follow(this.following)
       this.updateHud()
       await this.loadDrawings(census)
       document.body.dataset['liveReady'] = censusRead.status === 'fulfilled' ? 'true' : 'error'
@@ -187,73 +223,31 @@ export class CityScene extends Phaser.Scene {
       if (known) return known
       const id = this.residents?.actors.get(actor)
       return id === undefined ? null : { type: 'resident' as const, id, name: actor, hasDrawing: false }
-    } }
+    }, actorRoom: (actor: string, time: number) => this.historicalActivity?.actorRoom?.(actor, time) ?? null,
+    thing: (id: number, time: number) => this.historicalActivity?.thing?.(id, time) ?? null,
+    effect: (id: number, time: number) => this.historicalActivity?.effect?.(id, time) ?? null }
+    this.activityBase = context
+    this.historicalActivity = createHistoricalActivityContext(this.replay, this.census, context)
     const portraits = new PixelPortrait({ residentDrawing: this.readResidentDrawing, placeDrawing: this.readPlaceDrawing,
       thing: this.readThing, thingDrawing: this.readThingDrawing })
     this.activityLog = mountActivityLog(dynamic, portraits)
+    this.activity = new SceneActivity(this, this.activityLog, dynamic)
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.activityLog?.destroy())
   }
   private async loadPlaceNames(): Promise<void> {
     if (!this.replay) return
-    const initial = planPlaces(this.replay)
-    const readHistory = createNameHistoryLoader()
-    const histories = new Map<number, readonly NameSpan[]>()
-    for (let offset = 0; offset < initial.historyPlaceIds.length; offset += 4) {
-      await Promise.all(initial.historyPlaceIds.slice(offset, offset + 4).map(async id => {
-        try {
-          const history = await readHistory(id)
-          if (history) histories.set(id, history)
-        } catch (error) {
-          console.error(error)
-          this.thingReadIssue('Some earlier place names could not be read; unknown names stay blank.')
-        }
-      }))
-    }
-    this.placePlan = planPlaces(this.replay, histories)
+    this.placePlan = await readPlacePlan(this.replay, createNameHistoryLoader(), message => this.thingReadIssue(message))
     this.readIssues.push(...this.placePlan.issues)
-    this.placeMoments = [...this.placePlan.foundings.values(), ...[...this.placePlan.renamings.values()].flat()]
-      .map(event => event.time).sort((a, b) => a - b)
-    // A founding at window_start begins unfinished even while the first drawings load.
-    this.placeAnimations = [...this.placePlan.foundings.values()]
-      .filter(event => event.time === this.clock?.start)
-      .map(event => placeAnimation('founding', event.placeId, event.changeId, this.elapsed, this.clock!.speed))
   }
   private async loadDrawings(census: readonly Resident[]): Promise<void> {
-    const drawing = this.readResidentDrawing
-    const ids = [...new Set([
-      ...census.filter(resident => resident.has_drawing).map(resident => resident.id),
-      ...Object.values(this.residents?.residents ?? {}).filter(resident => !census.some(row => row.id === resident.id)).map(resident => resident.id),
-    ])]
-    for (let offset = 0; offset < ids.length; offset += 4) {
-      await Promise.all(ids.slice(offset, offset + 4).map(async id => {
-        try {
-          const art = await drawing(id)
-          addDrawingTexture(this, `resident-${id}`, art)
-          this.figures.get(id)?.sprite.setTexture(`resident-${id}`)
-        } catch (error) {
-          console.error(error)
-          const message = 'Some drawings could not be read; their last figures are kept.'
-          if (!this.readIssues.includes(message)) this.readIssues.push(message)
-        }
-      }))
-    }
+    await readResidentDrawings(census, this.residents?.residents ?? {}, this.readResidentDrawing, (id, art) => {
+      addDrawingTexture(this, `resident-${id}`, art); this.figures.get(id)?.sprite.setTexture(`resident-${id}`)
+    }, message => this.thingReadIssue(message))
   }
   private async loadPlaceDrawings(): Promise<void> {
     if (!this.layout || !this.replay) return
-    const drawing = this.readPlaceDrawing
-    const ids = placesWithDrawings(this.replay.map.places, this.layout)
-    for (let offset = 0; offset < ids.length; offset += 4) {
-      await Promise.all(ids.slice(offset, offset + 4).map(async id => {
-        try {
-          const art = await drawing(id)
-          if (art) this.rooms?.addDrawing(this, id, art)
-        } catch (error) {
-          console.error(error)
-          const message = 'Some place drawings could not be read; their rooms are kept.'
-          if (!this.readIssues.includes(message)) this.readIssues.push(message)
-        }
-      }))
-    }
+    await readPlaceDrawings(this.replay, this.layout, this.readPlaceDrawing, (id, art) => this.rooms?.addDrawing(this, id, art),
+      message => this.thingReadIssue(message))
     if (this.fixtureMode) {
       document.body.dataset['livePlaceDrawing'] = String(this.textures.exists('place-1'))
       document.body.dataset['livePlaceFloor'] = String(this.textures.exists('place-1'))
@@ -261,23 +255,32 @@ export class CityScene extends Phaser.Scene {
   }
   update(_time: number, delta: number): void {
     if (!this.clock || !this.residents || !this.layout || !this.replay) return
-    if (document.body.dataset['liveReady'] === 'true' && !this.paused) {
+    if (document.body.dataset['liveReady'] === 'true' && !this.paused && !this.jumpingLive) {
       const elapsed = Math.min(100, Math.max(0, delta))
+      if (this.backward) {
+        const frame = this.history.rewind(elapsed)
+        if (frame) this.restorePresentation(frame)
+        if (!this.history.canRewind) this.paused = true
+      } else {
       this.elapsed += elapsed
       if (this.mode === 'live') {
-        this.clock = { ...this.clock, time: Date.now() }
         this.placeAnimations = stepPlaceAnimations(this.placeAnimations, [], this.elapsed)
         if (!this.residents.pending && !this.things?.pending && !this.handoverFrame?.pending && this.liveQueue.length) {
-          const incoming = this.liveQueue
-          this.liveQueue = []
+          const firstAt = Date.parse(this.liveQueue[0]!.at)
+          const incoming = this.liveQueue.filter(row => Date.parse(row.at) === firstAt)
+          this.liveQueue = this.liveQueue.slice(incoming.length)
+          this.clock = { ...this.clock, time: firstAt }
+          this.liveDeliveredMarker = Math.max(this.liveDeliveredMarker, ...incoming.map(row => Number(row.change_id)))
           this.prepareLiveEvents(incoming)
           this.applyEvents(incoming, elapsed)
-        } else this.applyEvents([], elapsed)
+        } else { this.applyEvents([], elapsed); if (!this.residents.pending && !this.liveQueue.length) {
+          this.clock = { ...this.clock, time: Date.now() }; this.reviewingLive = false
+        } }
       } else {
       // Hold the recorded moment for its walks, words and arrivals, then resume the faster clock.
-      if (this.clock.speed === 1 || (!this.residents.pending && !this.things?.pending && !this.handoverFrame?.pending && !this.placeAnimations.length)) {
-        this.clock = advanceToPlaceMoment(this.clock, elapsed, this.placeMoments)
-      }
+      this.clock = advancePresentation(this.clock, elapsed,
+        this.residents.pending || Boolean(this.things?.pending) || Boolean(this.handoverFrame?.pending) || this.placeAnimations.length > 0,
+        this.timeline[this.cursor]?.time ?? null)
       const due = dueEvents(this.timeline, this.cursor, this.clock.time)
       this.cursor = due.cursor
       const incoming = due.events.flatMap(event => {
@@ -296,15 +299,23 @@ export class CityScene extends Phaser.Scene {
         && !this.handoverFrame?.pending && !this.placeAnimations.length && this.cursor >= this.timeline.length
       if (finished) this.enterLiveMode()
       }
+      this.residents = stepIdleResidents(this.residents, elapsed, this.elapsed, this.layout, this.sleepers, row => this.isResidentDrawn(row))
+      this.history.record(this.presentationState())
+      }
     }
     this.updateRooms()
-    this.updateOutlines()
+    if (!this.backward && !this.history.rewound) void this.readLooking()
+    this.lookingAwake = this.activity?.activeLookingIds(Date.now()) ?? new Set()
+    if (!this.backward && !this.history.rewound) this.updateOutlines()
     this.drawThings()
     this.drawResidents()
     this.updateFollowCamera()
-    this.sounds.update(this.elapsed, this.paused, this.residents, this.figures, this.placeAnimations, this.layout, this.cameras.main)
+    this.sounds.update(this.elapsed, this.paused || this.backward || this.history.rewound, this.residents, this.figures, this.placeAnimations, this.layout, this.cameras.main)
     this.minimap?.update(this.cameras.main, this.following === null ? null : this.figures.get(this.following)?.sprite ?? null, this.contentsHidden)
     this.drawHandovers()
+    this.activity?.update(Object.fromEntries(Object.values(this.residents.residents).filter(row => this.isResidentDrawn(row)).map(row => [row.id, row])),
+      this.things?.things ?? {}, this.layout, this.contentsHidden, this.elapsed, this.cameras.main.zoom,
+      this.mode === 'live' && !this.backward && !this.history.rewound ? Date.now() : undefined)
     this.inventionLayer?.update(this.inventions, this.residents, this.contentsHidden, this.cameras.main.zoom)
     if (this.fixtureMode) document.body.dataset['liveInventions'] = String(this.inventions.moments.length)
     this.updateHud()
@@ -312,15 +323,18 @@ export class CityScene extends Phaser.Scene {
   private async pollLive(): Promise<void> {
     if (this.polling || !this.liveState) return
     this.polling = true
+    const generation = this.pollGeneration
     let delay = 15_000
     try {
       const page = await fetchChanges(this.liveState.marker)
+      if (generation !== this.pollGeneration) return
       if (!validContinuation(this.liveState.marker, page.nextSince, page.hasMore)) {
         throw new Error('The changes continuation did not advance.')
       }
       const fresh = newLiveEvents(this.liveState, page.events)
       const enriched = await this.enrichNotes(fresh)
       await this.loadAgreementPairs(enriched)
+      if (generation !== this.pollGeneration) return
       this.liveState = liveReadSucceeded(this.liveState, page.nextSince, enriched, Date.now())
       this.liveReadError = false
       if (enriched.length) {
@@ -330,7 +344,8 @@ export class CityScene extends Phaser.Scene {
         const known = new Set(this.liveHistory.map(row => row.change_id))
         const completed = this.liveCatchup.filter(row => !known.has(row.change_id))
         this.liveHistory = Object.freeze([...this.liveHistory, ...completed])
-        if (this.mode === 'live') this.liveQueue = Object.freeze([...this.liveQueue, ...completed])
+        if (this.mode === 'live') this.liveQueue = Object.freeze([...this.liveQueue,
+          ...completed.filter(row => Date.parse(row.at) > this.liveNotBefore)])
         this.liveCatchup = []
         this.liveCaughtUp = true
       }
@@ -342,30 +357,16 @@ export class CityScene extends Phaser.Scene {
       this.liveReadError = true
       delay = this.liveState.retryMs ?? 30_000
     } finally {
-      this.polling = false
-      this.updateHud()
-      window.setTimeout(() => void this.pollLive(), delay)
+      if (generation === this.pollGeneration) {
+        this.polling = false
+        this.updateHud()
+        window.clearTimeout(this.pollTimer)
+        this.pollTimer = window.setTimeout(() => void this.pollLive(), delay)
+      }
     }
   }
   private async enrichNotes(events: readonly ReplayFile['timeline'][number][]): Promise<readonly ReplayFile['timeline'][number][]> {
-    const result = [...events]
-    const candidates = this.layout ? liveNoteReferences(events, this.layout) : []
-    for (let offset = 0; offset < candidates.length; offset += 4) {
-      await Promise.all(candidates.slice(offset, offset + 4).map(async ({ event, index }) => {
-        try {
-          const note = await this.readNote(event.detail.note_id as number)
-          if (!note || note.author.trim() !== event.actor?.trim() || note.placeId !== event.detail.place_id) {
-            this.thingReadIssue('Some live note words could not be verified, so their reference stays silent.')
-            return
-          }
-          result[index] = Object.freeze({ ...event, line: note.text, line_cut: note.cut })
-        } catch (error) {
-          console.error(error)
-          this.thingReadIssue('Some live note words could not be read, so their reference stays silent.')
-        }
-      }))
-    }
-    return Object.freeze(result)
+    return this.layout ? readNoteWords(events, this.layout, this.readNote, message => this.thingReadIssue(message)) : events
   }
   private async loadAgreementPairs(events: readonly ReplayFile['timeline'][number][]): Promise<void> {
     const result = await readAgreementPairs(events, this.readAgreement, this.agreementPairs)
@@ -387,6 +388,7 @@ export class CityScene extends Phaser.Scene {
     const extended = { ...this.replay, window_end: new Date(latest).toISOString(),
       timeline: [...this.replay.timeline, ...this.liveHistory] }
     this.placePlan = planPlaces(extended, this.placePlan?.names)
+    if (this.activityBase) this.historicalActivity = createHistoricalActivityContext(extended, this.census, this.activityBase)
     this.rooms?.setPlan(this.placePlan)
     for (const issue of this.placePlan.issues) if (!this.readIssues.includes(issue)) this.readIssues.push(issue)
     for (const event of events) {
@@ -404,11 +406,14 @@ export class CityScene extends Phaser.Scene {
     if (!this.replay || !this.layout) return
     this.suspendFollowing()
     this.mode = 'replay'
+    this.reviewingLive = false
     this.paused = false
+    this.backward = false
     syncPlaybackControls(this.paused, this.playbackSpeed)
     this.clock = createClock(this.replay.window_start, this.replay.window_end,
       this.playbackSpeed)
-    this.activityLog?.reset([], this.clock.start)
+    this.activity?.reset([], this.clock.start)
+    this.lookingAwake = new Set()
     this.timeline = prepareTimeline(this.replay.timeline)
     this.cursor = 0
     this.elapsed = 0
@@ -423,10 +428,12 @@ export class CityScene extends Phaser.Scene {
     this.agreementLayer.clear()
     this.sounds.reset()
     this.liveQueue = []
+    this.liveDeliveredMarker = Number(this.replay.checkpoint)
     this.outlineReads.clear()
     this.outlinePending.clear()
     this.outlineGeneration += 1
     this.sleepers = this.initialSleepers
+    this.history.reset(this.presentationState())
     document.body.dataset['liveMode'] = 'replay'
     this.updateHud()
   }
@@ -439,14 +446,38 @@ export class CityScene extends Phaser.Scene {
   }
   private applyEvents(events: readonly ReplayFile['timeline'][number][], elapsed: number): void {
     if (!this.layout || !this.residents || !this.things || !this.handovers || !this.clock) return
-    this.activityLog?.append(events, this.clock.time)
-    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, motionSpeed(this.clock.speed), this.agreementPairs, row => this.isResidentDrawn(row))
+    this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.clock.speed, this.agreementPairs, row => this.isResidentDrawn(row))
     this.agreementLayer.add(this.residents.startedHandshakes ?? [])
     this.inventions = stepInventions(this.inventions, this.residents.startedInventions ?? [], this.residents,
       this.contentsHidden, this.elapsed)
     this.handoverFrame = stepHandovers(this.handovers, events, this.residents, this.layout, this.elapsed, motionSpeed(this.clock.speed))
     this.handovers = this.handoverFrame.state
     this.things = stepThings(this.things, this.handoverFrame.floorEvents, this.elapsed, motionSpeed(this.clock.speed))
+    const started = this.residents.startedEvents ?? []
+    const represented = new Set(started.filter(event => {
+      const id = event.actor ? this.residents!.actors.get(event.actor.trim()) : undefined
+      const actor = id === undefined ? undefined : this.residents!.residents[id]
+      return actor?.walkEventId === event.change_id && actor.walking
+        || event.kind === 'note' && (actor?.bubble?.noteId === event.detail.note_id || Boolean(actor?.showingNotice))
+        || actor?.lastActivityId === event.change_id && Boolean(actor?.sparkle || actor?.inventionUntil || actor?.agreementUntil || actor?.transferUntil || actor?.blockedAttempt)
+        || Boolean(this.things!.things[Number(event.detail.thing_id ?? event.detail.source_thing_id)]?.effect)
+        || this.placeAnimations.some(row => row.changeId === event.change_id)
+    }).map(event => event.change_id))
+    this.activity?.consume([...started, ...events.filter(event => !event.actor)], this.clock.time, this.elapsed, represented)
+  }
+  private observeLooking(census: readonly Resident[]): void {
+    const places = new Map(Object.values(this.residents?.residents ?? {}).flatMap(row => row.placeId === null ? [] : [[row.id, row.placeId] as const]))
+    this.activity?.observeLooking(census, Date.now(), !this.presenceLost && this.mode === 'live' && !this.paused && !this.backward
+      && !this.history.rewound && this.liveQueue.length === 0, places, this.contentsHidden, this.elapsed)
+    this.presenceReadAt = Date.now() + 30_000
+  }
+  private async readLooking(): Promise<void> {
+    if (this.presenceReading || this.backward || this.history.rewound || this.reviewingLive || Date.now() < this.presenceReadAt) return
+    this.presenceReading = true; const generation = this.pollGeneration
+    this.presenceReadAt = Date.now() + 30_000
+    try { const census = await fetchCensus(); if (generation === this.pollGeneration && !this.backward && !this.history.rewound && !this.reviewingLive) { this.observeLooking(census); this.presenceLost = false } }
+    catch (error) { console.error(error); this.presenceLost = true; this.presenceReadAt = Date.now() + 60_000 }
+    finally { this.presenceReading = false }
   }
   private updateRooms(): void {
     if (!this.clock || !this.layout || !this.placePlan) return
@@ -519,7 +550,7 @@ export class CityScene extends Phaser.Scene {
       && (resident.placeId === placeId || resident.destinationId === placeId))
   }
   private mergeOutline(outline: PlaceOutline): void {
-    if (this.mode !== 'live' || !this.layout || !this.residents || !this.things || this.contentsHidden.has(outline.placeId)) return
+    if (this.backward || this.history.rewound || this.mode !== 'live' || !this.layout || !this.residents || !this.things || this.contentsHidden.has(outline.placeId)) return
     const blockers: StageStandingSpot[] = Object.values(this.residents.residents).flatMap(resident => {
       const points = [resident.placeId === outline.placeId && resident.visible ? { key: `resident:${resident.id}`, x: resident.x, y: resident.y } : null,
         resident.destinationId === outline.placeId && resident.destination ? { key: `destination:${resident.id}`, ...resident.destination } : null]
@@ -547,63 +578,15 @@ export class CityScene extends Phaser.Scene {
     }
   }
   private drawHandovers(): void {
-    const motions = this.handoverFrame?.motions ?? []
-    const keys = new Set(motions.map(motion => motion.key))
-    for (const [key, view] of this.handoverViews) {
-      if (!keys.has(key)) { view.destroy(); this.handoverViews.delete(key) }
-    }
-    for (const motion of motions) {
-      let view = this.handoverViews.get(motion.key)
-      if (!view) { view = new HandoverView(this); this.handoverViews.set(motion.key, view) }
-      const float = this.handovers?.floats.find(item => motion.key === `transfer:${item.changeId}`)
-      const carry = this.handovers?.held.find(item => motion.key === `carry:${item.plan.noticeChangeId}`)
-      const carrier = carry ? this.residents?.residents[carry.plan.carrierId] : undefined
-      const placeId = float?.transfer.placeId ?? carrier?.placeId
-      const hidden = placeId !== null && placeId !== undefined && this.contentsHidden.has(placeId)
-      view.update(hidden ? { ...motion, visible: false } : motion)
-    }
-    // The fixture marker records that a floating or carried thing was drawn at least once.
-    if (this.fixtureMode && motions.length > 0) document.body.dataset['liveHandoverShown'] = 'true'
+    this.handoverLayer.update(this.handoverFrame, this.handovers, this.residents, this.contentsHidden)
+    if (this.fixtureMode && this.handoverFrame?.motions.length) document.body.dataset['liveHandoverShown'] = 'true'
   }
   private async loadThingDetails(): Promise<void> {
     if (this.readingThings) return
     this.readingThings = true
-    try {
-      for (;;) {
-        const batch = Object.values(this.things?.things ?? {}).filter(thing => thing.visible
-          && !this.contentsHidden.has(thing.placeId) && !this.thingReads.has(thing.id)).slice(0, 4)
-        if (!batch.length) break
-        for (const thing of batch) this.thingReads.add(thing.id)
-        await Promise.all(batch.map(async thing => {
-          let hasDrawing = false
-          try {
-            // One read per thing carries both the name and whether the city has art for it.
-            // A thing that says it has no drawing is never asked for one, as for residents and places.
-            const detail = await this.readThing(thing.id)
-            if (detail) {
-              this.thingNames.set(thing.id, detail.name)
-              hasDrawing = detail.has_drawing
-            } else if (thing.name === null) {
-              this.thingReadIssue('Some thing names are missing; those name plates stay blank.')
-            }
-          } catch (error) {
-            console.error(error)
-            if (thing.name === null) this.thingReadIssue('Some thing names could not be read; those name plates stay blank.')
-          }
-          if (!hasDrawing) return
-          try {
-            const art = await this.readThingDrawing(thing.id)
-            if (art) {
-              addThingTexture(this, `thing-${thing.id}`, art)
-              this.thingViews.get(thing.id)?.sprite.setTexture(`thing-${thing.id}`)
-            }
-          } catch (error) {
-            console.error(error)
-            this.thingReadIssue('Some thing drawings could not be read; their pixel icons are kept.')
-          }
-        }))
-      }
-    } finally { this.readingThings = false }
+    try { await readVisibleThingDetails(this.things?.things ?? {}, this.contentsHidden, this.thingReads, this.readThing, this.readThingDrawing,
+      (id, name) => this.thingNames.set(id, name), (id, art) => { addThingTexture(this, `thing-${id}`, art); this.thingViews.get(id)?.sprite.setTexture(`thing-${id}`) },
+      message => this.thingReadIssue(message)) } finally { this.readingThings = false }
   }
   private thingReadIssue(message: string): void {
     if (!this.readIssues.includes(message)) this.readIssues.push(message)
@@ -626,11 +609,12 @@ export class CityScene extends Phaser.Scene {
       }
       const hidden = (resident.placeId !== null && this.contentsHidden.has(resident.placeId))
         || (resident.destinationId !== null && this.contentsHidden.has(resident.destinationId))
-      const sleeperHidden = this.sleepers.has(resident.id) && !this.showSleepers
+      const sleeping = this.sleepers.has(resident.id) && !this.lookingAwake.has(resident.id)
+      const sleeperHidden = sleeping && !this.showSleepers
       const point = projected.get(resident.id)
       const displayed = point ? { ...resident, x: point.x, y: point.y } : resident
       const speech = figure.update(hidden || sleeperHidden ? { ...displayed, visible: false } : displayed, camera.zoom, this.elapsed,
-        resident.id === this.following, this.sleepers.has(resident.id), this.clock?.time ?? Number.NaN, this.replay?.map.places)
+        resident.id === this.following, sleeping, this.clock?.time ?? Number.NaN, this.replay?.map.places)
       if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
     this.agreementLayer.draw(this, this.figures, this.contentsHidden)
@@ -645,40 +629,15 @@ export class CityScene extends Phaser.Scene {
     document.body.dataset['liveFigures'] = listed
   }
   private connectControls(): void {
-    connectViewerInput(this, { browse: () => this.suspendFollowing(), follow: id => this.follow(id),
-      zoom: (factor, anchor) => this.zoom(factor, anchor), trust: event => this.sounds.trust(event) })
-    document.getElementById('pause')?.addEventListener('click', () => {
-      this.paused = !this.paused
-      if (this.paused) this.sounds.stop()
-      syncPlaybackControls(this.paused, this.playbackSpeed)
-      this.updateHud()
-    })
-    document.getElementById('replay-day')?.addEventListener('click', () => this.replayDay())
-    for (const [id, speed] of [['normal', 1], ['fast', 60]] as const) document.getElementById(id)?.addEventListener('click', () => {
-      this.playbackSpeed = speed
-      if (this.clock) this.clock = { ...this.clock, speed }
-      syncPlaybackControls(this.paused, this.playbackSpeed)
-    })
-    document.getElementById('city')?.addEventListener('click', () => this.showWholeCity())
-    document.getElementById('nearby')?.addEventListener('click', () => this.focusResidents())
-    document.getElementById('show-sleepers')?.addEventListener('change', event => {
-      this.showSleepers = (event.target as HTMLInputElement).checked
-      saveShowSleepers(browserStorage(), this.showSleepers)
-      document.body.dataset['liveShowSleepers'] = String(this.showSleepers)
-      if (!this.showSleepers && this.following !== null && this.sleepers.has(this.following)) {
-        this.suspendFollowing()
-      }
-      this.lastFollowChoices = ''
-      this.drawResidents()
-      this.updateHud()
-    })
-    document.getElementById('follow-picker')?.addEventListener('change', event => {
-      const id = Number((event.target as HTMLSelectElement).value)
-      if (Number.isSafeInteger(id)) this.follow(id)
-    })
-    document.getElementById('follow-stop')?.addEventListener('click', () => this.stopFollowing())
-    document.getElementById('minimap-toggle')?.addEventListener('click', () =>
-      this.minimap?.setVisible(document.getElementById('minimap')?.hidden === true))
+    connectViewerControls(this, { browse: () => this.suspendFollowing(), follow: id => this.follow(id),
+      zoom: (factor, anchor) => this.zoom(factor, anchor), trust: event => this.sounds.trust(event),
+      playback: command => this.controlPlayback(command), live: () => void this.goLive(), replay: () => this.replayDay(),
+      city: () => this.showWholeCity(), focus: () => this.focusResidents(), stop: () => this.stopFollowing(),
+      minimap: shown => this.minimap?.setVisible(shown), sleepers: shown => {
+        this.showSleepers = shown
+        if (!shown && this.following !== null && this.sleepers.has(this.following)) this.suspendFollowing()
+        this.lastFollowChoices = ''; this.drawResidents(); this.updateHud()
+      } })
   }
   private zoom(factor: number, anchor?: { x: number; y: number }): void {
     this.suspendFollowing()
@@ -693,7 +652,7 @@ export class CityScene extends Phaser.Scene {
     this.cameraGlide?.stop(); this.cameraGlide = undefined
     this.following = id
     this.followSuspended = false
-    this.followActivityId = resident.lastActivityId ?? null
+    this.followActivityId = this.residentActivity(id)
     this.followAcquired = false
     this.glideTo(figure.sprite, Math.max(0.65, this.cameras.main.zoom))
     document.body.dataset['liveFollowing'] = String(id)
@@ -712,22 +671,24 @@ export class CityScene extends Phaser.Scene {
   private suspendFollowing(): void {
     this.cameraGlide?.stop(); this.cameraGlide = undefined
     this.followSuspended = true
-    this.followActivityId = this.following === null ? null : this.residents?.residents[this.following]?.lastActivityId ?? null
+    this.followActivityId = this.following === null ? null : this.residentActivity(this.following)
     this.followAcquired = false
     document.body.dataset['liveFollowSuspended'] = 'true'
   }
   private isResidentDrawn(resident: Simulation['residents'][number]): boolean {
     const hiddenRoom = (resident.placeId !== null && this.contentsHidden.has(resident.placeId)) ||
       (resident.destinationId !== null && this.contentsHidden.has(resident.destinationId))
-    return resident.visible && !hiddenRoom && (this.showSleepers || !this.sleepers.has(resident.id))
+    return resident.visible && !hiddenRoom && (this.showSleepers || !this.sleepers.has(resident.id) || this.lookingAwake.has(resident.id))
   }
   private updateFollowCamera(): void {
     if (this.following === null) return
     const figure = this.figures.get(this.following)
     const resident = this.residents?.residents[this.following]
     if (!figure || !resident || !this.isResidentDrawn(resident)) return
+    if (this.backward || this.history.rewound) return
+    const activityId = this.residentActivity(resident.id)
     const next = followActivity({ residentId: this.following, suspended: this.followSuspended, activityId: this.followActivityId },
-      resident.id, resident.lastActivityId ?? null)
+      resident.id, activityId)
     if ((this.followSuspended && !next.suspended) || (!this.followSuspended
       && this.followActivityId !== next.activityId && resident.relocatedAt === this.elapsed)) this.glideTo(figure.sprite)
     this.followSuspended = next.suspended; this.followActivityId = next.activityId
@@ -742,24 +703,9 @@ export class CityScene extends Phaser.Scene {
   private focusResidents(): void {
     this.suspendFollowing()
     if (!this.layout || !this.residents) return
-    const candidates: FocusTarget[] = []
-    for (const resident of Object.values(this.residents.residents)) {
-      if (!this.isResidentDrawn(resident) || resident.placeId === null) continue
-      const rank = resident.bubble ? 6 : resident.agreementUntil || resident.transferUntil ? 5
-        : resident.inventionUntil || resident.showingNotice ? 4 : resident.blockedAttempt ? 3 : resident.walking ? 1 : 0
-      if (rank) candidates.push({ key: `resident:${resident.id}`, x: resident.x, y: resident.y, roomId: resident.placeId,
-        rank, startedAt: resident.bubble?.startedAt ?? 0 })
-    }
-    for (const thing of Object.values(this.things?.things ?? {})) {
-      if (thing.visible && thing.effect && !this.contentsHidden.has(thing.placeId)) candidates.push({
-        key: `thing:${thing.id}`, x: thing.x, y: thing.y, roomId: thing.placeId, rank: 5, startedAt: thing.effect.startedAt })
-    }
-    for (const animation of this.placeAnimations) {
-      const room = this.layout.rooms[animation.placeId]
-      if (room && animation.kind === 'founding' && !this.hiddenPlaces.has(room.id)
-        && (room.parentId === null || !this.contentsHidden.has(room.parentId))) candidates.push({
-          key: `place:${room.id}`, x: room.door.x, y: room.door.y, roomId: room.id, rank: 4, startedAt: animation.startedAt })
-    }
+    const candidates = currentFocusTargets(this.residents.residents, this.things?.things ?? {}, this.placeAnimations, this.layout,
+      row => this.isResidentDrawn(row), this.contentsHidden, this.hiddenPlaces,
+      (this.activity?.focusCandidates() ?? []).map(id => ({ id, startedAt: this.activity?.latestActivity(id)?.startedAt ?? 0 })))
     const target = focusTarget(candidates)
     if (!target) return
     this.viewPlaceId = target.roomId
@@ -783,7 +729,61 @@ export class CityScene extends Phaser.Scene {
     this.cameras.main.setZoom(Math.min((this.scale.width - 40) / this.layout.width, (this.scale.height - 210) / this.layout.height))
       .centerOn(this.layout.width / 2, this.layout.height / 2)
   }
+  private presentationState(): PresentationState {
+    return { clock: this.clock!, residents: this.residents!, things: this.things!, handovers: this.handovers!,
+      handoverFrame: this.handoverFrame, inventions: this.inventions, placeAnimations: this.placeAnimations,
+      elapsed: this.elapsed, cursor: this.cursor, mode: this.mode, liveDeliveredMarker: this.liveDeliveredMarker,
+      sleepers: this.sleepers, agreements: this.agreementLayer.snapshot(), activity: this.activity?.snapshot() }
+  }
+  private residentActivity(id: number): string | null {
+    const recent = this.activity?.latestActivity(id)
+    return recent?.key.startsWith('looking:') ? recent.key : this.residents?.residents[id]?.lastActivityId ?? null
+  }
+  private restorePresentation(frame: PresentationState): void {
+    this.clock = { ...frame.clock, speed: this.playbackSpeed }; this.residents = frame.residents; this.things = frame.things
+    this.handovers = frame.handovers; this.handoverFrame = frame.handoverFrame; this.inventions = frame.inventions
+    this.placeAnimations = frame.placeAnimations; this.elapsed = frame.elapsed; this.cursor = frame.cursor; this.mode = frame.mode
+    this.liveDeliveredMarker = frame.liveDeliveredMarker; this.sleepers = frame.sleepers
+    this.agreementLayer.restore(frame.agreements)
+    if (frame.activity) this.activity?.restore(frame.activity)
+    document.body.dataset['liveMode'] = 'replay'
+  }
+  private controlPlayback(command: PlaybackCommand): void {
+    if (!this.residents || !this.layout || !this.clock || this.jumpingLive) return
+    if (command === 'rewind') {
+      if (!this.history.rewound) this.history.record(this.presentationState(), true)
+      if (!this.history.canRewind) return
+      this.sounds.stop(); this.suspendFollowing()
+      this.reviewingLive = this.mode === 'live'
+    } else if (command !== 'pause' && this.history.rewound) {
+      this.history.resume(); this.activity?.resume(Date.now()); this.suspendFollowing()
+      if (this.mode === 'live') this.liveQueue = this.liveHistory.filter(row => Number(row.change_id) > this.liveDeliveredMarker)
+    }
+    const next = playbackCommand({ paused: this.paused, speed: this.playbackSpeed, direction: this.backward ? 'backward' : 'forward' }, command)
+    this.paused = next.paused; this.playbackSpeed = next.speed; this.backward = next.direction === 'backward'
+    this.clock = { ...this.clock, speed: this.playbackSpeed }
+    if (command === 'normal' || command === 'fast') this.residents = retimeResidentWalks(this.residents, this.playbackSpeed, this.layout)
+    if (this.paused) this.sounds.stop()
+    document.body.dataset['liveMode'] = this.backward || this.history.rewound ? 'replay' : this.mode
+    this.updateHud()
+  }
+  private async goLive(): Promise<void> {
+    if (this.jumpingLive) return
+    this.jumpingLive = true; this.sounds.stop()
+    try {
+      const reads = await Promise.allSettled([fetchReplay(), fetchCensus()])
+      if (reads[0].status === 'rejected') throw reads[0].reason
+      if (reads[1].status === 'rejected') throw reads[1].reason
+      this.mode = 'live'; this.backward = false; this.paused = false; this.reviewingLive = false
+      await this.loadCity(reads)
+      document.body.dataset['liveMode'] = 'live'
+    } catch (error) { console.error(error); this.liveReadError = true }
+    finally { this.jumpingLive = false; this.updateHud() }
+  }
   private updateHud(): void {
+    const mode = this.history.rewound || this.reviewingLive || this.backward ? 'replay' : this.mode
+    syncPlaybackControls(this.paused, this.playbackSpeed, this.backward, mode, this.history.canRewind)
+    document.body.dataset['liveMode'] = mode
     const time = document.getElementById('clock')
     if (time && this.clock) {
       time.textContent = `${new Date(this.clock.time).toISOString().slice(11, 19)} UTC`

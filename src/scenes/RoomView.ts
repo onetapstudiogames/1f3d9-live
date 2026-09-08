@@ -107,19 +107,30 @@ export class RoomView {
   }
 
   setPlan(plan: PlacePlan): void { this.plan = plan }
+  destroy(): void {
+    this.tint.destroy()
+    for (const plate of this.plates.values()) plate.group.destroy()
+    for (const surface of this.surfaces.values()) {
+      surface.paint.destroy(); surface.windows.destroy(); surface.building?.destroy()
+      for (const art of surface.art) art.destroy()
+    }
+    this.plates.clear(); this.surfaces.clear()
+  }
 
   addDrawing(scene: Phaser.Scene, id: number, drawing: Drawing): void {
     const plate = this.plates.get(id)
     const surface = this.surfaces.get(id)
     const key = `place-${id}`
-    if (!plate || !surface || plate.room.quiet || scene.textures.exists(key)) return
+    if (!plate || !surface || plate.room.quiet || surface.art.length) return
     const floor = placeFloorArt(plate.room)
+    if (!scene.textures.exists(key)) {
     const paint = scene.make.graphics({ x: 0, y: 0 })
     for (const cell of drawingCells(drawing)) {
       paint.fillStyle(cell.color).fillRect(cell.x * floor.cellSize, cell.y * floor.cellSize, floor.cellSize, floor.cellSize)
     }
     paint.generateTexture(key, floor.tileSize, floor.tileSize)
     paint.destroy()
+    }
     const depth = plate.room.depth / 1000
     surface.art = roomFloorRects(plate.room, 4).map(rect => new TiledFloor(scene, key, rect,
       { x: plate.room.x, y: plate.room.y }, depth + 0.0001, floor.shadeAlpha))

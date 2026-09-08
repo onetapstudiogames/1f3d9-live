@@ -5,7 +5,8 @@ import { sleepingDrawingCells } from '../sleep.ts'
 import { residentNamePlate } from '../city/residents.ts'
 import type { ResidentState } from '../replay/simulation.ts'
 import { isNewResident, sparkleAlpha } from '../newcomers.ts'
-import { bubbleRects, bubbleShape, typedBubbleFrame } from '../speech.ts'
+import { bubbleFitScale, bubbleRects, bubbleShape, typedBubbleFrame } from '../speech.ts'
+import { residentBobOffset } from '../resident-bob.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
 import { lockCells } from '../laws.ts'
 import { reappearanceAlpha } from '../viewer.ts'
@@ -66,7 +67,7 @@ export class ResidentView {
     const texture = sleeping && this.sprite.scene.textures.exists(`${this.standingTexture}-asleep`)
       ? `${this.standingTexture}-asleep` : this.standingTexture
     if (this.sprite.texture.key !== texture) this.sprite.setTexture(texture)
-    const bob = resident.walking ? Math.sin(now / 90) * 2 : 0
+    const bob = residentBobOffset(resident.id, now, resident.walking || resident.ambientWalking === true, sleeping)
     this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
     const appearance = reappearanceAlpha(resident.relocatedAt, now)
     for (const item of [this.sprite, this.name, this.bubble, this.bubbleBackground, this.newTag, this.zzz]) item.setAlpha(appearance)
@@ -112,7 +113,8 @@ export class ResidentView {
       this.bubble.style.syncFont(this.bubble.canvas, this.bubble.context)
       const frame = typedBubbleFrame(bubble, now, 210, 4, text => this.bubble.context.measureText(text).width)
       const shape = bubbleShape(bubble.placeId, places)
-      const scale = Math.min(4, Math.max(1, 0.8 / zoom)); const x = resident.x; const y = resident.y - 25
+      const fit = bubbleFitScale(frame.text.split('\n'), 210, text => this.bubble.context.measureText(text).width)
+      const scale = Math.min(4, Math.max(1, 0.8 / zoom)) * fit; const x = resident.x; const y = resident.y - 25
       const height = 82
       this.bubble.setText(frame.text).setScale(scale).setPosition(x, y)
       this.bubbleBackground.clear()

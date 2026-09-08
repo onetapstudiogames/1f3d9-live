@@ -110,10 +110,18 @@ Watching
     staggered shelves and wider continent spacing are presentation, with matching walking rules.
 17. Owner's viewer revision: compact symbol controls, hide/show UI, mobile pinch zoom, clear
     thing labels, and a scrollable Recent activity log with All/Chats filters and actual pixel
-    portraits for explicitly linked residents, rooms and things. Normal advances the clock at
-    1×; fast-forward uses 60× with readable event holds. History gaps reappear at the next
+    portraits for explicitly linked residents, rooms and things. Normal walks steadily at
+    40 world pixels per second; the 1× clock waits for actions to finish. Fast-forward uses
+    60× with readable event holds. History gaps reappear at the next
     recorded room without an invented connecting route. The status block and speech footer
     are removed. Art is current; log names and locations come from the record at that moment.
+    The page starts paused at now. Live reads now again; Replay starts the available saved day.
+    Rewind goes backward at 30× through the presentation witnessed in this open view, restoring
+    walks, things, effects and the log together. Forward resumes at the chosen pace without a jump.
+    Words wrap whole; awake figures bob and occasionally wander safely within their room.
+    Supported public action families have portrait log entries and short pixel cues, with richer
+    effects retained when their exact evidence exists. Temporary looking adds a glance and one
+    "is looking around" entry per newly seen burst. It names no target and is absent from saved days.
 
 ## What the city may need to add (small server changes, one at a time)
 

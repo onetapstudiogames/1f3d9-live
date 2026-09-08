@@ -15,6 +15,7 @@ header { position: fixed; inset: 10px 48px auto 10px; display: flex; justify-con
 button, select { border: 1px solid #7b9173; background: #243e32; color: #f3ecd9; border-radius: 3px; font: inherit; height: 30px; padding: 0 8px; cursor: pointer; }
 button { display: inline-flex; justify-content: center; align-items: center; min-width: 30px; line-height: 1; }
 button:hover, select:hover, .icon-check:hover { background: #385641; }
+button:disabled { opacity: 0.4; cursor: default; }
 button[aria-pressed=true], .icon-check:has(input:checked) { color: #152b22; background: #e2c977; }
 button:focus-visible, select:focus-visible, .icon-check:focus-within { outline: 2px solid #e2c977; outline-offset: 2px; }
 [hidden] { display: none !important; }
@@ -44,9 +45,9 @@ body[data-ui-hidden=true] #viewer-ui, body[data-ui-hidden=true] #activity-panel 
   .identity strong { font-size: 16px; }
   #view { display: inline; margin-left: 7px; }
   .controls-panel { width: max-content; max-width: 100%; padding: 4px; }
-  .controls { justify-content: flex-start; gap: 3px; }
+  .controls { justify-content: flex-start; gap: 3px; flex-wrap: wrap; }
   button, select, .icon-check { height: 32px; }
-  button { padding: 0 7px; }
+  button { min-width: 28px; padding: 0 5px; font-size: 12px; }
   #follow-picker { width: 164px; }
   #ui-toggle { top: 8px; right: 8px; }
   #minimap { right: auto; left: 0; }

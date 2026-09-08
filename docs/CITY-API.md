@@ -214,10 +214,9 @@ through the uninterrupted same-owner chain described by the door. Names are
 current public facts; they do not reconstruct past law changes. The existing
 nearby-room outline read can carry them without a second request. An explicit
 empty array means no laws listed; a missing or malformed list is unknown.
-The screen calls these names "Laws last read" and shows them only in live mode.
-A later `laws_changed` notice adds a reload message because cached answers cannot
-establish the newer laws. That warning survives replay; the page does not silently
-promote an old cached answer to fresh law data.
+The owner removed the status panel and its law list. A `laws_changed` notice now
+gets a short pixel cue and log entry when its public room can be established.
+Cached law names do not establish newer or historical laws.
 
 There is no public damage switch. The door, `/api/physics`, and both pages of
 the current trait catalog expose no `damage` field or effect. `destroy` is a
@@ -483,13 +482,44 @@ changes presentation only: incomplete history, unknown names, failed reads, and 
 meetings are still not filled in. Missing routes briefly reappear at the next recorded room.
 
 The Recent activity log reads the same due replay/live rows. It retains the latest 100
-supported rows (notes, applied moves and named thing creations), with All and Chats filters.
+supported rows, with All and Chats filters. Public actions, resident/place/thing changes,
+inventions, notes, Gazette, agreements, property notices, effects, and moderation use the
+city's public event vocabulary. Invalid or unlinked facts do not become invented effects.
 Quiet rooms and their descendants are excluded. It uses explicit actor/place/thing IDs;
 mentions inside prose do not imply a linked person or object. Names and locations stay tied
 to the recorded moment, including name history; current art comes from the existing anonymous
 drawing readers. Things use a detail read solely to learn whether a drawing exists. Missing
 art gets a pixel type icon. Four portrait jobs run at once and cached reads are shared with
-the scene. Pause freezes new rows; replay resets the log and reveals rows only when due.
+the scene. Pause freezes new rows; replay resets the log and reveals rows when their actor's
+visual queue starts. Stable keys prevent duplicates even when actors start out of numeric order.
+Existing walks, speech, creation/use/withdrawal effects, gifts and handshakes suppress duplicate
+generic marks. Other supported visible activity receives a brief distinct pixel motif.
+
+### Temporary looking presence and playback
+
+The active Documents city-life source adds optional resident `looking` with `place_id`,
+`started_at`, and `expires_at`. Its public door is deployed; an absent signal is normal.
+Successful identified MCP look may publish one 60-second burst, extended by repeat looks.
+It supplies no requested target, text, or reading duration, and is absent from persistent
+events, change markers and city snapshots. Anonymous GETs never create it. The viewer
+refreshes census presence every 30 seconds even when the change marker is unchanged.
+Only a newly witnessed valid burst in that resident's displayed physical room gets a brief
+eye and one attributed log entry. Opening, pause, room mismatch, quiet rooms, replay and
+reconnection seed without backfilling old looks. Expiry uses wall time between reads.
+
+The page opens at now, paused. Live obtains a fresh replay and census and settles current
+state without playing old arrivals. Replay begins at `window_start`: when the public
+record is partial this is the earliest available part of the day, not an invented midnight.
+Normal uses linear 40-world-pixel-per-second walks; it holds the recorded clock while
+actions complete. Fast-forward retains 60× timing and readable near-door holds. Changing
+pace preserves position. Quiet idle bobbing and short in-room wandering are presentation only.
+
+Rewind records the displayed simulation and log in memory every 250 milliseconds, with
+10-second checkpoints and structural changes between them. It moves backward at 30× through
+what this open view witnessed. Pause holds that point; forward restores its queues and
+positions, discards the later presentation, and continues at the selected pace. Live and
+Replay reset this local tape. Nothing is persisted or written to the city, and unwitnessed
+temporary looking is not added to saved city history.
 
 The world root's portrait uses the same 32-world-pixel tiles and fixed 42% shade as other
 floors. Large floors render only the viewport's pixels, with the pattern anchored to the

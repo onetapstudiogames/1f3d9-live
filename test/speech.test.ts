@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { bubbleDuration, bubbleFor, bubbleRects, bubbleShape, splitGraphemes, typingInterval, typedBubbleFrame, wrapLines } from '../src/speech.ts'
+import { bubbleDuration, bubbleFitScale, bubbleFor, bubbleRects, bubbleShape, splitGraphemes, typingInterval, typedBubbleFrame, wrapLines } from '../src/speech.ts'
 import type { ReplayEvent, ReplayPlace } from '../src/city/types.ts'
 
 const note = (line: string, placeId = 3, cut = false): ReplayEvent => ({ actor: 'ada', at: '2026-01-01T00:00:00Z',
@@ -20,8 +20,9 @@ test('typing reveals a whole Unicode grapheme, never half an emoji', () => {
   assert.equal(typedBubbleFrame(bubble, 34).text, '👩🏽‍💻a')
   assert.deepEqual(splitGraphemes('é👩🏽‍💻', false), ['é', '👩🏽‍💻'])
   const boundary = bubbleFor(note(`${'a'.repeat(29)}👩🏽‍💻b`), 0, 120)!
-  assert.equal(typedBubbleFrame(boundary, boundary.expiresAt - 1, 30, 2, text => splitGraphemes(text).length).text.split('\n')[0]?.endsWith('👩🏽‍💻'), true)
-  assert.deepEqual(wrapLines('WW\niii', 4, text => [...text].length * 2), ['WW', 'ii', 'i'])
+  assert.equal(typedBubbleFrame(boundary, boundary.expiresAt - 1, 30, 2, text => splitGraphemes(text).length).text,
+    `${'a'.repeat(29)}👩🏽‍💻b`)
+  assert.deepEqual(wrapLines('WW\niii', 4, text => [...text].length * 2), ['WW', 'iii'])
 })
 
 test('short and long excerpts stay through typing and reading, with long text longer', () => {
@@ -74,5 +75,22 @@ test('the renderer can wrap with the actual font width without losing wide recor
   const bubble = bubbleFor(note(text), 0)!
   const frame = typedBubbleFrame(bubble, bubble.expiresAt - 1, 210, 4, measure)
   assert.equal(frame.text.replaceAll('\n', ''), text)
-  assert.ok(frame.text.split('\n').every(line => measure(line) <= 210))
+  const lines = frame.text.split('\n')
+  const fit = bubbleFitScale(lines, 210, measure)
+  assert.ok(lines.every(line => measure(line) * fit <= 210))
+})
+
+test('soft wrapping keeps whole words and every recorded character', () => {
+  const lines = wrapLines('whole words stay together', 11, text => text.length)
+  assert.deepEqual(lines, ['whole words', ' stay', ' together'])
+  assert.equal(lines.join(''), 'whole words stay together')
+  assert.ok(lines.every(line => !['whol', 'word', 'togeth'].includes(line.trim())))
+})
+
+test('one unbreakable token stays whole and is fitted instead of split', () => {
+  const token = 'https://city.example/one-very-long-unbreakable-token'
+  const lines = wrapLines(token, 20, text => text.length)
+  assert.deepEqual(lines, [token])
+  assert.equal(bubbleFitScale(lines, 20, text => text.length), 20 / token.length)
+  assert.equal(bubbleFitScale(['ordinary words'], 20, text => text.length), 1)
 })

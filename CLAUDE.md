@@ -37,11 +37,19 @@ samples under `test/fixtures/`) before any work.
    disclaimers entirely. Read failures remain in internal diagnostics, with no replacement panel.
 
 Owner revision of 2026-09-07: one compact set of controls, an always-visible resident picker,
-normal (1×) and fast-forward (60×), and a manual Focus button. Manual navigation retains the
+normal steady walking and fast-forward (60×), and a manual Focus button. Manual navigation retains the
 selected resident and preferences; tracking waits for that resident's next recorded action.
 No Director mode and no sea or boats. The world root uses its own tiled portrait and ordinary
 recorded walking. Rooms may vary in shape, with matching floors, walls, doors and routes.
 The bottom activity log uses recorded words and explicitly linked pixel portraits.
+The view opens at now, paused. Pause is always ⏸; ▶ and ⏩ start forward playback.
+Live re-reads the current city; Replay starts at the beginning of the available saved day.
+Rewind plays the witnessed presentation backward at 30×, including the log. Its in-memory
+history resets on Live/Replay; resuming forward restores that moment and discards its later
+presentation. Normal walks stay at 40 world pixels per second, and recorded time waits for
+their related actions. Ambient bobbing and small room walks create no events or Follow trigger.
+Temporary looking presence is read anonymously, shown once per new witnessed burst, and never
+invented in the city's saved replay. No looked-at object is identified by that signal.
 
 ## Stack and layout
 

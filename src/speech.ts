@@ -74,13 +74,23 @@ export function wrapLines(text: string, maxWidth: number, measure: (text: string
   for (const paragraph of text.split('\n')) {
     if (!paragraph) { lines.push(''); continue }
     let line = ''
-    for (const character of splitGraphemes(paragraph)) {
-      if (line && measure(line + character) > maxWidth) { lines.push(line); line = character }
-      else line += character
+    const chunks = paragraph.match(/^\S+|[^\S\n]+\S+|[^\S\n]+$/gu) ?? []
+    for (const chunk of chunks) {
+      if (line && measure(line + chunk) > maxWidth && chunk.trim().length > 0) {
+        lines.push(line)
+        line = chunk
+      } else {
+        line += chunk
+      }
     }
     if (line) lines.push(line)
   }
   return lines
+}
+
+export function bubbleFitScale(lines: readonly string[], maxWidth: number, measure: (text: string) => number): number {
+  const widest = Math.max(0, ...lines.map(measure))
+  return widest > maxWidth ? maxWidth / widest : 1
 }
 
 function readableTextWidth(text: string): number {

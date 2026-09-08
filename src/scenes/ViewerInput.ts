@@ -1,10 +1,35 @@
 import type Phaser from 'phaser'
 import type { Point } from '../ground/nested.ts'
+import { saveShowSleepers } from '../preferences.ts'
+import { browserStorage } from './fixture-state.ts'
+import type { PlaybackCommand } from '../playback.ts'
 
 type Actions = Readonly<{
   browse: () => void; follow: (id: number) => void; zoom: (factor: number, anchor?: Point) => void
   trust: (event: Event) => void
 }>
+
+export function connectViewerControls(scene: Phaser.Scene, actions: Actions & Readonly<{
+  playback: (command: PlaybackCommand) => void; live: () => void; replay: () => void; city: () => void
+  focus: () => void; sleepers: (shown: boolean) => void; stop: () => void; minimap: (shown: boolean) => void
+}>): void {
+  connectViewerInput(scene, actions)
+  const clicks: Readonly<Record<string, () => void>> = {
+    pause: () => actions.playback('pause'), normal: () => actions.playback('normal'), fast: () => actions.playback('fast'),
+    rewind: () => actions.playback('rewind'), 'live-now': actions.live, 'replay-day': actions.replay,
+    city: actions.city, nearby: actions.focus, 'follow-stop': actions.stop,
+    'minimap-toggle': () => actions.minimap(document.getElementById('minimap')?.hidden === true),
+  }
+  for (const [id, action] of Object.entries(clicks)) document.getElementById(id)?.addEventListener('click', action)
+  document.getElementById('show-sleepers')?.addEventListener('change', event => {
+    const shown = (event.target as HTMLInputElement).checked
+    saveShowSleepers(browserStorage(), shown); document.body.dataset['liveShowSleepers'] = String(shown); actions.sleepers(shown)
+  })
+  document.getElementById('follow-picker')?.addEventListener('change', event => {
+    const value = (event.target as HTMLSelectElement).value; const id = Number(value)
+    if (value && Number.isSafeInteger(id)) actions.follow(id)
+  })
+}
 
 export function connectViewerInput(scene: Phaser.Scene, actions: Actions): void {
   scene.input.addPointer(1)
@@ -56,10 +81,16 @@ export function connectUiVisibility(): () => void {
   return () => button?.removeEventListener('click', toggle)
 }
 
-export function syncPlaybackControls(paused: boolean, speed: number): void {
+export function syncPlaybackControls(paused: boolean, speed: number, backward = false, mode: 'live' | 'replay' = 'live', canRewind = false): void {
   const pause = document.getElementById('pause')
-  if (pause) { pause.textContent = paused ? '▶' : '⏸'; pause.setAttribute('aria-label', paused ? 'Play' : 'Pause'); pause.title = paused ? 'Play' : 'Pause' }
-  document.getElementById('normal')?.setAttribute('aria-pressed', String(speed === 1))
-  document.getElementById('fast')?.setAttribute('aria-pressed', String(speed === 60))
+  if (pause) { pause.textContent = '⏸'; pause.setAttribute('aria-pressed', String(paused)) }
+  document.getElementById('normal')?.setAttribute('aria-pressed', String(!paused && !backward && speed === 1))
+  document.getElementById('fast')?.setAttribute('aria-pressed', String(!paused && !backward && speed === 60))
+  const rewind = document.querySelector<HTMLButtonElement>('#rewind')
+  if (rewind) { rewind.disabled = !canRewind; rewind.setAttribute('aria-pressed', String(!paused && backward)) }
+  document.getElementById('live-now')?.setAttribute('aria-pressed', String(mode === 'live' && !backward))
+  document.getElementById('replay-day')?.setAttribute('aria-pressed', String(mode === 'replay' || backward))
   document.body.dataset['liveSpeed'] = String(speed)
+  document.body.dataset['livePaused'] = String(paused)
+  document.body.dataset['liveDirection'] = backward ? 'backward' : 'forward'
 }

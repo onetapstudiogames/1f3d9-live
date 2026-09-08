@@ -68,6 +68,7 @@ export type Resident = Readonly<{
   has_drawing: boolean
   current_place_id: number | null
   asleep: boolean
+  looking?: Readonly<{ place_id: number; started_at: string; expires_at: string }> | null
 }>
 
 export type CensusPage = Readonly<{

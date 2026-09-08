@@ -27,6 +27,7 @@ test('formats recorded chats, moves, and made things with only linked entities',
       { type: 'resident', id: 7, name: 'vigil', hasDrawing: true },
       { type: 'place', id: 2, name: 'the old square', hasDrawing: false },
     ],
+    cue: 'note', roomId: 2, anchorRoomId: 2, actorResidentId: 7,
   })
   assert.equal(activityEntry(row(2, 'action', { action: 'move', status: 'applied', from_place_id: 1, to_place_id: 2 }), context)?.text,
     'vigil moved from the world to the new square.')
@@ -74,4 +75,78 @@ test('the Chats filter keeps the bounded conversation rows without changing hist
   ], 3_000, context)
   assert.deepEqual(activityVisible(state.entries, 'chats').map(entry => entry.kind), ['chat'])
   assert.equal(activityVisible(state.entries, 'all').length, 2)
+})
+
+test('describes every public event family with a pure cue and only proven anchors', () => {
+  const cases: Array<[string, ReplayEvent['detail'], string]> = [
+    ['register', {}, 'arrival'], ['rotate', {}, 'change'], ['resident_edited', { resident_id: 7 }, 'change'],
+    ['home_set', { place_id: 2 }, 'home'], ['place_created', { place_id: 2, name: 'square' }, 'make'],
+    ['kind_invented', { kind_id: 4, name: 'bell' }, 'make'], ['trait_coined', { trait_id: 5, name: 'bright' }, 'make'],
+    ['thing_crafted', { thing_id: 22, place_id: 2, name: 'bell' }, 'make'],
+    ['effect_scheduled', { effect_id: 3, place_id: 2 }, 'wait'], ['agreement_sign', { agreement_id: 4 }, 'agreement'],
+    ['world_sale', { asset_type: 'place', asset_id: 2 }, 'trade'], ['flag', { target_type: 'place', target_id: 2 }, 'rules'],
+  ]
+  for (const [kind, detail, cue] of cases) assert.equal(activityEntry(row(10, kind, detail), context)?.cue, cue, kind)
+  const global = activityEntry(row(11, 'rotate', {}), context)!
+  assert.equal(global.anchorRoomId, null)
+  assert.deepEqual(global.entities.map(entity => entity.type), ['resident'])
+})
+
+test('uses optional historical actor, resident, thing, and effect resolvers without inventing event location', () => {
+  const richer: ActivityContext = {
+    ...context,
+    actorRoom: (_actor, time) => time === 1_000 ? 2 : null,
+    residentById: id => id === 8 ? { type: 'resident', id, name: 'moss', hasDrawing: true } : null,
+    thing: id => id === 22 ? { entity: { type: 'thing', id, name: 'bell', hasDrawing: true }, placeId: 2 } : null,
+    effect: id => id === 3 ? { placeId: 2, thingId: 22 } : null,
+  }
+  const failed = activityEntry(row(1, 'action', { action: 'use', status: 'failed', source_thing_id: 22, error: 'too far' }), richer)!
+  assert.equal(failed.cue, 'failed'); assert.equal(failed.roomId, null); assert.equal(failed.anchorRoomId, 2)
+  assert.match(failed.text, /tried to use bell; failed: too far/)
+  const gift = activityEntry(row(2, 'transfer', { mode: 'gift', thing_id: 22, resident_id: 8, place_id: 2 }), richer)!
+  assert.deepEqual(gift.entities.map(entity => entity.name), ['vigil', 'the new square', 'bell', 'moss'])
+  assert.equal(activityEntry(row(3, 'effect_resolved', { effect_id: 3, status: 'applied' }), richer)?.roomId, 2)
+})
+
+test('deduplicates stable event keys without dropping a later lower change id', () => {
+  const first = activityReduce(emptyActivity(), [{ ...row(10, 'rotate', {}) }], 20_000, context)
+  const second = activityReduce(first, [{ ...row(5, 'register', {}) }, { ...row(10, 'rotate', {}) }], 20_000, context)
+  assert.deepEqual(second.entries.map(entry => entry.changeId), [10, 5])
+})
+
+test('explicit quiet and unknown rooms suppress their event and thing facts before actor anchoring', () => {
+  const anchored: ActivityContext = { ...context, actorRoom: () => 2,
+    thing: id => ({ entity: { type: 'thing', id, name: 'private keepsake', hasDrawing: true }, placeId: 3 }) }
+  assert.equal(activityEntry(row(20, 'thing_edited', { thing_id: 22, place_id: 3 }), anchored), null)
+  assert.equal(activityEntry(row(21, 'thing_edited', { thing_id: 22, place_id: 99 }), anchored), null)
+  assert.equal(activityEntry(row(22, 'thing_edited', { thing_id: 22 }), anchored), null)
+  assert.equal(activityEntry(row(23, 'rotate', {}), { ...context, actorRoom: () => 3 })?.anchorRoomId, null)
+})
+
+test('rejects malformed typed rows, error-bearing moves, and richer paired duplicates', () => {
+  assert.equal(activityEntry(row(30, 'kind_invented', { name: 'missing id' }), context), null)
+  assert.equal(activityEntry(row(31, 'agreement_sign', {}), context), null)
+  assert.equal(activityEntry(row(32, 'effect_scheduled', { place_id: 2 }), context), null)
+  assert.equal(activityEntry(row(33, 'action', { action: 'move', status: 'applied', from_place_id: 1, to_place_id: 2, error: 'no' }), context), null)
+  const talk = row(34, 'action', { action_id: 8, action: 'talk', status: 'applied', place_id: 2 })
+  const note = row(35, 'note', { action_id: 8, note_id: 3, place_id: 2 })
+  assert.equal(activityEntry(talk, context, [talk, note]), null)
+  const moved = row(36, 'thing_moved', { action_id: 9, thing_id: 22, mode: 'carry', place_id: 2 })
+  const walk = row(37, 'action', { action_id: 9, action: 'move', status: 'applied', from_place_id: 1, to_place_id: 2 })
+  assert.equal(activityEntry(moved, context, [moved, walk]), null)
+})
+
+test('accepts every kind in the published public vocabulary with valid public identifiers', () => {
+  const kinds = ['register', 'rotate', 'resident_edited', 'home_set', 'place_created', 'place_edited', 'place_renamed', 'place_retired', 'place_restored',
+    'kind_invented', 'kind_revised', 'trait_coined', 'thing_created', 'thing_crafted', 'thing_edited', 'thing_moved', 'thing_upgraded', 'thing_withdrawn',
+    'laws_changed', 'action', 'effect_scheduled', 'effect_resolved', 'note', 'gazette_printed', 'agreement', 'agreement_accession', 'agreement_sign',
+    'transfer', 'transfer_offer', 'sale', 'transfer_cancel', 'world_listed', 'world_sale', 'world_cancel', 'payment_repair', 'flag', 'moderation']
+  const details: ReplayEvent['detail'] = { resident_id: 8, place_id: 2, parent_id: 1, thing_id: 22, kind_id: 3, trait_id: 4, agreement_id: 5,
+    note_id: 6, offer_id: 7, effect_id: 8, issue_number: 9, target_id: 10, target_type: 'place', action: 'use', status: 'applied', name: 'bell' }
+  const events = kinds.map((kind, index) => ({ ...row(index + 100, kind, details), ...(kind === 'note' ? { line: 'hello' } : {}) }))
+  assert.equal(events.flatMap(event => activityEntry(event, context) ?? []).length, 37)
+  assert.equal(kinds.length, 37)
+  const gazette = activityEntry({ ...events[23]!, actor: 'the Gazette printer' }, context)!
+  assert.equal(gazette.actorResidentId, null)
+  assert.deepEqual(gazette.entities.map(entity => entity.type), ['place'])
 })

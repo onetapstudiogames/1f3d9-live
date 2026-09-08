@@ -41,11 +41,16 @@ test('renders recorded words as text, filters chats, preserves reading position,
     toggle.setAttribute('aria-expanded', 'true'); list.scrollTop = 5
     const portraits = { load: async () => [] } as unknown as PixelPortrait
     const log = new ActivityLog({ panel, toggle, filter, list } as unknown as ActivityElements, context, portraits)
-    log.append([note], 2_000)
+    const added = log.append([note], 2_000)
+    assert.deepEqual(added.map(entry => entry.key), ['1'])
     assert.equal(list.scrollTop, 5)
     assert.equal(list.children[0]!.children[2]!.textContent, 'author in room: <b>recorded</b>')
     filter.value = 'chats'; filter.dispatch('change'); assert.equal(list.children.length, 1)
     toggle.dispatch('click'); assert.equal(list.hidden, true); assert.equal(toggle.getAttribute('aria-expanded'), 'false')
+    const snapshot = log.snapshot()
+    assert.deepEqual(log.appendEntries([{ ...added[0]!, key: 'looking:1:1000', cue: 'looking' }]).map(entry => entry.key), ['looking:1:1000'])
+    assert.equal(log.appendEntries([{ ...added[0]!, key: 'looking:1:1000', cue: 'looking' }]).length, 0)
+    log.restore(snapshot); assert.deepEqual(log.snapshot().entries.map(entry => entry.key), ['1'])
     log.destroy(); assert.equal(list.children.length, 0)
     toggle.dispatch('click'); assert.equal(toggle.getAttribute('aria-expanded'), 'false')
   } finally {

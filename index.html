@@ -15,10 +15,12 @@
     </div>
     <div class="panel controls-panel">
       <div class="controls playback">
-        <button id="pause" type="button" aria-label="Pause" title="Pause">⏸</button>
-        <button id="normal" type="button" aria-label="Normal speed" title="Normal speed" aria-pressed="true">▶</button>
+        <button id="rewind" type="button" aria-label="Rewind" title="Rewind · 30×" aria-pressed="false" disabled><svg width="18" height="16" viewBox="0 0 18 16" aria-hidden="true"><path fill="currentColor" d="M17 2v12l-8-6zm-8 0v12L1 8z"/></svg></button>
+        <button id="pause" type="button" aria-label="Pause" title="Pause" aria-pressed="true">⏸</button>
+        <button id="normal" type="button" aria-label="Normal speed" title="Normal speed" aria-pressed="false">▶</button>
         <button id="fast" type="button" aria-label="Fast forward" title="Fast forward · 60×" aria-pressed="false"><svg width="18" height="16" viewBox="0 0 18 16" aria-hidden="true"><path fill="currentColor" d="M1 2v12l8-6zm8 0v12l8-6z"/></svg></button>
-        <button id="replay-day" type="button" aria-label="Replay the day" title="Replay the day">↶</button>
+        <button id="live-now" type="button" aria-label="Live" title="Go to now" aria-pressed="true">Live</button>
+        <button id="replay-day" type="button" aria-label="Replay the day" title="Replay from the start" aria-pressed="false">Replay</button>
         <button id="nearby" type="button" title="Focus on current activity">Focus</button>
         <button id="city" type="button" aria-label="Whole city" title="Whole city">⌂</button>
       </div>

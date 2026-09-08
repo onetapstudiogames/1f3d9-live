@@ -72,6 +72,30 @@ test('fetchCensus advances named fixture pages without live calls', async (t) =>
   assert.deepEqual(urls, ['/fixtures/residents-presence-page1.json', '/fixtures/residents-presence-page2.json'])
 })
 
+test('fetchCensus uses the saved census when replay has no census override', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    return Response.json({ residents: [], returned_items: 0, has_more: false, next_before_id: null })
+  }
+  t.after(() => { globalThis.fetch = original })
+  await fetchCensus('?replay=/fixtures/replay-24h.json')
+  assert.deepEqual(urls, ['/fixtures/residents-presence-page1.json'])
+})
+
+test('fetchCensus preserves optional looking presence for the live viewer', async (t) => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => Response.json({ residents: [{
+    ...resident(1),
+    looking: { place_id: 1, started_at: '2026-09-07T12:00:00Z', expires_at: '2026-09-07T12:01:00Z' },
+  }], returned_items: 1, has_more: false, next_before_id: null })
+  t.after(() => { globalThis.fetch = original })
+  assert.deepEqual((await fetchCensus(''))[0]?.looking, {
+    place_id: 1, started_at: '2026-09-07T12:00:00Z', expires_at: '2026-09-07T12:01:00Z',
+  })
+})
+
 test('fetchCensus rejects dishonest pagination shapes', async (t) => {
   const original = globalThis.fetch
   globalThis.fetch = async () => Response.json({ residents: [], has_more: true })

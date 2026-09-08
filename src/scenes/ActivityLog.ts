@@ -1,5 +1,5 @@
 import type { ReplayEvent } from '../city/types.ts'
-import { activityReduce, activityVisible, emptyActivity, type ActivityContext, type ActivityFilter,
+import { activityReduce, activityVisible, emptyActivity, type ActivityContext, type ActivityEntry, type ActivityFilter,
   type ActivityState } from '../activity.ts'
 import { PixelPortrait } from './PixelPortrait.ts'
 
@@ -42,11 +42,27 @@ export class ActivityLog {
     elements.filter.addEventListener('change', this.filtered)
   }
 
-  append(rows: readonly ReplayEvent[], recordedNow: number): void {
+  append(rows: readonly ReplayEvent[], recordedNow: number): readonly ActivityEntry[] {
     const next = activityReduce(this.state, rows, recordedNow, this.context)
-    if (next === this.state) return
+    if (next === this.state) return Object.freeze([])
+    const previousKeys = new Set(this.state.entries.map(entry => entry.key))
     this.state = next; this.render()
+    return Object.freeze(next.entries.filter(entry => !previousKeys.has(entry.key)))
   }
+
+  appendEntries(entries: readonly ActivityEntry[]): readonly ActivityEntry[] {
+    const keys = new Set(this.state.entries.map(entry => entry.key))
+    const added = entries.filter(entry => { if (keys.has(entry.key)) return false; keys.add(entry.key); return true })
+    if (!added.length) return Object.freeze([])
+    const nextEntries = Object.freeze([...this.state.entries, ...added].slice(-100))
+    const seenKeys = Object.freeze([...new Set([...(this.state.seenKeys ?? []), ...added.map(entry => entry.key)])].slice(-1000))
+    this.state = Object.freeze({ ...this.state, entries: nextEntries, seenKeys }); this.render()
+    return Object.freeze(added)
+  }
+
+  snapshot(): ActivityState { return this.state }
+
+  restore(state: ActivityState): void { this.state = state; this.render() }
 
   reset(rows: readonly ReplayEvent[] = [], recordedNow = Number.NEGATIVE_INFINITY): void {
     this.state = activityReduce(emptyActivity(), rows, recordedNow, this.context); this.render()
