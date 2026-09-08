@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { RESIDENT_BULB_RECTS, RESIDENT_HAND_RECTS, RESIDENT_HEART_RECTS, RESIDENT_LOCK_RECTS,
-  RESIDENT_SLEEP_RECTS, residentActivityRects, residentBulbAnchor, residentGlyphDistance, thingOverlayAnchor,
-  residentOverlayDistance, residentOverlayRects } from '../src/resident-overlays.ts'
+import { RESIDENT_BULB_RECTS, RESIDENT_HAND_RECTS, RESIDENT_LOCK_RECTS, RESIDENT_SLEEP_RECTS,
+  THING_HEART_RECTS, activityCueRects, residentActivityRects, residentBulbAnchor,
+  residentGlyphDistance, thingOverlayAnchor, residentOverlayDistance, residentOverlayRects } from '../src/resident-overlays.ts'
 import { cueFrame, emptyCueState, stepActivityCues } from '../src/activity-cues.ts'
 import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
 
@@ -14,7 +14,7 @@ test('resident overlay distances scale from the original 32 pixel figure to the 
 test('every resident glyph uses the production 32-to-56 overlay scale', () => {
   assert.deepEqual(RESIDENT_LOCK_RECTS[0], { x: 3.5, y: 0, width: 10.5, height: 3.5, color: 0x412f2b, alpha: 1 })
   assert.deepEqual(RESIDENT_BULB_RECTS[0], { x: 10.5, y: 0, width: 10.5, height: 3.5, color: 0xffef83, alpha: 1 })
-  assert.deepEqual(RESIDENT_HEART_RECTS[0], { x: 0, y: 0, width: 3.5, height: 3.5, color: 0xd65b70, alpha: 1 })
+  assert.deepEqual(THING_HEART_RECTS[0], { x: 0, y: 0, width: 8 / 3, height: 8 / 3, color: 0xd65b70, alpha: 1 })
   assert.deepEqual(RESIDENT_HAND_RECTS[0], { x: -10.5, y: 0, width: 3.5, height: 3.5, color: 0xc78b62, alpha: 1 })
   assert.deepEqual(RESIDENT_SLEEP_RECTS[0], { x: 0, y: 0, width: 10.5, height: 3.5, color: 0xe9dfb9, alpha: 1 })
 })
@@ -61,12 +61,24 @@ test('a looking cue sits beside the larger resident head with doubled glyph cell
 test('bulb, heart and hands preserve their original double-size glyphs beside larger residents', () => {
   for (const [cells, width, height] of [
     [RESIDENT_BULB_RECTS, 31.5, 38.5],
-    [RESIDENT_HEART_RECTS, 17.5, 14],
+    [THING_HEART_RECTS, 40 / 3, 32 / 3],
     [RESIDENT_HAND_RECTS, 21, 7],
   ] as const) {
-    assert.equal(Math.max(...cells.map(cell => cell.x + cell.width)) - Math.min(...cells.map(cell => cell.x)), width)
-    assert.equal(Math.max(...cells.map(cell => cell.y + cell.height)) - Math.min(...cells.map(cell => cell.y)), height)
+    assert.ok(Math.abs(Math.max(...cells.map(cell => cell.x + cell.width)) - Math.min(...cells.map(cell => cell.x)) - width) < 1e-12)
+    assert.ok(Math.abs(Math.max(...cells.map(cell => cell.y + cell.height)) - Math.min(...cells.map(cell => cell.y)) - height) < 1e-12)
   }
+})
+
+test('activity cue policy scales with its entity and keeps room cells fixed on screen', () => {
+  const cells = [[0, 0], [7, 4]] as const
+  assert.deepEqual(activityCueRects(cells, 'thing', 2, 1, 1), [
+    { x: 18, y: -22, width: 2, height: 2, color: 1, alpha: 1 },
+    { x: 32, y: -14, width: 2, height: 2, color: 1, alpha: 1 },
+  ])
+  assert.deepEqual(activityCueRects(cells, 'room', 2, 1, 1), [
+    { x: 0, y: 0, width: 1, height: 1, color: 1, alpha: 1 },
+    { x: 7, y: 4, width: 1, height: 1, color: 1, alpha: 1 },
+  ])
 })
 
 test('resident overlay cells scale positions and dimensions together', () => {

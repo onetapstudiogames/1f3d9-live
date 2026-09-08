@@ -7,6 +7,7 @@ import { lockCells } from './laws.ts'
 const ORIGINAL_RESIDENT_SIZE = 32
 const ORIGINAL_THING_SIZE = 24
 const ORIGINAL_GLYPH_CELL_SIZE = 2
+const ORIGINAL_ACTIVITY_ENTITY_SIZE = 32
 
 export type ResidentOverlayRect = Readonly<{
   x: number
@@ -51,6 +52,10 @@ function pixelRects(cells: readonly Readonly<{ x: number; y: number }>[], color:
   return scaledRects(cells.map(cell => ({ ...cell, width: 1, height: 1, color, alpha: 1 })), residentGlyphDistance)
 }
 
+function thingGlyphDistance(distance: number): number {
+  return distance * ROOM_THING_SIZE / ORIGINAL_THING_SIZE
+}
+
 export function residentActivityRects(cells: readonly (readonly [number, number])[], color: number, alpha: number): readonly ResidentOverlayRect[] {
   return residentOverlayRects(cells.map(([x, y]) => ({
     x: 18 + x * ORIGINAL_GLYPH_CELL_SIZE, y: -22 + y * ORIGINAL_GLYPH_CELL_SIZE,
@@ -58,9 +63,34 @@ export function residentActivityRects(cells: readonly (readonly [number, number]
   })))
 }
 
+export function activityCueRects(cells: readonly (readonly [number, number])[], kind: 'resident' | 'thing' | 'room',
+  zoom: number, color: number, alpha: number): readonly ResidentOverlayRect[] {
+  if (kind === 'resident') return residentActivityRects(cells, color, alpha)
+  const safeZoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1
+  const scale = kind === 'thing' ? ROOM_THING_SIZE / ORIGINAL_ACTIVITY_ENTITY_SIZE : 1 / safeZoom
+  const originX = kind === 'thing' ? 18 * scale : 0
+  const originY = kind === 'thing' ? -22 * scale : 0
+  const cellSize = ORIGINAL_GLYPH_CELL_SIZE * scale
+  return Object.freeze(cells.map(([x, y]) => Object.freeze({
+    x: originX + x * cellSize, y: originY + y * cellSize,
+    width: cellSize, height: cellSize, color, alpha,
+  })))
+}
+
+export function refreshTextResolution(text: Readonly<{
+  style: Readonly<{ resolution: number }>
+  setResolution(resolution: number): unknown
+}>, devicePixelRatio: number): void {
+  const resolution = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? Math.max(1, devicePixelRatio) : 1
+  if (text.style.resolution !== resolution) text.setResolution(resolution)
+}
+
 export const RESIDENT_LOCK_RECTS = residentOverlayRects(lockCells().map(cell => ({ ...cell, alpha: 1 })))
 export const RESIDENT_BULB_RECTS = scaledRects(bulbCells().map(cell => ({ ...cell, alpha: 1 })), residentGlyphDistance)
-export const RESIDENT_HEART_RECTS = pixelRects(HEART_PIXELS, 0xd65b70)
+export const THING_HEART_RECTS = scaledRects(
+  HEART_PIXELS.map(cell => ({ ...cell, width: 1, height: 1, color: 0xd65b70, alpha: 1 })),
+  distance => thingGlyphDistance(distance * ORIGINAL_GLYPH_CELL_SIZE),
+)
 export const RESIDENT_HAND_RECTS = pixelRects(HAND_PIXELS, 0xc78b62)
 export const RESIDENT_SLEEP_RECTS = residentOverlayRects(
   ([[0, 0], [6, -7], [12, -14]] as const).flatMap(([x, y]) => [

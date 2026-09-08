@@ -1,4 +1,4 @@
-import type Phaser from 'phaser'
+import Phaser from 'phaser'
 import type { NestedLayout, Room } from '../ground/nested.ts'
 import { daylightAt, roomWindows, windowsLit } from '../daylight.ts'
 import type { Drawing } from '../city/types.ts'
@@ -11,11 +11,8 @@ import {
   animationProgress, brickCount, placeAnimationsByKind, signScale, wallBricks, type PlaceAnimation,
 } from '../place-animation.ts'
 import { roomTextResolution } from '../room-appearance.ts'
+import { refreshTextResolution } from '../resident-overlays.ts'
 import { removableOnce } from '../scene-lifecycle.ts'
-
-const LINEAR_FILTER: Phaser.Textures.FilterMode = 0
-const NEAREST_FILTER: Phaser.Textures.FilterMode = 1
-const SCENE_SHUTDOWN = 'shutdown'
 
 export class RoomView {
   private plan: PlacePlan
@@ -104,11 +101,11 @@ export class RoomView {
         fontFamily: 'system-ui, sans-serif', fontSize: '15px', color: '#f8edcf', resolution: roomTextResolution(window.devicePixelRatio),
         backgroundColor: '#273c30', padding: { x: 7, y: 4 }, fixedWidth: Math.min(300, width - 24), fixedHeight: 27,
       })
-      text.texture.setFilter(LINEAR_FILTER)
+      text.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
       const group = scene.add.container(x + 12, y + 12, [text]).setDepth(room.depth + 1)
       this.plates.set(room.id, { group, text, room, nameOffset: 0 })
     }
-    this.removeShutdownListener = removableOnce(scene.events, SCENE_SHUTDOWN, () => this.destroy())
+    this.removeShutdownListener = removableOnce(scene.events, Phaser.Scenes.Events.SHUTDOWN, () => this.destroy())
   }
 
   setPlan(plan: PlacePlan): void { this.plan = plan }
@@ -138,7 +135,7 @@ export class RoomView {
       }
       paint.generateTexture(key, floor.tileSize, floor.tileSize)
       paint.destroy()
-      scene.textures.get(key).setFilter(NEAREST_FILTER)
+      scene.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST)
     }
     const depth = plate.room.depth / 1000
     surface.art = roomFloorRects(plate.room, 4).map(rect => new TiledFloor(scene, key, rect,
@@ -171,8 +168,7 @@ export class RoomView {
       const fullName = recordedRoomName(this.plan, plate.room, recordedTime)
       const name = fullName && fullName.length > 32 ? `${fullName.slice(0, 31)}…` : fullName ?? ''
       if (plate.text.text !== name) plate.text.setText(name)
-      const resolution = roomTextResolution(window.devicePixelRatio)
-      if (plate.text.style.resolution !== resolution) plate.text.setResolution(resolution)
+      refreshTextResolution(plate.text, window.devicePixelRatio)
       const scale = Math.min(2.5, Math.max(1, 0.85 / camera.zoom))
       plate.group.setScale(scale)
       plate.text.setScale(animation?.renaming ? signScale(animationProgress(animation.renaming, now)) : 1, 1)

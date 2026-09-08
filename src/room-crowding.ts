@@ -5,6 +5,7 @@ export const ROOM_FIGURE_PITCH = ROOM_FIGURE_SIZE + 4
 
 export type RoomCrowdingRect = Readonly<{ x: number; y: number; width: number; height: number }>
 export type RoomCrowdingPoint = Readonly<{ x: number; y: number }>
+export type RoomCrowdingRoute = Readonly<{ points: readonly RoomCrowdingPoint[]; radius: number }>
 export type RoomCrowdingEntry = Readonly<{
   id: string
   kind: 'resident' | 'thing'
@@ -74,10 +75,12 @@ function isState(value: RoomCrowdingState | Readonly<Record<string, RoomCrowding
 
 /** Allocates a frame and reuses the prior state by identity when every allocation input is unchanged. */
 export function allocateRoomCrowdingFrame(entries: readonly RoomCrowdingEntry[], band: RoomCrowdingRect,
-  previous: RoomCrowdingState | Readonly<Record<string, RoomCrowdingPlacement>> = {}): RoomCrowdingState {
+  previous: RoomCrowdingState | Readonly<Record<string, RoomCrowdingPlacement>> = {},
+  reservations: readonly RoomCrowdingRect[] = [], routes: readonly RoomCrowdingRoute[] = []): RoomCrowdingState {
   const ordered = orderedEntries(entries)
   const bandKey = crowdingBandKey(band)
-  const key = allocationKey(ordered, bandKey)
+  const reserved = reservations.filter(finiteRect)
+  const key = allocationKey(ordered, bandKey) + JSON.stringify([reserved, routes])
   if (isState(previous) && previous.key === key) return previous
   const previousPlacements = isState(previous) ? previous.placements : previous
   const result: Record<string, RoomCrowdingPlacement> = {}
@@ -91,14 +94,14 @@ export function allocateRoomCrowdingFrame(entries: readonly RoomCrowdingEntry[],
   const half = ROOM_FIGURE_SIZE / 2
   const minimumX = band.x + half; const maximumX = band.x + band.width - half
   const minimumY = band.y + half; const maximumY = band.y + band.height - half
-  const occupied: RoomCrowdingRect[] = []
+  const occupied: RoomCrowdingRect[] = [...reserved]
   const safe = (point: RoomCrowdingPoint): boolean => {
     candidateChecks += 1
     if (point.x < minimumX || point.x > maximumX || point.y < minimumY || point.y > maximumY) return false
     const collisionHalf = ROOM_FIGURE_PITCH / 2
     const bounds = { x: point.x - collisionHalf, y: point.y - collisionHalf,
       width: ROOM_FIGURE_PITCH, height: ROOM_FIGURE_PITCH }
-    return !occupied.some(rect => overlaps(bounds, rect))
+    return !occupied.some(rect => overlaps(bounds, rect)) && !routes.some(route => routeCrosses(bounds, route))
   }
   const reusedGrid = isState(previous) && previous.bandKey === bandKey
   const grid: readonly RoomCrowdingPoint[] = reusedGrid ? previous.grid : (() => {
@@ -138,6 +141,28 @@ export function allocateRoomCrowdingFrame(entries: readonly RoomCrowdingEntry[],
   }
   return Object.freeze({ bandKey, key, grid, placements: Object.freeze(result),
     metrics: Object.freeze({ gridBuilds: reusedGrid ? 0 : 1, candidateChecks }) })
+}
+
+// Intersect the centre path with the seat expanded by the walking figure's radius.
+// A diagonal reserves its swept squares, not the entire rectangle between its ends.
+function routeCrosses(seat: RoomCrowdingRect, route: RoomCrowdingRoute): boolean {
+  const radius = route.radius
+  if (!Number.isFinite(radius) || radius < 0) return false
+  const minimum = { x: seat.x - radius, y: seat.y - radius }
+  const maximum = { x: seat.x + seat.width + radius, y: seat.y + seat.height + radius }
+  return route.points.slice(1).some((to, index) => {
+    const from = route.points[index]!
+    let enter = 0; let leave = 1
+    for (const axis of ['x', 'y'] as const) {
+      if (!Number.isFinite(from[axis]) || !Number.isFinite(to[axis])) return false
+      const delta = to[axis] - from[axis]
+      if (delta === 0) { if (from[axis] <= minimum[axis] || from[axis] >= maximum[axis]) return false; continue }
+      const first = (minimum[axis] - from[axis]) / delta; const last = (maximum[axis] - from[axis]) / delta
+      enter = Math.max(enter, Math.min(first, last)); leave = Math.min(leave, Math.max(first, last))
+      if (enter >= leave) return false
+    }
+    return enter < leave
+  })
 }
 
 /** Returns the deterministic subset of name plates that can be drawn without overlap. */

@@ -5,6 +5,7 @@ import test from 'node:test'
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
 import { roomContains } from '../src/ground/room-shape.ts'
+import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
 import { blocksLiveDelivery, createResidents, retimeResidentWalks, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
 import type { ThingReservations } from '../src/things.ts'
 import { followActivity, reappearanceAlpha } from '../src/viewer.ts'
@@ -358,30 +359,31 @@ test('expired bubble releases the next queued note and state remains immutable',
 })
 
 test('a lone held speech card does not block a later resident change', () => {
-  let state = createResidents(replay(), census, layout)
+  const third = { id: 9, handle: 'elsewhere', current_place_id: 1, model: '', joined_at: '', has_drawing: false, asleep: false }
+  const start = { ...replay().start, 'resident:9': { origin_event_id: 1, place_id: 1 } }
+  let state = createResidents(replay(start), [...census, third], layout)
   const longCard = event('note', { place_id: 2 }, 'A long card remains visible while the live feed advances.')
   state = stepResidents(state, [longCard], 0, 1_000, layout)
   assert.equal(state.residents[7]!.queue.length, 0)
   assert.equal(state.pending, true)
   assert.equal(blocksLiveDelivery(state), false)
 
-  const laterChange = { ...event('note', { place_id: 2 }, 'later'), actor: 'still', change_id: '3', event_id: 3 }
-  let queued: readonly ReplayEvent[] = [laterChange]
-  const delivered: string[] = []
-  if (!blocksLiveDelivery(state)) {
-    const incoming = queued
-    queued = []
-    delivered.push(...incoming.map(row => row.change_id))
-    state = stepResidents(state, incoming, 0, 2_000, layout)
-  }
-  if (!blocksLiveDelivery(state) && queued.length) delivered.push(...queued.map(row => row.change_id))
-
+  const laterNote = { ...event('note', { place_id: 2 }, 'next room card'), actor: 'still', change_id: '2', event_id: 2 }
+  state = stepResidents(state, [laterNote], 0, 2_000, layout)
   assert.equal(state.residents[7]!.bubble?.text, longCard.line)
-  assert.equal(state.residents[8]!.bubble?.text, 'later')
-  assert.deepEqual(delivered, ['3'])
+  assert.equal(state.residents[8]!.bubble, null)
+  assert.equal(state.residents[8]!.queue[0]?.event, laterNote)
+  assert.equal(blocksLiveDelivery(state), false)
+
+  const unrelated = { ...event('action', { action: 'use', status: 'noop', place_id: 1 }), actor: 'elsewhere', change_id: '3', event_id: 3 }
+  state = stepResidents(state, [unrelated], 0, 2_100, layout)
+  assert.equal(state.residents[7]!.bubble?.text, longCard.line)
+  assert.equal(state.residents[9]!.lastActivityId, '3')
+  assert.deepEqual(state.startedEvents?.map(row => row.change_id), ['3'])
+  assert.equal(blocksLiveDelivery(state), false)
 })
 
-test('a queued earlier note holds the next live batch until it appears in recorded order', () => {
+test('an own queued note never blocks delivery and still speaks before a later resident note', () => {
   const first = event('note', { place_id: 2 }, 'first card')
   const earlier = { ...event('note', { place_id: 2 }, 'earlier queued note'), change_id: '2', event_id: 2 }
   const later = { ...event('note', { place_id: 2 }, 'later other resident'), actor: 'still', change_id: '3', event_id: 3 }
@@ -389,7 +391,7 @@ test('a queued earlier note holds the next live batch until it appears in record
   assert.equal(holding.residents[7]!.bubble?.text, first.line)
   assert.equal(holding.residents[7]!.queue[0]?.event.change_id, '2')
   assert.equal(holding.residents[8]!.bubble, null)
-  assert.equal(blocksLiveDelivery(holding), true)
+  assert.equal(blocksLiveDelivery(holding), false)
 
   const released = stepResidents(holding, [], 0, holding.residents[7]!.bubble!.expiresAt, layout)
   assert.equal(released.residents[7]!.bubble?.text, earlier.line)
@@ -397,10 +399,133 @@ test('a queued earlier note holds the next live batch until it appears in record
   assert.equal(blocksLiveDelivery(released), false)
   const delivered = stepResidents(released, [later], 0, released.residents[7]!.bubble!.startedAt + 1, layout)
   assert.equal(delivered.residents[7]!.bubble?.text, earlier.line)
-  assert.equal(delivered.residents[8]!.bubble?.text, later.line)
-  assert.deepEqual([...released.startedEvents!, ...delivered.startedEvents!].map(row => row.change_id), ['2', '3'])
+  assert.equal(delivered.residents[8]!.bubble, null)
+  assert.equal(delivered.residents[8]!.queue[0]?.event.change_id, '3')
+  assert.equal(blocksLiveDelivery(delivered), false)
+  const finished = stepResidents(delivered, [], 0, delivered.residents[7]!.bubble!.expiresAt, layout)
+  assert.equal(finished.residents[8]!.bubble?.text, later.line)
+  assert.deepEqual([...released.startedEvents!, ...delivered.startedEvents!, ...finished.startedEvents!]
+    .map(row => row.change_id), ['2', '3'])
   assert.equal(holding.residents[7]!.queue.length, 1)
 })
+
+test('a same-batch room-held note stays queued and nonblocking across frames', () => {
+  const longBody = 'This first room card stays visible long enough to cover several ordinary simulation frames. '.repeat(8)
+  const first = event('note', { place_id: 2 }, longBody)
+  const second = { ...event('note', { place_id: 2 }, 'second card'), actor: 'still', change_id: '2', event_id: 2 }
+  const held = stepResidents(createResidents(replay(), census, layout), [first, second], 0, 0, layout)
+  assert.equal(held.residents[7]!.bubble?.text, longBody)
+  assert.equal(held.residents[7]!.bubble?.expiresAt, 15_000)
+  assert.equal(held.residents[8]!.queue[0]?.event, second)
+  assert.equal(blocksLiveDelivery(held), false)
+
+  const afterTwelveSeconds = stepResidents(held, [], 12_020, 12_020, layout)
+  assert.equal(afterTwelveSeconds.residents[7]!.bubble?.text, longBody)
+  assert.equal(afterTwelveSeconds.residents[8]!.queue[0]?.event, second)
+  assert.equal(blocksLiveDelivery(afterTwelveSeconds), false)
+
+  const nextFrame = stepResidents(afterTwelveSeconds, [], 16, 12_036, layout)
+  assert.equal(nextFrame.residents[7]!.bubble?.text, longBody)
+  assert.equal(nextFrame.residents[8]!.queue[0]?.event, second)
+  assert.equal(blocksLiveDelivery(nextFrame), false)
+})
+
+test('a room-held note cannot hide a later queued move from the live gate', () => {
+  const first = event('note', { place_id: 2 }, 'first card')
+  const heldNote = { ...event('note', { place_id: 2 }, 'held card'), actor: 'still', change_id: '2', event_id: 2 }
+  let state = stepResidents(createResidents(replay(), census, layout), [first, heldNote], 0, 1_000, layout)
+  assert.equal(blocksLiveDelivery(state), false)
+
+  const move = { ...event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 }), actor: 'still', change_id: '3', event_id: 3 }
+  state = stepResidents(state, [move], 0, 1_100, layout)
+  assert.equal(state.residents[8]!.queue[1]?.event, move)
+  assert.equal(blocksLiveDelivery(state), true)
+})
+
+test('two same-room notes behind another resident card never block delivery and both speak in recorded order', () => {
+  const notes = ['1', '2', '3'].map((id, index) => ({
+    ...event('note', { place_id: 2 }, `Note ${id}: ${'The whole recorded body stays here. '.repeat(24)}`),
+    actor: index === 0 ? 'walker' : 'still', change_id: id, event_id: Number(id),
+  }))
+  const original = createResidents(replay(), census, layout)
+  let state = stepResidents(original, notes, 0, 0, layout)
+  const started = [...state.startedEvents!]
+  assert.equal(state.residents[7]!.bubble!.expiresAt, 15_000)
+  assert.equal(state.residents[8]!.queue.length, 2)
+  assert.deepEqual(state.residents[8]!.queue.map(row => row.event.change_id), ['2', '3'])
+  assert.equal(blocksLiveDelivery(state), false)
+  for (let now = 500; now <= 45_000; now += 500) {
+    state = stepResidents(state, [], 500, now, layout)
+    started.push(...state.startedEvents!)
+    const cards = Object.values(state.residents).flatMap(row => row.bubble ? [row.bubble] : [])
+    assert.equal(cards.length, now < 45_000 ? 1 : 0)
+    if (now < 45_000) assert.equal(cards[0]!.text, notes[Math.floor(now / 15_000)]!.line)
+    assert.equal(blocksLiveDelivery(state), false, `speech alone blocked delivery at ${now} ms`)
+  }
+  assert.deepEqual(started.map(row => row.change_id), ['1', '2', '3'])
+  assert.equal(state.residents[8]!.queue.length, 0)
+  assert.equal(state.pending, false)
+  assert.equal(original.residents[8]!.queue.length, 0, 'the input queue is unchanged')
+})
+
+test('new same-room notes join an already held speech queue without blocking delivery', () => {
+  const first = event('note', { place_id: 2 }, 'first card')
+  const second = { ...event('note', { place_id: 2 }, 'second card'), actor: 'still', change_id: '2', event_id: 2 }
+  const third = { ...event('note', { place_id: 2 }, 'third card'), actor: 'still', change_id: '3', event_id: 3 }
+  const held = stepResidents(createResidents(replay(), census, layout), [first, second], 0, 0, layout)
+  const appended = stepResidents(held, [third], 100, 100, layout)
+  assert.equal(appended.residents[7]!.bubble?.text, first.line)
+  assert.deepEqual(appended.residents[8]!.queue.map(row => row.event.change_id), ['2', '3'])
+  assert.equal(blocksLiveDelivery(appended), false)
+  assert.deepEqual(held.residents[8]!.queue.map(row => row.event.change_id), ['2'])
+})
+
+test('only non-note work behind queued speech blocks delivery, regardless of the note room', () => {
+  const first = event('note', { place_id: 2 }, 'first card')
+  const held = { ...event('note', { place_id: 2 }, 'held card'), actor: 'still', change_id: '2', event_id: 2 }
+  const tail = { ...event('note', { place_id: 2 }, 'later card'), actor: 'still', change_id: '4', event_id: 4 }
+  for (const work of [
+    event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 }),
+    event('kind_invented', { kind_id: 10, name: 'lamp moss' }),
+    event('note', { place_id: 1 }, 'another room'),
+  ]) {
+    const middle = { ...work, actor: 'still', change_id: '3', event_id: 3 }
+    const state = stepResidents(createResidents(replay(), census, layout), [first, held, middle, tail], 0, 0, layout)
+    assert.deepEqual(state.residents[8]!.queue.map(row => row.event.change_id), ['2', '3', '4'])
+    assert.equal(blocksLiveDelivery(state), work.kind !== 'note', `queued ${work.kind} determines the delivery gate`)
+  }
+})
+
+for (const [name, deliveryTimes, end] of [
+  ['a second note arriving 5.5 seconds into its own speaker card never blocks delivery', [0, 5_500], 32_000],
+  ['a third note appended mid-card stays nonblocking with two own-speaker notes ahead', [0, 0, 5_500], 50_000],
+] as const) {
+  test(name, () => {
+    const notes = deliveryTimes.map((_, index) => ({
+      ...event('note', { place_id: 2 }, `Note ${index + 1}: ${'The whole recorded body stays here. '.repeat(24)}`),
+      change_id: String(index + 1), event_id: index + 1,
+    }))
+    let state = createResidents(replay(), census, layout)
+    const started: ReplayEvent[] = []
+    for (let now = 0; now <= end; now += 500) {
+      const incoming = notes.filter((_, index) => deliveryTimes[index] === now)
+      assert.equal(blocksLiveDelivery(state), false, `delivery remains open before ${now} ms`)
+      state = stepResidents(state, incoming, now === 0 ? 0 : 500, now, layout)
+      started.push(...state.startedEvents!)
+      const cards = Object.values(state.residents).flatMap(row => row.bubble ? [row.bubble] : [])
+      const expected = notes[Math.floor(now / 15_000)]
+      assert.equal(cards.length, expected ? 1 : 0)
+      if (expected) {
+        assert.equal(cards[0]!.text, expected.line)
+        assert.equal(cards[0]!.expiresAt - cards[0]!.startedAt, 15_000)
+      }
+      assert.equal(blocksLiveDelivery(state), false, `speech alone blocked delivery at ${now} ms`)
+    }
+    assert.deepEqual(started.map(row => row.change_id), notes.map(row => row.change_id))
+    assert.equal(state.residents[7]!.queue.length, 0)
+    assert.equal(state.pending, false)
+  })
+}
 
 test('active walks and effects still block live delivery', () => {
   let state = createResidents(replay(), census, layout)
@@ -487,7 +612,9 @@ const walkAway = event('action', { action: 'move', status: 'applied', from_place
 const callOther = { ...event('note', { place_id: 2 }, 'over here'), actor: 'other' }
 
 test('a figure walking out of a room no longer holds a spot in it', () => {
-  const oneSpot = { ...layout, rooms: { ...rooms, 2: { ...rooms[2], standing: { x: 420, y: 20, width: 64, height: 64 } } } } as unknown as NestedLayout
+  const oneResidentFloor = ROOM_RESIDENT_SIZE + 16 * 2
+  const oneSpot = { ...layout, rooms: { ...rooms, 2: { ...rooms[2],
+    standing: { x: 420, y: 20, width: oneResidentFloor, height: oneResidentFloor } } } } as unknown as NestedLayout
   const aloneStart = {
     'resident:7': { origin_event_id: 1, place_id: 2 },
     'resident:8': { origin_event_id: 1, place_id: 1 },

@@ -2,7 +2,6 @@ import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 
 const fixtureUrl = '/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
-const fixtureOrigin = 'http://localhost:4173'
 
 async function repeatRecordedChange(page: Page): Promise<{ repeated: Promise<void> }> {
   const source = JSON.parse(await readFile('public/fixtures/changes-live.json', 'utf8')) as {
@@ -33,6 +32,7 @@ async function expectDeliveredOnce(page: Page, repeated: Promise<void>): Promise
 
 async function keepFixtureOffline(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
+  const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())

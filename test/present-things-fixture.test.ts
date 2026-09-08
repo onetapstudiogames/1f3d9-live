@@ -5,6 +5,7 @@ import type { PlaceOutline, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
 import { addPresentThings, createThings, recordThingIds } from '../src/things.ts'
+import { residentReservationFootprint } from '../src/resident-footprint.ts'
 
 test('saved-day arrivals keep clear of the square census without moving existing thing spots', () => {
   const replay = JSON.parse(readFileSync(new URL('fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
@@ -22,7 +23,7 @@ test('saved-day arrivals keep clear of the square census without moving existing
   const initial = createThings(replay, layout)
   let state = createResidents(replay, census, layout, initial.reservations)
   const blockers = Object.values(state.residents).filter(resident => resident.visible && resident.placeId === 3)
-    .map(resident => ({ key: `resident:${resident.id}`, kind: 'resident' as const, x: resident.x - 16, y: resident.y - 16, width: 32, height: 32 }))
+    .map(resident => residentReservationFootprint(`resident:${resident.id}`, resident))
   const things = addPresentThings(initial, outline, layout, recordThingIds(replay), blockers)
   const added = Object.values(things.things).filter(thing => !initial.things[thing.id])
   assert.ok(added.length > 0)

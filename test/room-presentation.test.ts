@@ -80,3 +80,34 @@ test('following wins scarce standing space and agreement positions use the same 
   const ordinary = presentRoom({ 1: actor(1) }, {}, world, target, new Set())
   assert.notDeepEqual(overridden.residents[1], ordinary.residents[1])
 })
+
+test('a screen walk passes the standing band without being snapped into a seat', () => {
+  const pose = { x: 24, y: 220, placeId: 2, visible: true, moving: true }
+  const frame = presentRoom({ 1: { ...actor(1), walking: true }, 2: actor(2) }, {}, world,
+    target, new Set(), {}, null, new Map(), { poses: new Map([[1, pose]]), reservations: [] })
+  assert.equal(frame.residents[1]!.x, 24)
+  assert.equal(frame.residents[1]!.y, 220)
+  assert.equal(frame.residents[1]!.visible, true)
+  assert.equal(frame.residents[2]!.visible, true)
+  assert.equal(frame.placements['resident:1'], undefined)
+})
+
+test('idle screen poses remain continuous and a reserved walk target stays free', () => {
+  const idle = { x: 200, y: 200, placeId: 2, visible: true, moving: false }
+  const reservation = { x: 70, y: 120, width: ROOM_FIGURE_PITCH, height: ROOM_FIGURE_PITCH }
+  const frame = presentRoom({ 1: actor(1), 2: actor(2) }, {}, world, target,
+    new Set(), {}, null, new Map(), { poses: new Map([[1, idle]]), reservations: [reservation] })
+  assert.equal(frame.residents[1]!.x, 200)
+  assert.equal(frame.residents[1]!.y, 200)
+  const other = frame.residents[2]!
+  assert.ok(!other.visible || Math.abs(other.x - 100) >= ROOM_FIGURE_PITCH || Math.abs(other.y - 150) >= ROOM_FIGURE_PITCH)
+})
+
+test('screen poses cannot expose a quiet room or hide its public speaker for lack of a prior seat', () => {
+  const motion = { poses: new Map([[1, { x: 10, y: 20, placeId: 2, visible: false, moving: false }]]), reservations: [] }
+  const speaker = { ...actor(1), bubble: { text: 'recorded words' } }
+  const frame = presentRoom({ 1: speaker }, {}, world, target, new Set(), {}, null, new Map(), motion)
+  assert.equal(frame.residents[1]!.visible, true)
+  const hidden = presentRoom({ 1: speaker }, {}, world, target, new Set([2]), {}, null, new Map(), motion)
+  assert.equal(hidden.residents[1]!.visible, false)
+})

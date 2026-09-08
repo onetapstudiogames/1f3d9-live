@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { stageFindFreeSpots } from '../src/ground/stage-ground.ts'
+import { ROOM_RESIDENT_SIZE, ROOM_THING_SIZE } from '../src/room-appearance.ts'
 import { nestedLayout, type NestedLayout, type Place, type Point, type Room } from '../src/ground/nested.ts'
 import { pointAlongPath, sidestepPath, walkPath } from '../src/ground/path.ts'
 
@@ -22,6 +23,55 @@ test('free spots remain deterministic salvage', () => {
   const first = stageFindFreeSpots(entries, room)
   assert.deepEqual(stageFindFreeSpots(Object.freeze([...entries].reverse()), room), first)
   assert.equal(Object.keys(first).length, entries.length)
+})
+
+test('resident spots reserve both full 56-pixel footprints in one allocation pass', () => {
+  const spots = stageFindFreeSpots([
+    { key: 'resident:1', kind: 'resident' },
+    { key: 'resident:2', kind: 'resident' },
+  ], { x: 0, y: 0, width: 240, height: 190 })
+  const [first, second] = [spots['resident:1']!, spots['resident:2']!]
+
+  assert.equal(first.width, ROOM_RESIDENT_SIZE)
+  assert.equal(first.height, ROOM_RESIDENT_SIZE)
+  assert.equal(second.width, ROOM_RESIDENT_SIZE)
+  assert.equal(second.height, ROOM_RESIDENT_SIZE)
+  assert.ok(first.x + first.width + 16 <= second.x || second.x + second.width + 16 <= first.x ||
+    first.y + first.height + 16 <= second.y || second.y + second.height + 16 <= first.y)
+})
+
+test('mixed residents and things keep their own footprint dimensions without overlap', () => {
+  const spots = stageFindFreeSpots([
+    { key: 'resident:1', kind: 'resident' },
+    { key: 'thing:1', kind: 'thing' },
+    { key: 'thing:2', kind: 'thing' },
+  ], { x: 0, y: 0, width: 240, height: 190 })
+  const all = Object.values(spots)
+
+  assert.equal(spots['resident:1']?.width, ROOM_RESIDENT_SIZE)
+  assert.equal(spots['thing:1']?.width, ROOM_THING_SIZE)
+  assert.equal(spots['thing:2']?.height, ROOM_THING_SIZE)
+  for (let left = 0; left < all.length; left += 1) {
+    for (let right = left + 1; right < all.length; right += 1) {
+      const a = all[left]!
+      const b = all[right]!
+      assert.ok(a.x + a.width + 16 <= b.x || b.x + b.width + 16 <= a.x ||
+        a.y + a.height + 16 <= b.y || b.y + b.height + 16 <= a.y)
+    }
+  }
+})
+
+test('previous spots are retained only with the correct dimensions for their kind', () => {
+  const room = { x: 0, y: 0, width: 240, height: 190 }
+  const previous = {
+    'resident:1': { key: 'resident:1', kind: 'resident' as const, x: 70, y: 70, width: ROOM_RESIDENT_SIZE, height: ROOM_RESIDENT_SIZE },
+    'thing:1': { key: 'thing:1', kind: 'thing' as const, x: 170, y: 100, width: ROOM_THING_SIZE, height: ROOM_THING_SIZE },
+  }
+  const entries = [{ key: 'resident:1', kind: 'resident' as const }, { key: 'thing:1', kind: 'thing' as const }]
+
+  assert.deepEqual(stageFindFreeSpots(entries, room, previous), previous)
+  const wrongResident = { ...previous, 'resident:1': { ...previous['resident:1'], width: ROOM_THING_SIZE, height: ROOM_THING_SIZE } }
+  assert.notDeepEqual(stageFindFreeSpots(entries, room, wrongResident)['resident:1'], wrongResident['resident:1'])
 })
 
 test('free positions stay continuous and retain a moved presentation spot', () => {
@@ -91,6 +141,18 @@ test('standing floor fits every declared occupant with spare choices', () => {
   const entries = Object.freeze(Array.from({ length: 50 }, (_, index) => Object.freeze({ key: `resident:${String(index)}`, kind: 'resident' as const })))
   const spots = stageFindFreeSpots(entries, layout.rooms[1]!.standing)
   assert.equal(Object.keys(spots).length, entries.length)
+})
+
+test('standing capacity derives its pitch from the full resident footprint and clearance', () => {
+  const requested = 12
+  const pitch = ROOM_RESIDENT_SIZE + ROOM_THING_SIZE / 2
+  const slots = requested * 4
+  const columns = Math.max(4, Math.ceil(Math.sqrt(slots * 1.4)))
+  const rows = Math.ceil(slots / columns)
+  const standing = nestedLayout([{ id: 1, parent_id: null }], { 1: requested }).rooms[1]!.standing
+
+  assert.ok(standing.width >= columns * pitch)
+  assert.ok(standing.height >= 26 + rows * pitch)
 })
 
 test('real, wide, and depth-16 maps remain finite and compact', async () => {

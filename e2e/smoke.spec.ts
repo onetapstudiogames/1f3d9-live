@@ -13,10 +13,11 @@ async function fixtureResidents(): Promise<Resident[]> {
 
 async function openFixture(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
+  const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())
-    if (url.origin !== 'http://localhost:4173') { external.push(url.href); await route.abort(); return }
+    if (url.origin !== fixtureOrigin) { external.push(url.href); await route.abort(); return }
     const drawing = /^\/fixtures\/drawings\/resident-(\d+)\.json$/.exec(url.pathname)
     if (drawing) {
       try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/drawings/resident-${drawing[1]}.json`, 'utf8') }) }
