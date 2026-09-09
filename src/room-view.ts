@@ -2,7 +2,7 @@ import type { ReplayPlace, Resident } from './city/types.ts'
 import type { NestedLayout, Point, Room } from './ground/nested.ts'
 import { ROOM_FIGURE_SIZE } from './room-crowding.ts'
 
-function publicPlaceIds(places: readonly ReplayPlace[]): ReadonlySet<number> {
+export function publicPlaceIds(places: readonly ReplayPlace[]): ReadonlySet<number> {
   const byId = new Map(places.map(place => [place.id, place]))
   const result = new Set<number>()
   for (const place of places) {

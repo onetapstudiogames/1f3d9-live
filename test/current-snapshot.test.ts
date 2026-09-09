@@ -4,6 +4,7 @@ import { fetchChangeCursor } from '../src/city/current.ts'
 import { readCurrentSnapshot } from '../src/city/current-snapshot.ts'
 import { readCurrentStart } from '../src/current-read.ts'
 import { OPTIONAL_OUTLINE_ISSUE } from '../src/read-issues.ts'
+import { parseRoomLink, resolveRoomLink } from '../src/room-links.ts'
 
 test('the actual startup reads head before presence and survives a rejected outline', async t => {
   const original = globalThis.fetch
@@ -29,4 +30,34 @@ test('the actual startup reads head before presence and survives a rejected outl
   assert.equal(snapshot.census[0]?.current_place_id, 1)
   assert.equal(snapshot.outline, null)
   assert.deepEqual(issues, [OPTIONAL_OUTLINE_ISSUE])
+})
+
+test('a startup link selects its outline after the anonymous head, directory and presence reads', async t => {
+  const original = globalThis.fetch
+  const calls: string[] = []
+  globalThis.fetch = async (input, options) => {
+    const url = new URL(String(input))
+    assert.equal(url.origin, 'https://1f3d9.com')
+    assert.equal(options?.credentials, 'omit')
+    assert.equal(options?.method ?? 'GET', 'GET')
+    assert.equal(new Headers(options?.headers).has('authorization'), false)
+    calls.push(url.pathname)
+    if (url.pathname === '/api/changes') return Response.json({ change_marker: '10' })
+    if (url.pathname === '/api/window') return Response.json({ view: 'directory', places: [
+      { id: 3, name: 'City', parent_id: null, quiet: false },
+      { id: 1, name: 'Busy room', parent_id: 3, quiet: false },
+      { id: 2, name: 'Linked room', parent_id: 3, quiet: false },
+    ] })
+    return Response.json({ residents: [{ id: 7, handle: 'standing', model: 'test', joined_at: '',
+      has_drawing: false, asleep: false, current_place_id: 1 }], has_more: false })
+  }
+  t.after(() => { globalThis.fetch = original })
+  const link = parseRoomLink('?place=2')
+  const { snapshot } = await readCurrentStart(() => fetchChangeCursor(''), () =>
+    readCurrentSnapshot(async id => { calls.push(`outline:${id}`); return null },
+      (places, census) => resolveRoomLink(link, places, census).roomId, () => {}))
+  assert.equal(calls[0], '/api/changes')
+  assert.equal(calls.at(-1), 'outline:2')
+  assert.equal(snapshot.outlineId, 2)
+  assert.equal(calls.includes('outline:1'), false)
 })

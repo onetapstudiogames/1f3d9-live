@@ -57,7 +57,7 @@ test('changes reads omit credentials and fixture reads never fall back to the ci
   await fetchChanges('100123', '?census=/fixtures/residents-presence-page1.json')
   await fetchChanges('100123', '?census=/saved/census.json&changes=/saved/changes.json')
   assert.deepEqual(calls.map(call => call.url), [
-    'https://1f3d9.com/api/changes?since=100123&limit=200', '/fixtures/changes-live.json', '/saved/changes.json',
+    'https://1f3d9.com/api/changes?since=100123&limit=200', 'fixtures/changes-live.json', '/saved/changes.json',
   ])
   assert.equal(calls[0]!.options?.credentials, 'omit')
   assert.deepEqual(calls[0]!.options?.headers, { accept: 'application/json' })
@@ -98,7 +98,7 @@ test('single-note reads are anonymous and cached including missing or failed ans
   await load(13243)
   await createNoteExcerptLoader('?census=/fixtures/residents-presence-page1.json')(13243)
   await createNoteExcerptLoader('?notes=/saved/notes/')(13243)
-  assert.deepEqual(calls, ['https://1f3d9.com/api/note/13243', '/fixtures/notes/note-13243.json', '/saved/notes/note-13243.json'])
+  assert.deepEqual(calls, ['https://1f3d9.com/api/note/13243', 'fixtures/notes/note-13243.json', '/saved/notes/note-13243.json'])
   globalThis.fetch = async () => new Response('', { status: 404 })
   const missing = createNoteExcerptLoader('')
   assert.equal(await missing(1), null)
