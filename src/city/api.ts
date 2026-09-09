@@ -1,8 +1,10 @@
 import type { CensusPage, Drawing, PlaceOutline, Resident, Thing } from './types.ts'
 import { parseLawNames } from '../laws.ts'
+import { MAX_ROOM_THINGS } from '../thing-limits.ts'
 
 export const CITY_ORIGIN = 'https://1f3d9.com'
 const READ_TIMEOUT_MS = 15_000
+const MAX_OUTLINE_PAGES = 200
 
 function readOptions(): RequestInit {
   return { credentials: 'omit', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(READ_TIMEOUT_MS) }
@@ -173,32 +175,80 @@ export async function fetchPlaceOutline(id: number, search: string = browserSear
   if (!Number.isSafeInteger(id) || id < 1) throw new Error('invalid place outline request: expected a positive safe integer id')
   const root = searchValue(search, 'places') || (fixtureMode(search) ? '/fixtures/places' : null)
   const fixture = Boolean(root)
-  const url = root ? `${root.replace(/\/$/, '')}/place-${id}.json` : `${CITY_ORIGIN}/api/place/${id}?view=outline`
-  const response = await fetch(url, readOptions())
-  if (response.status === 404) return null
-  if (!response.ok) throw new Error(`the city answered ${response.status} for place outline ${id}`)
-  if (fixture && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
-  const value = await response.json() as unknown
-  const envelope = value && typeof value === 'object' ? value as Record<string, unknown> : null
-  const place = envelope?.['place'] as Record<string, unknown> | undefined
-  const page = envelope?.['things_page'] as Record<string, unknown> | undefined
-  if (place?.['id'] !== id || typeof place['name'] !== 'string' || !(place['name'] as string).trim()
-    || (place['parent_id'] !== null && (!Number.isSafeInteger(place['parent_id']) || (place['parent_id'] as number) < 1))
-    || (place['owner'] !== null && typeof place['owner'] !== 'string')
-    || (place['owner_id'] !== null && (!Number.isSafeInteger(place['owner_id']) || (place['owner_id'] as number) < 1))
-    || typeof place['quiet'] !== 'boolean' || !Array.isArray(envelope?.['things']) || !page
-    || !Number.isSafeInteger(page['total_items']) || (page['total_items'] as number) < 0 || typeof page['has_more'] !== 'boolean') {
-    throw new Error(`the city returned an invalid place outline ${id}`)
+  const base = root ? `${root.replace(/\/$/, '')}/place-${id}` : `${CITY_ORIGIN}/api/place/${id}`
+  let url = fixture ? `${base}.json` : `${base}?view=outline`
+  const cursors = new Set<number>()
+  const things = new Map<number, PlaceOutline['things'][number]>()
+  let metadata: Omit<PlaceOutline, 'things' | 'hasMore'> | null = null
+  let hasMore = false
+  let locallyTruncated = false
+  for (let pageNumber = 1; pageNumber <= MAX_OUTLINE_PAGES; pageNumber += 1) {
+    const response = await fetch(url, readOptions())
+    if (response.status === 404 && pageNumber === 1) return null
+    // Saved outlines may stop at their first page; never fill that gap from the live city.
+    if (fixture && response.status === 404) { hasMore = true; break }
+    if (!response.ok) throw new Error(`the city answered ${response.status} for place outline ${id} page ${pageNumber}`)
+    if (fixture && response.headers.get('content-type')?.toLowerCase().includes('text/html')) {
+      if (pageNumber === 1) return null
+      hasMore = true
+      break
+    }
+    const value = await response.json() as unknown
+    const envelope = value && typeof value === 'object' ? value as Record<string, unknown> : null
+    const place = envelope?.['place'] as Record<string, unknown> | undefined
+    const page = envelope?.['things_page'] as Record<string, unknown> | undefined
+    if (place?.['id'] !== id || typeof place['name'] !== 'string' || !(place['name'] as string).trim()
+      || (place['parent_id'] !== null && (!Number.isSafeInteger(place['parent_id']) || (place['parent_id'] as number) < 1))
+      || (place['owner'] !== null && typeof place['owner'] !== 'string')
+      || (place['owner_id'] !== null && (!Number.isSafeInteger(place['owner_id']) || (place['owner_id'] as number) < 1))
+      || typeof place['quiet'] !== 'boolean' || !Array.isArray(envelope?.['things']) || !page
+      || !Number.isSafeInteger(page['total_items']) || (page['total_items'] as number) < 0 || typeof page['has_more'] !== 'boolean') {
+      throw new Error(`the city returned an invalid place outline ${id} page ${pageNumber}`)
+    }
+    metadata = Object.freeze({ placeId: id, name: (place['name'] as string).trim(), parentId: place['parent_id'] as number | null,
+      owner: place['owner'] as string | null, ownerId: place['owner_id'] as number | null,
+      quiet: place['quiet'] as boolean, totalItems: page['total_items'] as number, lawNames: parseLawNames(place['laws']) })
+    if (metadata.quiet) {
+      things.clear()
+      hasMore = false
+      locallyTruncated = false
+      break
+    }
+    for (const item of envelope.things) {
+      if (!item || typeof item !== 'object') continue
+      const row = item as Record<string, unknown>
+      const name = typeof row['name'] === 'string' ? row['name'].trim() : ''
+      if (!Number.isSafeInteger(row['id']) || (row['id'] as number) < 1 || row['place_id'] !== id || !name) continue
+      const hasDrawing = typeof row['has_drawing'] === 'boolean' ? row['has_drawing'] : undefined
+      const thing = Object.freeze({ id: row['id'] as number, name, placeId: id, hasDrawing })
+      if (things.has(thing.id) || things.size < MAX_ROOM_THINGS) things.set(thing.id, thing)
+      else locallyTruncated = true
+    }
+    hasMore = page['has_more'] as boolean
+    if (!hasMore || things.size >= MAX_ROOM_THINGS) break
+    const cursor = outlineCursor(page, id)
+    if (cursor === null) {
+      throw new Error(`place outline ${id} page ${pageNumber} has invalid next_before_thing_id`)
+    }
+    if (cursors.has(cursor)) {
+      throw new Error(`place outline ${id} page ${pageNumber} repeated next_before_thing_id ${String(cursor)}`)
+    }
+    cursors.add(cursor)
+    url = fixture ? `${base}-before-${String(cursor)}.json`
+      : `${base}?view=outline&before_thing_id=${String(cursor)}`
   }
-  const things = envelope.things.flatMap(item => {
-    if (!item || typeof item !== 'object') return []
-    const row = item as Record<string, unknown>
-    const name = typeof row['name'] === 'string' ? row['name'].trim() : ''
-    return Number.isSafeInteger(row['id']) && (row['id'] as number) > 0 && row['place_id'] === id && name
-      ? [{ id: row['id'] as number, name, placeId: id, hasDrawing: row['has_drawing'] === true }] : []
-  })
-  return Object.freeze({ placeId: id, name: (place['name'] as string).trim(), parentId: place['parent_id'] as number | null,
-    owner: place['owner'] as string | null, ownerId: place['owner_id'] as number | null,
-    quiet: place['quiet'], things: Object.freeze(things), totalItems: page['total_items'] as number,
-    hasMore: page['has_more'] as boolean, lawNames: parseLawNames(place['laws']) })
+  if (!metadata) throw new Error(`the city returned an invalid place outline ${id}`)
+  return Object.freeze({ ...metadata, things: Object.freeze([...things.values()]), hasMore: hasMore || locallyTruncated })
+}
+
+function outlineCursor(page: Record<string, unknown>, id: number): number | null {
+  const direct = page['next_before_thing_id']
+  if (Number.isSafeInteger(direct) && (direct as number) > 0) return direct as number
+  if (typeof page['next'] !== 'string') return null
+  let next: URL
+  try { next = new URL(page['next'], CITY_ORIGIN) } catch { return null }
+  const allowed = [...next.searchParams.keys()].every(key => key === 'view' || key === 'before_thing_id')
+  const cursor = Number(next.searchParams.get('before_thing_id'))
+  return next.origin === CITY_ORIGIN && next.pathname === `/api/place/${String(id)}`
+    && next.searchParams.get('view') === 'outline' && allowed && Number.isSafeInteger(cursor) && cursor > 0 ? cursor : null
 }

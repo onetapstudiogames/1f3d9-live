@@ -3,6 +3,7 @@ import type { NestedLayout } from './ground/nested.ts'
 import type { StageStandingSpot } from './ground/stage-ground.ts'
 import { addPresentThings, type ThingReservations, type ThingSimulation, type ThingState } from './things.ts'
 import { roomIsPublic } from './room-view.ts'
+import { MAX_ROOM_THINGS } from './thing-limits.ts'
 
 /** Reconciles one current room outline without consulting recorded thing history. */
 export function refreshPresentThings(
@@ -12,7 +13,8 @@ export function refreshPresentThings(
   blockers: readonly StageStandingSpot[],
 ): ThingSimulation {
   if (outline.quiet || !roomIsPublic(layout, outline.placeId)) return state
-  const listed = new Map(outline.things.map(thing => [thing.id, thing]))
+  const listedRows = outline.things.slice(0, MAX_ROOM_THINGS)
+  const listed = new Map(listedRows.map(thing => [thing.id, thing]))
   const things: Record<number, ThingState> = { ...state.things }
   const removed = new Set<number>()
 
@@ -24,7 +26,15 @@ export function refreshPresentThings(
       }
     }
   }
-  for (const item of outline.things) {
+  if (outline.hasMore) {
+    let retained = listed.size
+    for (const thing of Object.values(things)) {
+      if (thing.placeId !== outline.placeId || listed.has(thing.id)) continue
+      if (retained < MAX_ROOM_THINGS) retained += 1
+      else { delete things[thing.id]; removed.add(thing.id) }
+    }
+  }
+  for (const item of listedRows) {
     const existing = things[item.id]
     if (!existing) continue
     if (existing.placeId !== outline.placeId) {
@@ -38,9 +48,9 @@ export function refreshPresentThings(
   const reservations = removeThingReservations(state.reservations, removed)
   const pending = state.queue.length > 0 || Object.values(things).some(thing => thing.effect !== null)
   const cleaned: ThingSimulation = Object.freeze({ ...state, things: Object.freeze(things), reservations, pending })
-  if (outline.things.every(thing => cleaned.things[thing.id])) return cleaned
+  if (listedRows.every(thing => cleaned.things[thing.id])) return cleaned
   const currentOutline: PlaceOutline = Object.freeze({ ...outline,
-    things: Object.freeze(outline.things.map(thing => Object.freeze({ ...thing, placeId: outline.placeId }))),
+    things: Object.freeze(listedRows.map(thing => Object.freeze({ ...thing, placeId: outline.placeId }))),
   })
   return addPresentThings(cleaned, currentOutline, layout, blockers)
 }

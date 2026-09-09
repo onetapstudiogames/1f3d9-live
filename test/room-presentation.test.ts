@@ -3,7 +3,7 @@ import test from 'node:test'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { singleRoomLayout } from '../src/room-view.ts'
 import { presentRoom, roomFigurePriority } from '../src/room-presentation.ts'
-import { ROOM_FIGURE_PITCH, ROOM_FIGURE_SIZE } from '../src/room-crowding.ts'
+import { ROOM_FIGURE_PITCH, ROOM_FIGURE_SIZE, ROOM_THING_PITCH } from '../src/room-crowding.ts'
 
 const places = [1, 2, 3].map(id => ({ id, parent_id: id === 1 ? null : 1, name: `room ${id}`,
   quiet: id === 3, owner: null, owner_id: null, has_drawing: false }))
@@ -27,8 +27,11 @@ test('room presentation shares separated screen positions across figures, things
       y: result.placements[`${row.id === 4 ? 'thing' : 'resident'}:${row.id}`]!.y })
   }
   for (let a = 0; a < shown.length; a++) for (let b = a + 1; b < shown.length; b++) {
-    assert.ok(Math.abs(shown[a]!.x - shown[b]!.x) >= ROOM_FIGURE_PITCH ||
-      Math.abs(shown[a]!.y - shown[b]!.y) >= ROOM_FIGURE_PITCH)
+    const leftPitch = shown[a]!.id === 4 ? ROOM_THING_PITCH : ROOM_FIGURE_PITCH
+    const rightPitch = shown[b]!.id === 4 ? ROOM_THING_PITCH : ROOM_FIGURE_PITCH
+    const separation = (leftPitch + rightPitch) / 2
+    assert.ok(Math.abs(shown[a]!.x - shown[b]!.x) >= separation ||
+      Math.abs(shown[a]!.y - shown[b]!.y) >= separation)
   }
   assert.equal(result.residents[3]!.visible, false)
   assert.equal(residents[1].x, source.standing.x + 40)
@@ -121,4 +124,19 @@ test('a sleeper is excluded before motion, crowding, and hidden-speaker fallback
   assert.equal(frame.placements['resident:1'], undefined)
   assert.deepEqual(frame.hiddenSpeakerIds, [])
   assert.equal(frame.residents[2]!.visible, true)
+})
+
+test('a 375 by 540 room spreads 23 things using their 32-pixel footprints without overlap', () => {
+  const things = Object.fromEntries(Array.from({ length: 23 }, (_, index) => {
+    const id = 20_000 + index
+    return [id, { ...actor(id), x: source.standing.x + 20, y: source.standing.y + 20 }]
+  }))
+  const frame = presentRoom({}, things, world, target, new Set())
+  const shown = Object.values(frame.things).filter(row => row.visible)
+
+  assert.equal(shown.length, 23)
+  for (let left = 0; left < shown.length; left += 1) for (let right = left + 1; right < shown.length; right += 1) {
+    assert.ok(Math.abs(shown[left]!.x - shown[right]!.x) >= ROOM_THING_PITCH ||
+      Math.abs(shown[left]!.y - shown[right]!.y) >= ROOM_THING_PITCH)
+  }
 })

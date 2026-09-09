@@ -36,6 +36,8 @@ A required presence, directory, or feed failure freezes the last complete pictur
 
 `GET /api/place/<id>?view=outline` returns current facts for one selected room. Its direct `things` rows establish which things are on that floor. The page does not infer floor things from counts or descendant searches. A quiet room or a room beneath a quiet ancestor reveals no residents, things, speech, or activity.
 
+The selected room follows `things_page.next` or `next_before_thing_id` through same-room `before_thing_id` reads, capped at 200 things and 200 pages; a missing thing `has_drawing` flag means unknown, so each actually shown thing gets one cached `GET /api/drawing/thing/<id>` attempt unless an explicit flag says it has no drawing, and unshown things never start drawing reads.
+
 ## Change feed
 
 `GET /api/changes?since=<marker>&limit=200` returns changes oldest first:

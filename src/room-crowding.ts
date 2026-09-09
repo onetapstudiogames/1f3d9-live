@@ -1,7 +1,8 @@
-import { ROOM_RESIDENT_SIZE } from './room-appearance.ts'
+import { ROOM_RESIDENT_SIZE, ROOM_THING_SIZE } from './room-appearance.ts'
 
 export const ROOM_FIGURE_SIZE = ROOM_RESIDENT_SIZE
 export const ROOM_FIGURE_PITCH = ROOM_FIGURE_SIZE + 4
+export const ROOM_THING_PITCH = ROOM_THING_SIZE + 4
 
 export type RoomCrowdingRect = Readonly<{ x: number; y: number; width: number; height: number }>
 export type RoomCrowdingPoint = Readonly<{ x: number; y: number }>
@@ -85,32 +86,39 @@ export function allocateRoomCrowdingFrame(entries: readonly RoomCrowdingEntry[],
   const previousPlacements = isState(previous) ? previous.placements : previous
   const result: Record<string, RoomCrowdingPlacement> = {}
   let candidateChecks = 0
-  if (!finiteRect(band) || band.width < ROOM_FIGURE_SIZE || band.height < ROOM_FIGURE_SIZE) {
+  if (!finiteRect(band)) {
     for (const entry of ordered) result[entry.id] = hidden(entry)
     return Object.freeze({ bandKey, key, grid: Object.freeze([]), placements: Object.freeze(result),
       metrics: Object.freeze({ gridBuilds: 0, candidateChecks }) })
   }
 
-  const half = ROOM_FIGURE_SIZE / 2
-  const minimumX = band.x + half; const maximumX = band.x + band.width - half
-  const minimumY = band.y + half; const maximumY = band.y + band.height - half
   const occupied: RoomCrowdingRect[] = [...reserved]
-  const safe = (point: RoomCrowdingPoint): boolean => {
+  const sizeFor = (kind: RoomCrowdingEntry['kind']): number => kind === 'resident' ? ROOM_FIGURE_SIZE : ROOM_THING_SIZE
+  const pitchFor = (kind: RoomCrowdingEntry['kind']): number => kind === 'resident' ? ROOM_FIGURE_PITCH : ROOM_THING_PITCH
+  const safe = (point: RoomCrowdingPoint, kind: RoomCrowdingEntry['kind']): boolean => {
     candidateChecks += 1
+    const size = sizeFor(kind); const half = size / 2
+    const minimumX = band.x + half; const maximumX = band.x + band.width - half
+    const minimumY = band.y + half; const maximumY = band.y + band.height - half
     if (point.x < minimumX || point.x > maximumX || point.y < minimumY || point.y > maximumY) return false
-    const collisionHalf = ROOM_FIGURE_PITCH / 2
+    const collisionHalf = pitchFor(kind) / 2
     const bounds = { x: point.x - collisionHalf, y: point.y - collisionHalf,
-      width: ROOM_FIGURE_PITCH, height: ROOM_FIGURE_PITCH }
+      width: pitchFor(kind), height: pitchFor(kind) }
     return !occupied.some(rect => overlaps(bounds, rect)) && !routes.some(route => routeCrosses(bounds, route))
   }
   const reusedGrid = isState(previous) && previous.bandKey === bandKey
-  const grid: readonly RoomCrowdingPoint[] = reusedGrid ? previous.grid : (() => {
+  const buildGrid = (kind: RoomCrowdingEntry['kind']): readonly RoomCrowdingPoint[] => {
+    const half = sizeFor(kind) / 2; const pitch = pitchFor(kind)
+    const minimumX = band.x + half; const maximumX = band.x + band.width - half
+    const minimumY = band.y + half; const maximumY = band.y + band.height - half
     const built: RoomCrowdingPoint[] = []
-    for (let y = minimumY; y <= maximumY; y += ROOM_FIGURE_PITCH) {
-      for (let x = minimumX; x <= maximumX; x += ROOM_FIGURE_PITCH) built.push(Object.freeze({ x, y }))
+    for (let y = minimumY; y <= maximumY; y += pitch) {
+      for (let x = minimumX; x <= maximumX; x += pitch) built.push(Object.freeze({ x, y }))
     }
     return Object.freeze(built)
-  })()
+  }
+  const grid: readonly RoomCrowdingPoint[] = reusedGrid ? previous.grid : buildGrid('resident')
+  const thingGrid = buildGrid('thing')
 
   for (const entry of ordered) {
     const old = previousPlacements[entry.id]
@@ -121,23 +129,24 @@ export function allocateRoomCrowdingFrame(entries: readonly RoomCrowdingEntry[],
       y: entry.preferred.y + (oldOffsetIsUsable ? old.offsetY : 0),
     })
     let chosen: RoomCrowdingPoint | undefined
-    if (safe(entry.preferred)) chosen = entry.preferred
-    if (!chosen && (desired.x !== entry.preferred.x || desired.y !== entry.preferred.y) && safe(desired)) chosen = desired
+    if (entry.kind === 'resident' && safe(entry.preferred, entry.kind)) chosen = entry.preferred
+    if (!chosen && oldOffsetIsUsable && safe(desired, entry.kind)) chosen = desired
     if (!chosen) {
       let nearestDistance = Number.POSITIVE_INFINITY
-      for (const candidate of grid) {
-        if (!safe(candidate)) continue
+      for (const candidate of entry.kind === 'resident' ? grid : thingGrid) {
+        if (!safe(candidate, entry.kind)) continue
         const distance = (candidate.x - desired.x) ** 2 + (candidate.y - desired.y) ** 2
         if (distance < nearestDistance) { chosen = candidate; nearestDistance = distance }
       }
     }
+    if (!chosen && safe(entry.preferred, entry.kind)) chosen = entry.preferred
     if (!chosen) { result[entry.id] = hidden(entry); continue }
     const placement = Object.freeze({ id: entry.id, kind: entry.kind, x: chosen.x, y: chosen.y, visible: true,
       offsetX: chosen.x - entry.preferred.x, offsetY: chosen.y - entry.preferred.y })
     result[entry.id] = placement
-    const collisionHalf = ROOM_FIGURE_PITCH / 2
+    const collisionHalf = pitchFor(entry.kind) / 2
     occupied.push(Object.freeze({ x: chosen.x - collisionHalf, y: chosen.y - collisionHalf,
-      width: ROOM_FIGURE_PITCH, height: ROOM_FIGURE_PITCH }))
+      width: pitchFor(entry.kind), height: pitchFor(entry.kind) }))
   }
   return Object.freeze({ bandKey, key, grid, placements: Object.freeze(result),
     metrics: Object.freeze({ gridBuilds: reusedGrid ? 0 : 1, candidateChecks }) })

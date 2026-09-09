@@ -30,7 +30,7 @@ import { fixtureMode, recordSpeechFixture } from './fixture-state.ts'
 import { createActivityContext, type ActivityContext } from '../activity.ts'
 import { residentReservationFootprint } from '../resident-footprint.ts'
 import { SceneActivity } from './SceneActivity.ts'
-import { readNoteWords, readResidentDrawings, readVisibleThingDetails } from './SceneDetails.ts'
+import { readNoteWords, readResidentDrawings, readVisibleThingDetails, rememberOutlineThingDetails, thingDetailsPending } from './SceneDetails.ts'
 import { fetchChangeCursor } from '../city/current.ts'
 import { refreshPresentResidents } from '../current-state.ts'
 import { filterCurrentVisualEvents, returnToCurrentResidents } from '../current-return.ts'
@@ -81,6 +81,8 @@ export class CityScene extends Phaser.Scene {
   private thingViews = new Map<number, ThingView>()
   private thingNames = new Map<number, string>()
   private thingReads = new Set<number>()
+  private thingDrawingReads = new Set<number>()
+  private thingDrawingHints = new Map<number, boolean | undefined>()
   private readingThings = false
   private readonly readThing = createThingLoader()
   private readonly readThingDrawing = createDrawingLoader(undefined, 'thing')
@@ -88,7 +90,6 @@ export class CityScene extends Phaser.Scene {
   private outlineReads = new Set<number>()
   private outlineResolutions: Readonly<Record<number, OutlineResolution>> = {}
   private outlineActive = 0
-  private outlineDrawingReads = 0
   private outlinePending = new Map<number, PlaceOutline>()
   private outlineGeneration = 0
   private rooms?: RoomView
@@ -473,8 +474,11 @@ export class CityScene extends Phaser.Scene {
     document.body.dataset['liveThingsCount'] = String([...this.thingViews.values()].filter(view => view.sprite.visible).length)
     if (document.body.dataset['liveReady'] === 'true') void this.loadThingDetails()
     if (this.fixtureMode) {
-      document.body.dataset['liveThings'] = JSON.stringify(Object.values(state).filter(thing => thing.visible && thing.placeId === this.viewPlaceId && !this.contentsHidden.has(thing.placeId)).map(thing => ({
+      document.body.dataset['liveThings'] = JSON.stringify(this.shownThings().map(thing => ({
         id: thing.id, name: thing.name ?? this.thingNames.get(thing.id) ?? null,
+        x: this.thingViews.get(thing.id)!.sprite.x, y: this.thingViews.get(thing.id)!.sprite.y,
+        texture: this.thingViews.get(thing.id)!.sprite.texture.key,
+        width: this.thingViews.get(thing.id)!.sprite.displayWidth, height: this.thingViews.get(thing.id)!.sprite.displayHeight,
       })))
       document.body.dataset['liveOutlineThing'] = String(Boolean(state[2627]?.visible))
     }
@@ -548,23 +552,9 @@ export class CityScene extends Phaser.Scene {
     this.residents = Object.freeze({ ...this.residents, reservations: this.things.reservations })
     for (const row of outline.things) {
       if (!this.things.things[row.id]) continue
-      this.thingReads.add(row.id)
-      this.thingNames.set(row.id, row.name)
-      if (row.hasDrawing) void this.loadOutlineThingDrawing(row.id)
+      rememberOutlineThingDetails(row, { namesRead: this.thingReads, drawingHints: this.thingDrawingHints,
+        applyName: (id, name) => this.thingNames.set(id, name) })
     }
-  }
-  private async loadOutlineThingDrawing(id: number): Promise<void> {
-    const cycle = this.issueCycle
-    this.outlineDrawingReads += 1
-    try {
-      const art = await this.readThingDrawing(id)
-      if (!art) return
-      addThingTexture(this, `thing-${id}`, art)
-      this.thingViews.get(id)?.sprite.setTexture(`thing-${id}`)
-    } catch (error) {
-      console.error(error)
-      this.thingReadIssue('Some thing drawings could not be read; their pixel icons are kept.', cycle)
-    } finally { this.outlineDrawingReads -= 1 }
   }
   private drawHandovers(): void {
     const frame = this.handoverFrame && this.handovers
@@ -574,12 +564,18 @@ export class CityScene extends Phaser.Scene {
   }
   private async loadThingDetails(): Promise<void> {
     const cycle = this.issueCycle
-    const things = this.things?.things ?? {}; const hidden = this.displayHiddenRooms()
-    if (this.readingThings || !Object.values(things).some(thing => thing.visible && !hidden.has(thing.placeId) && !this.thingReads.has(thing.id))) return
+    const reads = { namesRead: this.thingReads, drawingsRead: this.thingDrawingReads, drawingHints: this.thingDrawingHints }
+    if (this.readingThings || !this.shownThings().some(thing => thingDetailsPending(thing, reads))) return
     this.readingThings = true
-    try { await readVisibleThingDetails(this.things?.things ?? {}, this.displayHiddenRooms(), this.thingReads, this.readThing, this.readThingDrawing,
-      (id, name) => this.thingNames.set(id, name), (id, art) => { addThingTexture(this, `thing-${id}`, art); this.thingViews.get(id)?.sprite.setTexture(`thing-${id}`) },
-      message => this.thingReadIssue(message, cycle)) } finally { this.readingThings = false }
+    try { await readVisibleThingDetails({ ...reads, shown: () => this.shownThings(), readThing: this.readThing, readDrawing: this.readThingDrawing,
+      applyName: (id, name) => this.thingNames.set(id, name),
+      applyDrawing: (id, art) => { addThingTexture(this, `thing-${id}`, art); this.thingViews.get(id)?.sprite.setTexture(`thing-${id}`) },
+      issue: message => this.thingReadIssue(message, cycle) }) } finally { this.readingThings = false }
+  }
+  private shownThings() {
+    if (!roomViewportUsable(this.viewport.width, this.viewport.height)) return []
+    return Object.values(this.roomThings).filter(thing => thing.placeId === this.viewPlaceId && !this.contentsHidden.has(thing.placeId)
+      && this.thingViews.get(thing.id)?.sprite.visible)
   }
   private thingReadIssue(message: string, cycle = this.issueCycle): void {
     if (cycle === this.issueCycle) this.readIssues = readIssuesAfterCycle(this.readIssues, [...this.readIssues, message], true)
@@ -734,7 +730,7 @@ export class CityScene extends Phaser.Scene {
         && roomViewportUsable(this.viewport.width, this.viewport.height),
       firstPollMerged: this.liveCaughtUp, needsOutline,
       outline: room ? this.outlineResolutions[room.id] ?? 'pending' : 'pending',
-      pendingReads: this.outlineActive + this.outlineDrawingReads + this.placeDrawingReads + Number(this.readingThings),
+      pendingReads: this.outlineActive + this.placeDrawingReads + Number(this.readingThings),
       pendingOutline: room ? this.outlinePending.has(room.id) : false,
     }))
     const name = room?.name ?? null

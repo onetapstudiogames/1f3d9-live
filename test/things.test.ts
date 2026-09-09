@@ -52,15 +52,16 @@ test('outline census adds only unknown things without moving known spots or bloc
   assert.equal(initial.things[13], undefined)
 })
 
-test('outline census reports endpoint totals and floor capacity honestly', () => {
+test('outline census retains membership when the nested-map floor cannot reserve every thing', () => {
   const tinyRooms = { ...rooms, 1: { ...rooms[1], standing: { x: 20, y: 20, width: 64, height: 64 } } }
   const tiny = { ...layout, rooms: tinyRooms } as unknown as NestedLayout
   const next = addPresentThings(createThings(replay({}), tiny), {
     placeId: 1, quiet: false, totalItems: 25, hasMore: true,
     things: Array.from({ length: 10 }, (_, index) => ({ id: 100 + index, name: `thing ${index}`, placeId: 1, hasDrawing: false })),
   }, tiny, [])
-  assert.ok(Object.keys(next.things).length < 10)
-  assert.ok(next.issues.includes('Current read for room 1 lists 25 things; only the newest items that fit are shown.'))
+  assert.equal(Object.keys(next.things).length, 10)
+  assert.ok((next.reservations[1]?.length ?? 0) < 10)
+  assert.ok(next.issues.includes('Current read for room 1 lists 25 things; more pages remain to be read.'))
 })
 
 test('outline placement treats off-inset figures as fixed obstacles and refuses quiet responses', () => {
