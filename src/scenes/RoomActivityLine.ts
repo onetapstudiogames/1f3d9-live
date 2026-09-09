@@ -4,7 +4,7 @@ import { activityReduce, emptyActivity, type ActivityContext, type ActivityEntry
 const HISTORY_LIMIT = 200
 const compare = (a: ActivityEntry, b: ActivityEntry): number => a.time - b.time || a.changeId - b.changeId
 
-export function activityObservationWatermark(rows: readonly ReplayEvent[], observedAt: number): number {
+function activityObservationWatermark(rows: readonly ReplayEvent[], observedAt: number): number {
   let watermark = Number.isFinite(observedAt) ? observedAt : Number.NEGATIVE_INFINITY
   for (const row of rows) {
     const recordedAt = Date.parse(row.at)
@@ -86,15 +86,6 @@ export class RoomActivityLine {
     this.render()
   }
 
-  append(rows: readonly ReplayEvent[], recordedNow: number): readonly ActivityEntry[] {
-    const base = Object.freeze({ ...this.state, entries: Object.freeze([]) })
-    const next = activityReduce(base, rows, recordedNow, this.context, Math.max(HISTORY_LIMIT, rows.length))
-    if (next === base) return Object.freeze([])
-    this.state = Object.freeze({ ...next, entries: this.addWitnessed(this.state.entries, next.entries) })
-    this.render()
-    return next.entries
-  }
-
   witness(rows: readonly ReplayEvent[], observedAt: number, context: ActivityContext = this.context): readonly ActivityEntry[] {
     if (!rows.length) return Object.freeze([])
     const entries = activityEntriesFromRows(rows, activityObservationWatermark(rows, observedAt), context)
@@ -117,13 +108,6 @@ export class RoomActivityLine {
     this.render()
     return Object.freeze(added)
   }
-  snapshot(): ActivityState { return this.state }
-  restore(state: ActivityState): void {
-    this.unshownSpeech = null
-    this.state = Object.freeze({ ...state, entries: Object.freeze([...state.entries].sort(compare).slice(-HISTORY_LIMIT)) })
-    this.render(true)
-  }
-  reset(_rows: readonly ReplayEvent[] = [], _recordedNow = Number.NEGATIVE_INFINITY): void { this.clearHistory() }
   clearHistory(): void {
     this.unshownSpeech = null
     this.state = emptyActivity()

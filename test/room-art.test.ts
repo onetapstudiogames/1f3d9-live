@@ -1,24 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { curtainCells, placeFloorArt, placesWithDrawings, roomsToDraw, undrawnFloor } from '../src/room-art.ts'
+import { curtainCells, placeFloorArt, roomsToDraw, undrawnFloor } from '../src/room-art.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import type { ReplayFile } from '../src/city/types.ts'
-
-test('only recorded drawing flags select places, once per valid id', () => {
-  const places = Object.freeze([
-    { id: 1, has_drawing: true }, { id: 2, has_drawing: false },
-    { id: 1, has_drawing: true }, { id: 3, has_drawing: true },
-    { id: Number.NaN, has_drawing: true }, { id: 1.5, has_drawing: true },
-    { id: 0, has_drawing: true }, { id: -1, has_drawing: true },
-  ])
-  const layout = nestedLayout([
-    { id: 1, parent_id: null }, { id: 2, parent_id: 1 }, { id: 3, parent_id: 1 },
-    { id: 0, parent_id: 1 }, { id: -1, parent_id: 1 },
-  ])
-  assert.deepEqual(placesWithDrawings(places, layout), [1, 3])
-  assert.deepEqual(placesWithDrawings([], layout), [])
-})
 
 test('place art repeats as a crisp 32 pixel tile across each inner floor', async () => {
   const replay = JSON.parse(await readFile(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
@@ -78,8 +63,6 @@ test('a quiet room keeps its own name and covers the rooms inside it', () => {
   ])
   assert.deepEqual(roomsToDraw(layout).map(room => room.id), [1, 2, 5])
   assert.equal(roomsToDraw(layout)[1]?.name, 'closed')
-  const marked = [1, 2, 3, 4, 5].map(id => ({ id, has_drawing: true }))
-  assert.deepEqual(placesWithDrawings(marked, layout), [1, 5], 'quiet rooms show just the name; covered drawings need no reads')
   const quietWorld = nestedLayout([{ id: 1, parent_id: null, quiet: true }, { id: 2, parent_id: 1 }])
   assert.deepEqual(roomsToDraw(quietWorld).map(room => room.id), [1])
 })

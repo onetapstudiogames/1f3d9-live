@@ -228,7 +228,7 @@ export class RoomMotion {
     const arrivingOnly = plan.fromId === null
     return Object.freeze({ ...resident, placeId: arrivingOnly ? move.toId : resident.placeId,
       x: arrivingOnly ? targetWorld.x : resident.x, y: arrivingOnly ? targetWorld.y : resident.y,
-      walking: true, ambientWalking: false, walkEventId: event.change_id,
+      walking: true, walkEventId: event.change_id,
       destinationId: move.toId, destination: targetWorld, path: [], walkElapsed: 0,
       walkDuration: plan.durationMs, bubble: null })
   }

@@ -1,22 +1,10 @@
 import { activityEntry, type ActivityContext, type ActivityEntity, type ActivityPlacementVisibility } from './activity.ts'
-import type { ReplayEvent, ReplayPlace, Resident } from './city/types.ts'
+import type { ReplayEvent, Resident } from './city/types.ts'
 import type { NestedLayout } from './ground/nested.ts'
-import type { Founding, NameSpan, PlacePlan, Renaming } from './places.ts'
 import { appliedMove } from './replay/index.ts'
 import { createPresentResidents, type ResidentState, type Simulation } from './replay/simulation.ts'
 import { registrationFor } from './newcomers.ts'
 import { createdThing, movedThing } from './things.ts'
-
-export function currentPlacePlan(places: readonly ReplayPlace[]): PlacePlan {
-  const names = new Map<number, readonly NameSpan[]>(places.map(place => [place.id, Object.freeze([
-    Object.freeze({ name: place.name, startedAt: Number.NEGATIVE_INFINITY, endedAt: null }),
-  ])]))
-  return Object.freeze({
-    foundings: new Map<number, Founding>(), renamings: new Map<number, readonly Renaming[]>(),
-    historyPlaceIds: Object.freeze([]), issues: Object.freeze([]), names,
-    guardedPlaceIds: new Set<number>(), unresolvedFoundings: new Set<number>(), unresolvedRenamings: new Set<number>(),
-  })
-}
 
 export function refreshPresentResidents(
   state: Simulation,

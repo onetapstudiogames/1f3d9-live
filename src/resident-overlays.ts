@@ -56,7 +56,7 @@ function thingGlyphDistance(distance: number): number {
   return distance * ROOM_THING_SIZE / ORIGINAL_THING_SIZE
 }
 
-export function residentActivityRects(cells: readonly (readonly [number, number])[], color: number, alpha: number): readonly ResidentOverlayRect[] {
+function residentActivityRects(cells: readonly (readonly [number, number])[], color: number, alpha: number): readonly ResidentOverlayRect[] {
   return residentOverlayRects(cells.map(([x, y]) => ({
     x: 18 + x * ORIGINAL_GLYPH_CELL_SIZE, y: -22 + y * ORIGINAL_GLYPH_CELL_SIZE,
     width: ORIGINAL_GLYPH_CELL_SIZE, height: ORIGINAL_GLYPH_CELL_SIZE, color, alpha,
@@ -75,14 +75,6 @@ export function activityCueRects(cells: readonly (readonly [number, number])[], 
     x: originX + x * cellSize, y: originY + y * cellSize,
     width: cellSize, height: cellSize, color, alpha,
   })))
-}
-
-export function refreshTextResolution(text: Readonly<{
-  style: Readonly<{ resolution: number }>
-  setResolution(resolution: number): unknown
-}>, devicePixelRatio: number): void {
-  const resolution = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? Math.max(1, devicePixelRatio) : 1
-  if (text.style.resolution !== resolution) text.setResolution(resolution)
 }
 
 export const RESIDENT_LOCK_RECTS = residentOverlayRects(lockCells().map(cell => ({ ...cell, alpha: 1 })))

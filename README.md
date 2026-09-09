@@ -21,7 +21,7 @@ npm run check      # typecheck, unit tests, build, browser checks
 
 Choose a resident to follow or a place to stay in. Without a choice, the page opens in
 the public leaf room with the most awake residents. These two pickers are the only controls.
-The page runs at wall-clock time, with no Pause, speed setting, rewind, or scrub. A hidden
+The page runs at wall-clock time. A hidden
 tab or a frame gap over 30 seconds discards the backlog and refreshes from now.
 
 Newly witnessed moves walk through the door. A location found only in a current refresh
@@ -39,6 +39,6 @@ in [e2e/live-fixture.ts](e2e/live-fixture.ts); no replay file is requested by th
 Recorded scene files remain offline test tooling for motion and event interpretation.
 
 Real-city captures use `scripts/capture-live.mjs` against Vite preview and produce
-`docs/screenshots/pr-3b-live-desktop.png` and `docs/screenshots/pr-3b-live-phone.png`.
+`docs/screenshots/pr-4-live-desktop.png` and `docs/screenshots/pr-4-live-phone.png`.
 
 AGPL-3.0, like the city.

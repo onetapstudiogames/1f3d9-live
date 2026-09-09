@@ -1,14 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { floorViewport } from '../src/floor-viewport.ts'
+import { roomCanvasSizing } from '../src/room-canvas.ts'
 
-test('a world portrait never needs a world-sized image, even while browsing and zooming', () => {
-  const room = { x: 4, y: 4, width: 40000, height: 60000 }
-  for (const zoom of [0.005, 0.03, 0.65, 1, 3]) {
-    for (let pan = 0; pan < 1000; pan += 19) {
-      const view = floorViewport(room, { scrollX: pan, scrollY: pan, width: 375, height: 812, zoom })
+test('room floor textures fit the canvas at each device density', () => {
+  for (const density of [1, 1.25, 2, 3]) {
+    for (const width of [375, 1280]) {
+      const frame = roomCanvasSizing(width, 600, density)
+      const room = { x: 16, y: 16, width: width - 32, height: 568 }
+      const view = floorViewport(room, { ...frame, width: frame.backingWidth, height: frame.backingHeight })
       assert.ok(view)
-      assert.ok(view.pixelWidth <= 375 && view.pixelHeight <= 812)
+      assert.ok(view.pixelWidth <= frame.backingWidth && view.pixelHeight <= frame.backingHeight)
+      assert.equal(view.scale, density)
+      assert.equal(view.x, room.x)
+      assert.equal(view.y, room.y)
       assert.ok(view.cropWidth > 0 && view.cropHeight > 0)
       assert.ok(view.cropX >= 0 && view.cropY >= 0)
       assert.ok(view.cropX + view.cropWidth <= view.pixelWidth + 0.001)

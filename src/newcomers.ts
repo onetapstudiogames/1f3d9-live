@@ -1,19 +1,10 @@
 import type { ReplayEvent } from './city/types.ts'
 import type { Point, Room } from './ground/nested.ts'
-
-const NEWCOMER_DURATION_MS = 24 * 60 * 60 * 1_000
 const SPARKLE_DURATION_MS = 2_400
 const FIGURE_EDGE_INSET = 32
 const FIGURE_CENTER_SEPARATION = 48
 
 export type Sparkle = Readonly<{ shownAt: number; expiresAt: number }>
-
-export function isNewResident(joinedAt: string | null | undefined, recordedTime: number): boolean {
-  if (typeof joinedAt !== 'string' || !Number.isFinite(recordedTime)) return false
-  const joinedTime = Date.parse(joinedAt)
-  if (!Number.isFinite(joinedTime)) return false
-  return joinedTime <= recordedTime && recordedTime < joinedTime + NEWCOMER_DURATION_MS
-}
 
 export function registrationFor(event: ReplayEvent): { id: number; handle: string; at: number } | null {
   const handle = typeof event.actor === 'string' ? event.actor.trim() : ''

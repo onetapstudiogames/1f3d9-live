@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RESIDENT_BULB_RECTS, RESIDENT_HAND_RECTS, RESIDENT_LOCK_RECTS,
-  THING_HEART_RECTS, activityCueRects, residentActivityRects, residentBulbAnchor,
+  THING_HEART_RECTS, activityCueRects, residentBulbAnchor,
   residentGlyphDistance, thingOverlayAnchor, residentOverlayDistance, residentOverlayRects } from '../src/resident-overlays.ts'
 import { cueFrame, emptyCueState, stepActivityCues } from '../src/activity-cues.ts'
 import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
@@ -48,7 +48,7 @@ test('the handshake shake keeps the original two-pixel cell scale', () => {
 test('a looking cue sits beside the larger resident head with doubled glyph cells', () => {
   const [frame] = cueFrame(stepActivityCues(emptyCueState(), [{ key: 'look', cue: 'looking',
     startedAt: 0, residentId: 7, thingId: null, roomId: 3 }], 0), 0)
-  const rects = residentActivityRects(frame!.cells, 0xffe69a, 0.5)
+  const rects = activityCueRects(frame!.cells, 'resident', 1, 0xffe69a, 0.5)
   assert.equal(Math.min(...rects.map(cell => cell.x)), 31.5)
   assert.equal(Math.min(...rects.map(cell => cell.y)), -38.5)
   assert.equal(Math.max(...rects.map(cell => cell.x + cell.width)), 59.5)

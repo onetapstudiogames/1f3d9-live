@@ -50,7 +50,7 @@ export function parseChangesPage(value: unknown): ChangesPage {
 }
 
 function browserSearch(): string { return typeof window === 'undefined' ? '' : window.location.search }
-function fixture(params: URLSearchParams): boolean { return params.has('replay') || params.has('census') }
+function fixture(params: URLSearchParams): boolean { return params.has('census') }
 function readOptions(): RequestInit {
   return { method: 'GET', credentials: 'omit', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15_000) }
 }

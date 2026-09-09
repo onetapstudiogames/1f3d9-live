@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { blockedAttemptFor, blockDuration, currentLawStatus, invalidateCurrentLaws, lockCells, parseCurrentLaws, rememberCurrentLaws } from '../src/laws.ts'
+import { blockedAttemptFor, blockedAttemptDuration, lockCells, parseCurrentLaws } from '../src/laws.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
 import type { ReplayFile, Resident } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
@@ -15,24 +15,6 @@ test('current laws accept only complete public law rows and preserve exact names
   }
 })
 
-test('current law status names only the current live room after its outline read', () => {
-  let current: ReadonlyMap<number, readonly string[] | null> = new Map()
-  assert.equal(currentLawStatus(current, 97, 'lab', true), '')
-  current = rememberCurrentLaws(current, 97, ['hospitable', 'marks-its-room'])
-  assert.equal(currentLawStatus(current, 97, 'lab', true), 'Laws last read for lab: hospitable, marks-its-room.')
-  assert.equal(currentLawStatus(current, 97, 'lab', false), '')
-  assert.equal(currentLawStatus(rememberCurrentLaws(current, 2, []), 2, 'empty', true), 'Laws last read for empty: none.')
-  assert.equal(currentLawStatus(rememberCurrentLaws(current, 3, null), 3, 'unclear', true), 'Laws last read for unclear: unknown.')
-  assert.ok(currentLawStatus(rememberCurrentLaws(current, 4, ['wide'.repeat(80)]), 4, 'busy', true).endsWith('….'))
-})
-
-test('a live law change invalidates every inherited current-law answer', () => {
-  const known = new Map<number, readonly string[]>([[97, ['regression bench']], [767, []]])
-  const invalidated = invalidateCurrentLaws(known)
-  assert.deepEqual([...invalidated], [[97, null], [767, null]])
-  assert.deepEqual([...known], [[97, ['regression bench']], [767, []]])
-})
-
 test('only the verified blocked move shape makes a recorded padlock moment', () => {
   const event: ReplayEvent = { actor: 'scree', at: '2026-09-02T19:32:12.325Z', change_id: '84649', event_id: 84651,
     kind: 'action', detail: { action: 'move', status: 'blocked', action_id: 71583, source_thing_id: 2477, trait_id: 205 } }
@@ -45,7 +27,7 @@ test('only the verified blocked move shape makes a recorded padlock moment', () 
 })
 
 test('a blocked-action padlock stays visible for 4.4 seconds', () => {
-  assert.equal(blockDuration(), 4_400)
+  assert.equal(blockedAttemptDuration(), 4_400)
 })
 
 test('the lock is a small immutable pixel glyph', () => {

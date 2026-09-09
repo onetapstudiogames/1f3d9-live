@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, validContinuation, type LiveReadState } from '../src/live.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { settleAtNow } from '../src/live.ts'
+import { settleRecordedScene } from './helpers/recorded-scene.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { createThings, reserveLiveThingEvents } from '../src/things.ts'
 import { createResidents, prepareLiveResidents } from '../src/replay/simulation.ts'
@@ -62,7 +62,7 @@ test('opening now settles recorded things but census has the final word on resid
   }
   const census = [{ id: 1, handle: 'one', model: '', joined_at: '2025-01-01T00:00:00Z', has_drawing: false, current_place_id: 1, asleep: false }]
   const layout = nestedLayout(replay.map.places, { 1: 2, 2: 2 })
-  const now = settleAtNow(replay, census, layout)
+  const now = settleRecordedScene(replay, census, layout)
   assert.equal(now.residents.residents[1]!.placeId, 1)
   assert.equal(now.things.things[7]!.placeId, 2)
   assert.equal(now.residents.pending, false)

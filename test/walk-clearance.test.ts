@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import type { ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type Point } from '../src/ground/nested.ts'
-import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
+import { createResidents, stepResidents } from '../src/replay/simulation.ts'
+import { recordedRoomCapacity } from './helpers/recorded-scene.ts'
 import { createThings } from '../src/things.ts'
 
 // For an axis-aligned walk, both 32-pixel squares must stay separated on at least
@@ -18,7 +19,7 @@ test('every saved-day walk clears figures standing when its route is planned', (
   const replay = JSON.parse(readFileSync(new URL('fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
   const census = ['page1', 'page2'].flatMap(page =>
     (JSON.parse(readFileSync(new URL(`fixtures/residents-presence-${page}.json`, import.meta.url), 'utf8')) as { residents: Resident[] }).residents)
-  const layout = nestedLayout(replay.map.places, roomCapacity(replay, census))
+  const layout = nestedLayout(replay.map.places, recordedRoomCapacity(replay, census))
   let state = createResidents(replay, census, layout, createThings(replay, layout).reservations)
   let now = 0
   let walks = 0

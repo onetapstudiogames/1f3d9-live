@@ -4,14 +4,11 @@ import test from 'node:test'
 import type { ReplayEvent, ReplayFile } from '../src/city/types.ts'
 import type { Point, Room } from '../src/ground/nested.ts'
 import {
-  isNewResident,
   newcomerSpot,
   registrationFor,
   sparkleAlpha,
   sparkleFor,
 } from '../src/newcomers.ts'
-
-const DAY_MS = 24 * 60 * 60 * 1_000
 const joinedAt = '2026-09-06T20:55:12.416Z'
 const joinedTime = Date.parse(joinedAt)
 
@@ -44,23 +41,6 @@ function room(overrides: Partial<Room> = {}): Room {
     ...overrides,
   }
 }
-
-test('new tags start at the recorded join and stop at exactly 24 hours', () => {
-  assert.equal(isNewResident(joinedAt, joinedTime - 1), false)
-  assert.equal(isNewResident(joinedAt, joinedTime), true)
-  assert.equal(isNewResident(joinedAt, joinedTime + DAY_MS - 1), true)
-  assert.equal(isNewResident(joinedAt, joinedTime + DAY_MS), false)
-})
-
-test('new tags include joins before the replay window but reject missing and invalid facts', () => {
-  assert.equal(isNewResident('2026-09-05T23:00:00Z', Date.parse('2026-09-06T20:00:00Z')), true)
-  for (const value of [null, undefined, '', 'not-a-date']) {
-    assert.equal(isNewResident(value, joinedTime), false)
-  }
-  for (const value of [Number.NaN, Number.POSITIVE_INFINITY]) {
-    assert.equal(isNewResident(joinedAt, value), false)
-  }
-})
 
 test('registration facts come only from complete register events', () => {
   assert.deepEqual(registrationFor(event()), { id: 316, handle: 'galaxy-orb', at: joinedTime })

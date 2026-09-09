@@ -1,9 +1,7 @@
-import type { Drawing, ReplayEvent, ReplayFile, Resident, Thing } from '../city/types.ts'
+import type { Drawing, ReplayEvent, Resident, Thing } from '../city/types.ts'
 import type { NestedLayout } from '../ground/nested.ts'
 import { liveNoteReferences } from '../live.ts'
 import { NOTE_READ_ISSUE, verifiedNoteEvent } from '../note-words.ts'
-import { planPlaces, type PlacePlan } from '../places.ts'
-import { placesWithDrawings } from '../room-art.ts'
 import type { Simulation } from '../replay/simulation.ts'
 import type { ThingSimulation } from '../things.ts'
 
@@ -14,16 +12,6 @@ async function inFours(ids: readonly number[], read: (id: number) => Promise<voi
   for (let offset = 0; offset < ids.length; offset += 4) await Promise.all(ids.slice(offset, offset + 4).map(read))
 }
 
-export async function readPlacePlan(replay: ReplayFile, readHistory: (id: number) => Promise<readonly import('../places.ts').NameSpan[] | null>, issue: Issue): Promise<PlacePlan> {
-  const initial = planPlaces(replay)
-  const histories = new Map<number, readonly import('../places.ts').NameSpan[]>()
-  await inFours(initial.historyPlaceIds, async id => {
-    try { const history = await readHistory(id); if (history) histories.set(id, history) }
-    catch (error) { console.error(error); issue('Some earlier place names could not be read; unknown names stay blank.') }
-  })
-  return planPlaces(replay, histories)
-}
-
 export async function readResidentDrawings(census: readonly Resident[], residents: Simulation['residents'], read: DrawingReader,
   apply: (id: number, drawing: Drawing | null) => void, issue: Issue): Promise<void> {
   const ids = [...new Set([...census.filter(row => row.has_drawing).map(row => row.id),
@@ -31,14 +19,6 @@ export async function readResidentDrawings(census: readonly Resident[], resident
   await inFours(ids, async id => {
     try { apply(id, await read(id)) }
     catch (error) { console.error(error); issue('Some drawings could not be read; their last figures are kept.') }
-  })
-}
-
-export async function readPlaceDrawings(replay: ReplayFile, layout: NestedLayout, read: DrawingReader,
-  apply: (id: number, drawing: Drawing) => void, issue: Issue): Promise<void> {
-  await inFours(placesWithDrawings(replay.map.places, layout), async id => {
-    try { const drawing = await read(id); if (drawing) apply(id, drawing) }
-    catch (error) { console.error(error); issue('Some place drawings could not be read; their rooms are kept.') }
   })
 }
 

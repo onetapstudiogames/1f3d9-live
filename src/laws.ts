@@ -28,23 +28,6 @@ export function parseLawNames(value: unknown): readonly string[] | null {
   return laws && Object.freeze(laws.map(law => law.name))
 }
 
-export function rememberCurrentLaws(current: ReadonlyMap<number, readonly string[] | null>, placeId: number,
-  names: readonly string[] | null): ReadonlyMap<number, readonly string[] | null> {
-  const next = new Map(current); next.set(placeId, names); return next
-}
-
-export function invalidateCurrentLaws(current: ReadonlyMap<number, readonly string[] | null>): ReadonlyMap<number, readonly string[] | null> {
-  return new Map([...current.keys()].map(placeId => [placeId, null] as const))
-}
-
-export function currentLawStatus(current: ReadonlyMap<number, readonly string[] | null>, placeId: number | null,
-  roomName: string | null, live: boolean): string {
-  if (!live || placeId === null || !roomName || !current.has(placeId)) return ''
-  const names = current.get(placeId) ?? null
-  return names === null ? `Laws last read for ${roomName}: unknown.`
-    : `Laws last read for ${roomName}: ${names.length ? shorten(names.join(', ')) : 'none'}.`
-}
-
 export function blockedAttemptFor(event: ReplayEvent): BlockedAttempt | null {
   const actor = typeof event.actor === 'string' ? event.actor.trim() : ''
   const detail = event.detail
@@ -54,11 +37,9 @@ export function blockedAttemptFor(event: ReplayEvent): BlockedAttempt | null {
   return Object.freeze({ changeId: event.change_id, actor, action: detail.action as BlockableAction })
 }
 
-export function blockDuration(): number {
+export function blockedAttemptDuration(): number {
   return DURATION_MS
 }
-
-export const blockedAttemptDuration = blockDuration
 
 export function lockCells(): readonly PixelRect[] {
   const cells = [{ x: 2, y: 0, width: 6, height: 2, color: 0x412f2b },
@@ -68,6 +49,3 @@ export function lockCells(): readonly PixelRect[] {
 }
 
 function positive(value: unknown): boolean { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 }
-function shorten(value: string): string {
-  const characters = Array.from(value); return characters.length <= 220 ? value : `${characters.slice(0, 219).join('')}…`
-}

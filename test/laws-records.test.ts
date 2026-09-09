@@ -5,7 +5,7 @@ import type { ReplayEvent, ReplayFile, ReplayPlace, Resident } from '../src/city
 import { blockedAttemptFor, parseCurrentLaws, parseLawNames } from '../src/laws.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { createResidents, stepResidents } from '../src/replay/simulation.ts'
-import { settleAtNow } from '../src/live.ts'
+import { settleRecordedScene } from './helpers/recorded-scene.ts'
 
 const read = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
 const events = read('events-scree-laws.json').events as Array<ReplayEvent & { id: number }>
@@ -99,20 +99,21 @@ test('scree arrives before the blocked attempt and waits for its display before 
   let state = stepResidents(createResidents(replay, [census], layout), replay.timeline, 0, 0, layout)
   assert.equal(state.residents[95]!.walking, true)
   assert.equal(state.residents[95]!.blockedAttempt ?? null, null)
-  state = stepResidents(state, [], 10_000, 10_000, layout)
+  const arrivalAt = state.residents[95]!.walkDuration
+  state = stepResidents(state, [], arrivalAt, arrivalAt, layout)
   const held = state.residents[95]!
   assert.equal(held.placeId, 457)
   assert.equal(held.walking, false)
   assert.equal(held.blockedAttempt?.attempt.action, 'move')
   assert.equal(held.queue.length, 1)
   const expires = held.blockedAttempt!.expiresAt
-  state = stepResidents(state, [], expires - 10_001, expires - 1, layout)
+  state = stepResidents(state, [], expires - arrivalAt - 1, expires - 1, layout)
   assert.deepEqual([state.residents[95]!.x, state.residents[95]!.y], [held.x, held.y])
   assert.equal(state.residents[95]!.walking, false)
   state = stepResidents(state, [], 1, expires, layout)
   assert.equal(state.residents[95]!.blockedAttempt ?? null, null)
   assert.equal(state.residents[95]!.walking, true)
-  const settled = settleAtNow(replay, [census], layout)
+  const settled = settleRecordedScene(replay, [census], layout)
   assert.equal(settled.residents.pending, false)
   assert.equal(settled.residents.residents[95]!.blockedAttempt ?? null, null)
 })

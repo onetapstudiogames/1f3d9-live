@@ -8,17 +8,19 @@ import { bubbleShape } from '../speech.ts'
 import { BubbleView } from './BubbleView.ts'
 import { residentBobOffset } from '../resident-bob.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
-import { reappearanceAlpha } from '../viewer.ts'
 import { ROOM_RESIDENT_SIZE, roomFigureStyle } from '../room-appearance.ts'
 import { RESIDENT_LOCK_RECTS, residentOverlayDistance, residentOverlayRects } from '../resident-overlays.ts'
 import { NameLabel, type NameLabelBounds } from './NameLabel.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
-export type ResidentLabelBounds = NameLabelBounds
 
 const SPOTLIGHT_CELLS = residentOverlayRects(spotlightCells())
 const BALLOT_CELLS = residentOverlayRects(ballotCells())
 const CONFETTI_CELLS = residentOverlayRects(confettiCells())
+
+function reappearanceAlpha(relocatedAt: number | undefined, now: number): number {
+  return relocatedAt === undefined ? 1 : Math.min(1, Math.max(0, (now - relocatedAt) / 400))
+}
 
 export class ResidentView {
   readonly sprite: Phaser.GameObjects.Image
@@ -33,7 +35,7 @@ export class ResidentView {
   constructor(scene: Phaser.Scene, resident: ResidentState) {
     const plate = residentNamePlate(resident.handle)
     this.sprite = scene.add.image(resident.x, resident.y, 'resident-default')
-      .setScale(roomFigureStyle('resident').scale).setDepth(100).setInteractive({ useHandCursor: true }).setData('residentId', resident.id)
+      .setScale(roomFigureStyle('resident').scale).setDepth(100)
     this.name = new NameLabel(scene, plate ?? '', null, 101)
     this.sparkle = scene.add.graphics().setDepth(102).setVisible(false)
     this.sparkle.fillStyle(0xffe69a, 1)
@@ -48,7 +50,7 @@ export class ResidentView {
 
   update(resident: ResidentState, now: number, places: readonly ReplayPlace[] = [],
     viewport: Readonly<{ width: number; height: number }> = { width: 0, height: 0 }): VisibleSpeech | null {
-    const bob = residentBobOffset(resident.id, now, resident.walking || resident.ambientWalking === true)
+    const bob = residentBobOffset(resident.id, now, resident.walking)
     this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
     const appearance = reappearanceAlpha(resident.relocatedAt, now)
     this.sprite.setAlpha(appearance)
@@ -98,7 +100,7 @@ export class ResidentView {
     return null
   }
 
-  labelBounds(): ResidentLabelBounds | null {
+  labelBounds(): NameLabelBounds | null {
     return this.name.bounds()
   }
 

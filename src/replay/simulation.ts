@@ -1,21 +1,22 @@
 import type { ReplayEvent, ReplayFile, Resident } from '../city/types.ts'
-import { initialResidents, residentIndex } from '../city/residents.ts'
+import { initialResidents } from '../city/residents.ts'
 import type { NestedLayout, Point } from '../ground/nested.ts'
 import { pointAlongPath, sidestepPath, walkPath } from '../ground/path.ts'
 import { roomContains } from '../ground/room-shape.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
-import { appliedMove, bubbleFor, bubbleVisible, walkDuration, walkProgress, type Bubble } from './index.ts'
+import { appliedMove } from './index.ts'
+import { bubbleFor, type SpeechBubble as Bubble } from '../speech.ts'
 import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
-import { createdThing, movedThing, type ThingReservations } from '../things.ts'
+import type { ThingReservations } from '../things.ts'
 import { transferDuration, transferFor, transferPartners, type Transfer, type TransferPartners } from '../giving.ts'
 import { inventionDuration, inventionFor, type StartedInvention } from '../inventions.ts'
 import { agreementSignature, handshakeDuration, planHandshake, type AgreementSignature, type HandshakeResident, type StartedHandshake } from '../agreements.ts'
 import type { AgreementPair } from '../city/agreements.ts'
 import { showingNoticeFor, type ShowingMoment } from '../showing.ts'
 import { blockedAttemptFor, blockedAttemptDuration, type BlockMoment } from '../laws.ts'
-import { IDLE_WALK_SPEED, idleDestination, idleSegmentClear, nextIdleAt } from './idle.ts'
 import { residentReservationFootprint } from '../resident-footprint.ts'
 import { ROOM_RESIDENT_SIZE } from '../room-appearance.ts'
+import { ROOM_WALK_SPEED } from '../room-motion.ts'
 import { roomNoteMayStart } from '../room-speech-queue.ts'
 
 export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number }>
@@ -48,12 +49,6 @@ export type ResidentState = Readonly<{
   transferUntil: number | null
   inventionUntil?: number | null
   agreementUntil?: number | null
-  ambientWalking?: boolean
-  ambientFrom?: Point | null
-  ambientDestination?: Point | null
-  ambientElapsed?: number
-  ambientDuration?: number
-  nextAmbientAt?: number
   showingNotice?: ShowingMoment | null
   blockedAttempt?: BlockMoment | null
 }>
@@ -83,42 +78,6 @@ export function dropSleepingResidentBubbles(state: Simulation, sleepers: Readonl
   const residents: Record<number, ResidentState> = { ...state.residents }
   for (const id of ids) residents[id] = Object.freeze({ ...residents[id]!, bubble: null })
   return Object.freeze({ ...state, residents: Object.freeze(residents), pending: Object.values(residents).some(isPending) })
-}
-
-export function roomCapacity(replay: ReplayFile, census: readonly Resident[]): Readonly<Record<number, number>> {
-  const handles = residentIndex(census)
-  const registrations = new Map(replay.timeline.flatMap(event => {
-    const registration = registrationFor(event)
-    return registration ? [[registration.handle, registration.id] as const] : []
-  }))
-  const rootId = replay.map.places.find(place => place.parent_id === null)?.id
-  const occupants = new Map<number, Set<string>>()
-  const add = (placeId: unknown, key: string | undefined): void => {
-    if (!validPlace(placeId) || key === undefined) return
-    const held = occupants.get(placeId) ?? new Set<string>()
-    held.add(key)
-    occupants.set(placeId, held)
-  }
-  for (const resident of initialResidents(replay, census)) add(resident.placeId, `id:${String(resident.id)}`)
-  for (const [key, start] of Object.entries(replay.start)) {
-    const match = /^thing:(\d+)$/.exec(key)
-    if (match && validPlace(Number(match[1]))) add(start?.place_id, key)
-  }
-  for (const event of replay.timeline) {
-    const thing = createdThing(event) ?? movedThing(event)
-    if (thing) add(thing.placeId, `thing:${String(thing.id)}`)
-    const actorText = typeof event.actor === 'string' ? event.actor.trim() : ''
-    const actor = actorText.length ? actorText : null
-    const known = actor === null ? undefined : handles.get(actor)?.id ?? registrations.get(actor)
-    const key = known !== undefined
-      ? `id:${String(known)}`
-      : actor !== null ? `handle:${actor}` : `event:${String(event.event_id)}:unknown`
-    add(event.detail.from_place_id, key)
-    add(event.detail.to_place_id, key)
-    add(event.detail.place_id, key)
-    if (registrationFor(event)) add(rootId, key)
-  }
-  return Object.freeze(Object.fromEntries([...occupants].map(([id, ids]) => [id, ids.size])))
 }
 
 export function createResidents(
@@ -250,13 +209,12 @@ export function stepResidents(
     if (resident.agreementUntil != null && nowMs >= resident.agreementUntil) resident = { ...resident, agreementUntil: null }
     if (resident.showingNotice && nowMs >= resident.showingNotice.expiresAt) resident = { ...resident, showingNotice: null }
     if (resident.blockedAttempt && nowMs >= resident.blockedAttempt.expiresAt) resident = { ...resident, blockedAttempt: null }
-    if (resident.bubble && !bubbleVisible(resident.bubble.expiresAt, nowMs)) resident = { ...resident, bubble: null }
+    if (resident.bubble && nowMs >= resident.bubble.expiresAt) resident = { ...resident, bubble: null }
     if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
     if (resident.walking) resident = options.advanceMove?.(resident, elapsed) ?? advanceWalk(resident, elapsed, layout)
     if (!resident.walking && !resident.bubble && !resident.sparkle && !resident.showingNotice && !resident.blockedAttempt
       && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null
       ) {
-      if (resident.queue.length > 0 && resident.ambientWalking) resident = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null }
       resident = startNext(resident, residents, nowMs, layout, issues, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs, startedEvents, options)
     }
     residents[id] = resident
@@ -286,68 +244,6 @@ export function stepResidents(
   }
   return Object.freeze({ ...freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations, startedTransfers),
     startedInventions: Object.freeze(startedInventions), startedHandshakes: Object.freeze(startedHandshakes), startedEvents: Object.freeze(startedEvents) })
-}
-
-export function stepIdleResidents(
-  state: Simulation,
-  deltaMs: number,
-  nowMs: number,
-  layout: NestedLayout,
-  asleepIds: ReadonlySet<number> = new Set(),
-  canDraw: (resident: ResidentState) => boolean = () => true,
-): Simulation {
-  const elapsed = Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 0
-  const residents: Record<number, ResidentState> = { ...state.residents }
-  for (const id of Object.keys(residents).map(Number).sort((a, b) => a - b)) {
-    let resident = residents[id]!
-    const busy = resident.walking || resident.queue.length > 0 || resident.bubble !== null || resident.sparkle !== null
-      || resident.showingNotice != null || resident.blockedAttempt != null || resident.transferUntil !== null
-      || resident.inventionUntil != null || resident.agreementUntil != null
-    const eligible = !busy && !asleepIds.has(id) && canDraw(resident) && resident.placeId !== null && resident.visible
-      && placeVisible(layout, resident.placeId)
-    if (resident.ambientWalking && resident.ambientFrom && resident.ambientDestination) {
-      if (!eligible || resident.placeId === null) {
-        residents[id] = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null,
-          ambientElapsed: 0, ambientDuration: 0, nextAmbientAt: nextIdleAt(id, nowMs) }
-        continue
-      }
-      const ambientElapsed = Math.min(resident.ambientDuration ?? 0, (resident.ambientElapsed ?? 0) + elapsed)
-      const share = resident.ambientDuration ? ambientElapsed / resident.ambientDuration : 1
-      const proposed = { x: resident.ambientFrom.x + (resident.ambientDestination.x - resident.ambientFrom.x) * share,
-        y: resident.ambientFrom.y + (resident.ambientDestination.y - resident.ambientFrom.y) * share }
-      const occupied = idleObstacles(id, resident.placeId, residents, state.reservations)
-      const room = layout.rooms[resident.placeId]
-      if (!room || !roomContains(room, proposed) || !idleSegmentClear(resident, proposed, occupied)) {
-        residents[id] = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null,
-          ambientElapsed: 0, ambientDuration: 0, nextAmbientAt: nextIdleAt(id, nowMs) }
-        continue
-      }
-      resident = { ...resident, x: proposed.x, y: proposed.y,
-        flipX: resident.ambientDestination.x < resident.ambientFrom.x, ambientElapsed }
-      if (share >= 1) resident = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null,
-        ambientElapsed: 0, ambientDuration: 0, nextAmbientAt: nextIdleAt(id, nowMs) }
-      residents[id] = resident
-      continue
-    }
-    if (!eligible || resident.placeId === null) continue
-    const dueAt = resident.nextAmbientAt ?? nextIdleAt(id, 0)
-    if (nowMs < dueAt) { residents[id] = { ...resident, nextAmbientAt: dueAt }; continue }
-    const room = layout.rooms[resident.placeId]
-    if (!room) continue
-    const occupied = idleObstacles(id, resident.placeId, residents, state.reservations)
-    const destination = idleDestination(id, Math.floor(dueAt / 1_000), resident, room.standing, occupied)
-    if (!destination) { residents[id] = { ...resident, nextAmbientAt: nextIdleAt(id, nowMs) }; continue }
-    const distance = Math.hypot(destination.x - resident.x, destination.y - resident.y)
-    residents[id] = { ...resident, ambientWalking: true, ambientFrom: { x: resident.x, y: resident.y }, ambientDestination: destination,
-      ambientElapsed: 0, ambientDuration: distance / IDLE_WALK_SPEED * 1_000, nextAmbientAt: undefined }
-  }
-  return Object.freeze({ ...state, residents: Object.freeze(Object.fromEntries(Object.entries(residents).map(([id, resident]) => [id, Object.freeze(resident)]))), startedEvents: Object.freeze([]) })
-}
-
-function idleObstacles(id: number, placeId: number, residents: Readonly<Record<number, ResidentState>>, reservations: ThingReservations): Point[] {
-  return [...Object.values(residents).filter(other => other.id !== id && other.placeId === placeId)
-    .flatMap(other => [{ x: other.x, y: other.y }, ...(other.destinationId === placeId && other.destination ? [other.destination] : [])]),
-  ...(reservations[placeId] ?? []).map(spot => ({ x: spot.x + 16, y: spot.y + 16 }))]
 }
 
 function startNext(
@@ -479,7 +375,7 @@ function startNext(
         continue
       }
       const distance = path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
-      return { ...next, queue, walking: true, ambientWalking: false, ambientFrom: null, ambientDestination: null, path, walkElapsed: 0, walkDuration: walkDuration(distance), destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
+      return { ...next, queue, walking: true, path, walkElapsed: 0, walkDuration: distance / ROOM_WALK_SPEED * 1_000, destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
     }
     if (event.kind === 'note') {
       if (sleeping) {
@@ -553,40 +449,11 @@ function handleNote(
 
 function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLayout): ResidentState {
   const walkElapsed = Math.min(resident.walkDuration, resident.walkElapsed + deltaMs)
-  const distance = pathDistance(resident.path)
   const elapsedShare = resident.walkDuration ? walkElapsed / resident.walkDuration : 1
-  const slowCentres = walkSlowCentres(resident, layout)
-  const sampled = pointAlongPath(resident.path, walkProgress(distance, elapsedShare, slowCentres))
+  const sampled = pointAlongPath(resident.path, elapsedShare)
   if (!sampled.done) return { ...resident, walkElapsed, x: sampled.x, y: sampled.y, flipX: sampled.flipX, visible: visibleAt(sampled, layout) }
   const placeId = resident.destinationId
   return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null }
-}
-
-function walkSlowCentres(resident: ResidentState, layout: NestedLayout): number[] {
-  const distance = pathDistance(resident.path)
-  const centres = [0, distance]
-  for (const id of [resident.placeId, resident.destinationId]) {
-    const door = id === null ? undefined : layout.rooms[id]?.door
-    if (door) {
-      const at = distanceAtPoint(resident.path, door)
-      if (at !== null) centres.push(at)
-    }
-  }
-  return centres
-}
-
-function pathDistance(path: readonly Point[]): number {
-  return path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
-}
-
-function distanceAtPoint(path: readonly Point[], wanted: Point): number | null {
-  let distance = 0
-  for (let index = 0; index < path.length; index += 1) {
-    const point = path[index]!
-    if (point.x === wanted.x && point.y === wanted.y) return distance
-    if (index + 1 < path.length) distance += Math.hypot(path[index + 1]!.x - point.x, path[index + 1]!.y - point.y)
-  }
-  return null
 }
 
 function freeDestination(id: number, placeId: number, all: Readonly<Record<number, ResidentState>>, layout: NestedLayout, reservations: ThingReservations): Point | null {
