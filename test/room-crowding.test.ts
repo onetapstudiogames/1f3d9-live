@@ -5,6 +5,7 @@ import {
   allocateRoomCrowdingFrame,
   ROOM_FIGURE_PITCH,
   ROOM_FIGURE_SIZE,
+  ROOM_THING_PITCH,
   roomLabelFitsViewport,
   visibleRoomLabels,
   type RoomCrowdingEntry,
@@ -15,12 +16,11 @@ const entry = (id: string, x: number, y: number, priority = 0,
   kind: 'resident' | 'thing' = 'resident'): RoomCrowdingEntry =>
   Object.freeze({ id, kind, preferred: Object.freeze({ x, y }), priority })
 
-function overlap(left: RoomCrowdingPlacement, right: RoomCrowdingPlacement): boolean {
-  return Math.abs(left.x - right.x) < ROOM_FIGURE_SIZE && Math.abs(left.y - right.y) < ROOM_FIGURE_SIZE
-}
-
 function overlapWithBob(left: RoomCrowdingPlacement, right: RoomCrowdingPlacement): boolean {
-  return Math.abs(left.x - right.x) < ROOM_FIGURE_PITCH && Math.abs(left.y - right.y) < ROOM_FIGURE_PITCH
+  const leftPitch = left.kind === 'resident' ? ROOM_FIGURE_PITCH : ROOM_THING_PITCH
+  const rightPitch = right.kind === 'resident' ? ROOM_FIGURE_PITCH : ROOM_THING_PITCH
+  const separation = (leftPitch + rightPitch) / 2
+  return Math.abs(left.x - right.x) < separation && Math.abs(left.y - right.y) < separation
 }
 
 test('allocates colliding projected residents and things deterministically without sprite overlap', () => {
@@ -37,7 +37,6 @@ test('allocates colliding projected residents and things deterministically witho
   assert.equal(visible.length, 3)
   for (let left = 0; left < visible.length; left += 1) {
     for (let right = left + 1; right < visible.length; right += 1) {
-      assert.equal(overlap(visible[left]!, visible[right]!), false)
       assert.equal(overlapWithBob(visible[left]!, visible[right]!), false)
     }
   }

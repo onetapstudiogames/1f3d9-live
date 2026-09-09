@@ -1,9 +1,9 @@
-import type { Drawing, ReplayEvent, Resident, Thing } from '../city/types.ts'
+import type { Drawing, OutlineThing, ReplayEvent, Resident, Thing } from '../city/types.ts'
 import type { NestedLayout } from '../ground/nested.ts'
 import { liveNoteReferences } from '../live.ts'
 import { NOTE_READ_ISSUE, verifiedNoteEvent } from '../note-words.ts'
 import type { Simulation } from '../replay/simulation.ts'
-import type { ThingSimulation } from '../things.ts'
+import type { ThingState } from '../things.ts'
 
 type DrawingReader = (id: number) => Promise<Drawing | null>
 type Issue = (message: string) => void
@@ -37,20 +37,42 @@ export async function readNoteWords(events: readonly ReplayEvent[], layout: Nest
   return Object.freeze(result)
 }
 
-export async function readVisibleThingDetails(things: ThingSimulation['things'], hidden: ReadonlySet<number>, readIds: Set<number>,
-  readThing: (id: number) => Promise<Thing | null>, readDrawing: DrawingReader,
-  applyName: (id: number, name: string) => void, applyDrawing: (id: number, drawing: Drawing) => void, issue: Issue): Promise<void> {
+export type ThingDetailReads = Readonly<{
+  shown: () => readonly ThingState[]
+  namesRead: Set<number>; drawingsRead: Set<number>; drawingHints: Map<number, boolean | undefined>
+  readThing: (id: number) => Promise<Thing | null>; readDrawing: DrawingReader
+  applyName: (id: number, name: string) => void; applyDrawing: (id: number, drawing: Drawing) => void; issue: Issue
+}>
+
+export function thingDetailsPending(thing: ThingState, reads: Pick<ThingDetailReads, 'namesRead' | 'drawingsRead' | 'drawingHints'>): boolean {
+  return !reads.namesRead.has(thing.id) || (reads.drawingHints.get(thing.id) !== false && !reads.drawingsRead.has(thing.id))
+}
+
+export function rememberOutlineThingDetails(thing: OutlineThing, reads: Pick<ThingDetailReads, 'namesRead' | 'drawingHints' | 'applyName'>): void {
+  reads.namesRead.add(thing.id)
+  reads.applyName(thing.id, thing.name)
+  if (thing.hasDrawing !== undefined) reads.drawingHints.set(thing.id, thing.hasDrawing)
+}
+
+export async function readVisibleThingDetails(reads: ThingDetailReads): Promise<void> {
   for (;;) {
-    const batch = Object.values(things).filter(thing => thing.visible && !hidden.has(thing.placeId) && !readIds.has(thing.id)).slice(0, 4)
+    const batch = reads.shown().filter(thing => thingDetailsPending(thing, reads)).slice(0, 4)
     if (!batch.length) return
-    for (const thing of batch) readIds.add(thing.id)
     await Promise.all(batch.map(async thing => {
-      let detail: Thing | null = null
-      try { detail = await readThing(thing.id); if (detail) applyName(thing.id, detail.name); else if (thing.name === null) issue('Some thing names are missing; those name plates stay blank.') }
-      catch (error) { console.error(error); if (thing.name === null) issue('Some thing names could not be read; those name plates stay blank.') }
-      if (!detail?.has_drawing) return
-      try { const drawing = await readDrawing(thing.id); if (drawing) applyDrawing(thing.id, drawing) }
-      catch (error) { console.error(error); issue('Some thing drawings could not be read; their pixel icons are kept.') }
+      if (!reads.namesRead.has(thing.id)) {
+        reads.namesRead.add(thing.id)
+        try {
+          const detail = await reads.readThing(thing.id)
+          if (detail) { reads.applyName(thing.id, detail.name); reads.drawingHints.set(thing.id, detail.has_drawing) }
+          else if (thing.name === null) reads.issue('Some thing names are missing; those name plates stay blank.')
+        } catch (error) { console.error(error); if (thing.name === null) reads.issue('Some thing names could not be read; those name plates stay blank.') }
+      }
+      // A name read or earlier batch can finish after the viewer has left this room.
+      if (reads.drawingHints.get(thing.id) === false || reads.drawingsRead.has(thing.id)
+        || !reads.shown().some(row => row.id === thing.id)) return
+      reads.drawingsRead.add(thing.id)
+      try { const drawing = await reads.readDrawing(thing.id); if (drawing) reads.applyDrawing(thing.id, drawing) }
+      catch (error) { console.error(error); reads.issue('Some thing drawings could not be read; their pixel icons are kept.') }
     }))
   }
 }

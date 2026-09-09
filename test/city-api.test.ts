@@ -33,7 +33,7 @@ test('public reads send only an anonymous JSON accept header', async (t) => {
   assert.ok(options?.signal instanceof AbortSignal)
 })
 
-test('place outline loader reads fresh direct things and keeps drawing flags strict', async (t) => {
+test('place outline loader reads fresh direct things and preserves drawing flags when present', async (t) => {
   const original = globalThis.fetch
   const calls: string[] = []
   globalThis.fetch = async (input, options) => {
@@ -43,18 +43,186 @@ test('place outline loader reads fresh direct things and keeps drawing flags str
     return Response.json({ place: { id: 3, name: ' the square ', parent_id: 2, owner: 'founder', owner_id: 1, quiet: false }, things: [
       { id: 9, name: ' parcel ', place_id: 3 },
       { id: 8, name: 'painted', place_id: 3, has_drawing: true },
+      { id: 6, name: 'plain', place_id: 3, has_drawing: false },
       { id: 7, name: 'wrong room', place_id: 4, has_drawing: true },
-    ], things_page: { total_items: 100, returned_items: 3, has_more: true } })
+    ], things_page: { total_items: 3, returned_items: 4, has_more: false, next_before_thing_id: null } })
   }
   t.after(() => { globalThis.fetch = original })
   const load = (id: number) => fetchPlaceOutline(id, '?places=/fixtures/places')
   const [first, second] = await Promise.all([load(3), load(3)])
   assert.notEqual(first, second)
   assert.deepEqual(first, { placeId: 3, name: 'the square', parentId: 2, owner: 'founder', ownerId: 1, quiet: false, things: [
-    { id: 9, name: 'parcel', placeId: 3, hasDrawing: false },
+    { id: 9, name: 'parcel', placeId: 3, hasDrawing: undefined },
     { id: 8, name: 'painted', placeId: 3, hasDrawing: true },
-  ], totalItems: 100, hasMore: true, lawNames: null })
+    { id: 6, name: 'plain', placeId: 3, hasDrawing: false },
+  ], totalItems: 3, hasMore: false, lawNames: null })
   assert.deepEqual(calls, ['/fixtures/places/place-3.json', '/fixtures/places/place-3.json'])
+})
+
+test('place outline loader follows bounded thing pages for the same room', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    const url = String(input)
+    urls.push(url)
+    const cursor = new URL(url).searchParams.get('before_thing_id')
+    const ids = cursor === null ? [23, 22, 21, 20, 19, 18, 17, 16, 15, 14]
+      : cursor === '14' ? [13, 12, 11, 10, 9, 8, 7, 6, 5, 4] : [3, 2, 1]
+    return Response.json({
+      place: { id: 498, name: 'still room', parent_id: 2, owner: null, owner_id: null, quiet: false },
+      things: ids.map(id => ({ id, name: `thing ${String(id)}`, place_id: 498 })),
+      things_page: { total_items: 23, returned_items: ids.length, has_more: ids[ids.length - 1] !== 1,
+        ...(cursor === null
+          ? { next: '/api/place/498?view=outline&before_thing_id=14' }
+          : { next_before_thing_id: ids[ids.length - 1] === 1 ? null : ids[ids.length - 1] }) },
+    })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  const outline = await fetchPlaceOutline(498, '')
+  assert.equal(outline?.things.length, 23)
+  assert.equal(outline?.hasMore, false)
+  assert.ok(outline?.things.every(thing => thing.hasDrawing === undefined))
+  assert.deepEqual(urls, [
+    'https://1f3d9.com/api/place/498?view=outline',
+    'https://1f3d9.com/api/place/498?view=outline&before_thing_id=14',
+    'https://1f3d9.com/api/place/498?view=outline&before_thing_id=4',
+  ])
+})
+
+test('place outline fixture pagination stays inside its named fixture root', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    const url = String(input)
+    urls.push(url)
+    const first = url.endsWith('place-7.json')
+    return Response.json({
+      place: { id: 7, name: 'room', parent_id: 2, owner: null, owner_id: null, quiet: false },
+      things: [{ id: first ? 9 : 8, name: 'thing', place_id: 7 }],
+      things_page: { total_items: 2, returned_items: 1, has_more: first,
+        next_before_thing_id: first ? 9 : null },
+    })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  assert.equal((await fetchPlaceOutline(7, '?places=/saved/places'))?.things.length, 2)
+  assert.deepEqual(urls, ['/saved/places/place-7.json', '/saved/places/place-7-before-9.json'])
+})
+
+test('a missing saved continuation keeps its partial fixture while a missing live continuation fails', async t => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return calls % 2 === 0 ? new Response('', { status: 404 }) : Response.json({
+      place: { id: 7, name: 'room', parent_id: 2, owner: null, owner_id: null, quiet: false },
+      things: [{ id: 9, name: 'parcel', place_id: 7 }],
+      things_page: { total_items: 2, has_more: true, next_before_thing_id: 9 },
+    })
+  }
+  t.after(() => { globalThis.fetch = original })
+  const fixture = await fetchPlaceOutline(7, '?places=/saved/places')
+  assert.deepEqual(fixture?.things.map(thing => thing.id), [9])
+  assert.equal(fixture?.hasMore, true)
+  assert.equal(calls, 2)
+  await assert.rejects(fetchPlaceOutline(7, ''), /404.*page 2/)
+  assert.equal(calls, 4)
+})
+
+test('place outline pagination rejects missing and repeated cursors', async (t) => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return Response.json({
+      place: { id: 7, name: 'room', parent_id: 2, owner: null, owner_id: null, quiet: false }, things: [],
+      things_page: { total_items: 2, returned_items: 0, has_more: true,
+        ...(calls === 1 ? { next_before_thing_id: 9 } : { next_before_thing_id: 9 }) },
+    })
+  }
+  t.after(() => { globalThis.fetch = original })
+  await assert.rejects(fetchPlaceOutline(7, ''), /repeated next_before_thing_id 9/)
+
+  globalThis.fetch = async () => Response.json({
+    place: { id: 7, name: 'room', parent_id: 2, owner: null, owner_id: null, quiet: false }, things: [],
+    things_page: { total_items: 2, returned_items: 0, has_more: true,
+      next: 'https://evil.example/api/place/7?view=outline&before_thing_id=6' },
+  })
+  await assert.rejects(fetchPlaceOutline(7, ''), /next_before_thing_id/)
+})
+
+test('place outline pagination reads at most 200 pages and returns at most 200 unique things', async (t) => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    const id = 1000 - calls
+    return Response.json({
+      place: { id: 7, name: 'room', parent_id: 2, owner: null, owner_id: null, quiet: false },
+      things: [{ id, name: `thing ${String(id)}`, place_id: 7 }],
+      things_page: { total_items: 500, returned_items: 1, has_more: true, next_before_thing_id: id },
+    })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  const outline = await fetchPlaceOutline(7, '')
+  assert.equal(calls, 200)
+  assert.equal(outline?.things.length, 200)
+  assert.equal(outline?.hasMore, true)
+})
+
+test('place outline reports local truncation when one complete page contains over 200 things', async (t) => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => Response.json({
+    place: { id: 7, name: 'room', parent_id: 2, owner: null, owner_id: null, quiet: false },
+    things: Array.from({ length: 201 }, (_, index) => ({ id: index + 1, name: `thing ${String(index + 1)}`, place_id: 7 })),
+    things_page: { total_items: 201, returned_items: 201, has_more: false, next_before_thing_id: null },
+  })
+  t.after(() => { globalThis.fetch = original })
+
+  const outline = await fetchPlaceOutline(7, '')
+  assert.equal(outline?.things.length, 200)
+  assert.equal(outline?.hasMore, true)
+})
+
+test('place outline stops after 200 pages even when pages add no unique things', async (t) => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return Response.json({
+      place: { id: 7, name: 'room', parent_id: 2, owner: null, owner_id: null, quiet: false }, things: [],
+      things_page: { total_items: 500, returned_items: 0, has_more: true, next_before_thing_id: 1000 - calls },
+    })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  const outline = await fetchPlaceOutline(7, '')
+  assert.equal(calls, 200)
+  assert.equal(outline?.things.length, 0)
+  assert.equal(outline?.hasMore, true)
+})
+
+test('a later quiet outline page clears accumulated things and stops reading', async (t) => {
+  const original = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    const quiet = calls === 2
+    return Response.json({
+      place: { id: 7, name: quiet ? 'private room' : 'room', parent_id: 2, owner: null, owner_id: null, quiet },
+      things: [{ id: calls, name: 'private thing', place_id: 7 }],
+      things_page: { total_items: 2, returned_items: 1, has_more: !quiet, next_before_thing_id: quiet ? null : 9 },
+    })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  const outline = await fetchPlaceOutline(7, '')
+  assert.equal(calls, 2)
+  assert.equal(outline?.quiet, true)
+  assert.equal(outline?.name, 'private room')
+  assert.deepEqual(outline?.things, [])
 })
 
 test('fetchCensus advances named fixture pages without live calls', async (t) => {

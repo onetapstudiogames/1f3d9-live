@@ -56,7 +56,7 @@ export type Drawing = Readonly<{
 }>
 
 export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean }>
-export type OutlineThing = Readonly<{ id: number; name: string; placeId: number; hasDrawing: boolean }>
+export type OutlineThing = Readonly<{ id: number; name: string; placeId: number; hasDrawing: boolean | undefined }>
 export type PlaceOutline = Readonly<{ placeId: number; quiet: boolean; things: readonly OutlineThing[]; totalItems: number;
   hasMore: boolean; lawNames?: readonly string[] | null; name?: string; parentId?: number | null;
   owner?: string | null; ownerId?: number | null }>
