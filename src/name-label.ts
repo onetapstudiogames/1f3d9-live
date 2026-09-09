@@ -25,12 +25,19 @@ export function labelContent(name: string, kind: string | null, nameWidth: numbe
   return Object.freeze({ showKind, scroll, width, textWidth: width - NAME_LABEL.padding })
 }
 
+/** One hold at the start, then a continuous scroll: the offset wraps every full pass with no rest. */
 export function marqueeOffset(textWidth: number, elapsedMs: number): number {
   if (textWidth <= NAME_LABEL.textWidth) return 0
   const distance = textWidth + NAME_LABEL.gap
   const travelMs = distance / NAME_LABEL.speed * 1_000
-  const cycleMs = NAME_LABEL.pauseMs + travelMs
-  const withinCycle = Math.max(0, elapsedMs) % cycleMs
-  if (withinCycle < NAME_LABEL.pauseMs) return 0
-  return -Math.min(distance, (withinCycle - NAME_LABEL.pauseMs) / 1_000 * NAME_LABEL.speed)
+  const withinTravel = Math.max(0, elapsedMs - NAME_LABEL.pauseMs) % travelMs
+  // A full pass lands back on 0; floating point can leave it a hair short of travelMs.
+  if (withinTravel < 1e-6 || travelMs - withinTravel < 1e-6) return 0
+  return -(withinTravel / 1_000 * NAME_LABEL.speed)
+}
+
+/** The two copies of a long name: the second follows the first one gap behind, so the clip never empties. */
+export function marqueeCopies(textWidth: number, elapsedMs: number): readonly [number, number] {
+  const first = marqueeOffset(textWidth, elapsedMs)
+  return Object.freeze([first, first + textWidth + NAME_LABEL.gap]) as readonly [number, number]
 }

@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { labelContent, marqueeOffset, NAME_LABEL } from '../name-label.ts'
+import { labelContent, marqueeCopies, NAME_LABEL } from '../name-label.ts'
 import { roomTextResolution } from '../room-appearance.ts'
 
 export type NameLabelBounds = Readonly<{ x: number; y: number; width: number; height: number }>
@@ -9,6 +9,7 @@ export class NameLabel {
   private readonly clipShape: Phaser.GameObjects.Graphics
   private readonly clip: Phaser.Display.Masks.GeometryMask
   private readonly text: Phaser.GameObjects.Text
+  private readonly echo: Phaser.GameObjects.Text
   private readonly kind: Phaser.GameObjects.Text
   private name: string
   private kindName: string | null
@@ -33,6 +34,12 @@ export class NameLabel {
       resolution: roomTextResolution(window.devicePixelRatio),
     }).setOrigin(0, 0.5).setDepth(depth + 0.1).setMask(this.clip)
     this.text.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
+    // The second copy of a scrolling name, one gap behind the first, so the label never shows empty.
+    this.echo = scene.add.text(0, 0, name, {
+      fontFamily: 'system-ui, sans-serif', fontSize: `${NAME_LABEL.fontSize}px`, color: '#534b3b',
+      resolution: roomTextResolution(window.devicePixelRatio),
+    }).setOrigin(0, 0.5).setDepth(depth + 0.1).setMask(this.clip).setVisible(false)
+    this.echo.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
     this.kind = scene.add.text(0, 0, kind ?? '', {
       fontFamily: 'system-ui, sans-serif', fontSize: '9px', color: '#8a7256',
       resolution: roomTextResolution(window.devicePixelRatio),
@@ -44,7 +51,7 @@ export class NameLabel {
 
   setContent(name: string, kind: string | null = this.kindName): void {
     if (name === this.name && kind === this.kindName) return
-    if (name !== this.name) this.text.setText(name)
+    if (name !== this.name) { this.text.setText(name); this.echo.setText(name) }
     if (kind !== this.kindName) this.kind.setText(kind ?? '')
     this.name = name
     this.kindName = kind
@@ -59,6 +66,7 @@ export class NameLabel {
     const resolution = roomTextResolution(window.devicePixelRatio)
     if (this.text.style.resolution !== resolution) {
       this.text.setResolution(resolution)
+      this.echo.setResolution(resolution)
       this.kind.setResolution(resolution)
       this.refreshLayout()
     }
@@ -67,7 +75,9 @@ export class NameLabel {
     const left = x - this.textWidth * scale / 2
     const centerY = y + NAME_LABEL.height * scale / 2
     if (this.scrolling) {
-      this.text.setPosition(left + marqueeOffset(this.text.width, elapsedMs) * scale, centerY).setScale(scale)
+      const [first, second] = marqueeCopies(this.text.width, elapsedMs)
+      this.text.setPosition(left + first * scale, centerY).setScale(scale)
+      this.echo.setPosition(left + second * scale, centerY).setScale(scale)
     } else {
       const kindWidth = this.showKind ? this.kind.width : 0
       const totalWidth = this.text.width + (kindWidth > 0 ? kindWidth + 5 : 0)
@@ -90,6 +100,7 @@ export class NameLabel {
   setAlpha(alpha: number): void {
     this.card.setAlpha(alpha)
     this.text.setAlpha(alpha)
+    this.echo.setAlpha(alpha)
     this.kind.setAlpha(alpha)
   }
 
@@ -102,6 +113,7 @@ export class NameLabel {
 
   destroy(): void {
     this.text.destroy()
+    this.echo.destroy()
     this.kind.destroy()
     this.clip.destroy()
     this.clipShape.destroy()
@@ -123,6 +135,7 @@ export class NameLabel {
     this.clipShape.fillStyle(0xffffff, 1).fillRect(-this.textWidth / 2, 0,
       this.textWidth, NAME_LABEL.height)
     this.kind.setVisible(policy.showKind && this.allowed && this.shown)
+    this.echo.setVisible(policy.scroll && this.allowed && this.shown)
   }
 
   private applyVisibility(): void {
@@ -132,5 +145,6 @@ export class NameLabel {
     const policy = labelContent(this.name, this.kindName, this.text.width, this.kind.width)
     this.showKind = policy.showKind
     this.kind.setVisible(visible && this.showKind)
+    this.echo.setVisible(visible && this.scrolling)
   }
 }

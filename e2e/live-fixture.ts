@@ -15,7 +15,12 @@ export async function json(route: Route, body: unknown, status = 200): Promise<v
 }
 
 export async function advanceToLivePoll(page: Page): Promise<void> {
-  for (let elapsed = 0; elapsed < 30_000; elapsed += 10_000) await page.clock.fastForward(10_000)
+  // Let a frame run after each jump: one starved frame spanning the whole cadence would
+  // read as a render gap (live-continuity) and turn the due poll into a fresh-head read.
+  for (let elapsed = 0; elapsed < 30_000; elapsed += 10_000) {
+    await page.clock.fastForward(10_000)
+    await page.clock.runFor(32)
+  }
   await page.clock.fastForward(1)
 }
 
