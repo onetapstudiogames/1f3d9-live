@@ -478,7 +478,8 @@ export class CityScene extends Phaser.Scene {
         this.thingViews.set(thing.id, view)
       }
       const shake = this.roomMotion.actionFrames().find(frame => frame.thingId === thing.id)?.offsetX ?? 0
-      view.update(shake ? { ...thing, x: thing.x + shake } : thing,
+      // The thing rattles against the resident, not with it: opposite phase.
+      view.update(shake ? { ...thing, x: thing.x - shake } : thing,
         thing.name ?? this.thingNames.get(thing.id) ?? null, zoom, this.elapsed, this.handoverFrame?.carryThingIds.includes(thing.id) ?? false)
     }
     document.body.dataset['liveThingsCount'] = String([...this.thingViews.values()].filter(view => view.sprite.visible).length)

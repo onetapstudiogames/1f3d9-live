@@ -13,7 +13,6 @@ export function actionCaption(entry: ActivityEntry, startedAt: number): ActionCa
   const actor = entry.entities.find(entity => entity.type === 'resident' && entity.id === entry.actorResidentId)?.name.trim()
   if (!actor || !entry.text.startsWith(`${actor} `)) return null
   let text = entry.text.slice(actor.length + 1).trim().replace(/\.$/, '')
-  if (entry.cue === 'looking' && text === 'is looking around') text = 'looked around'
   if (!text || /^talked(?:;|$)/.test(text)) return null
   return Object.freeze({ key: entry.key, residentId: entry.actorResidentId, text,
     startedAt, expiresAt: startedAt + ACTION_CAPTION_LIFETIME })
@@ -43,8 +42,10 @@ export function layoutActionCaptions(captions: readonly ActionCaption[], residen
     const lines = Math.max(1, Math.ceil((caption.text.length * 8) / Math.max(1, width - 20)))
     const height = Math.min(viewport.height - gutter * 2, 12 + lines * 18)
     const centerX = Math.min(viewport.width - gutter - width, Math.max(gutter, resident.x - width / 2))
-    const name: CaptionRect = { x: resident.x - 64, y: resident.y + 28, width: 128, height: 28 }
-    const obstacles: readonly CaptionRect[] = [...speech.filter(rect => rect.residentId === resident.id), name, ...frames]
+    // Every visible resident's name plate and every speech card is an obstacle, not only the actor's own.
+    const names: CaptionRect[] = Object.values(residents).filter(row => row.visible)
+      .map(row => ({ x: row.x - 64, y: row.y + 28, width: 128, height: 28 }))
+    const obstacles: readonly CaptionRect[] = [...speech, ...names, ...frames]
     const xs = [...new Set([centerX, gutter, viewport.width - gutter - width])]
     const preferredY = [resident.y - 42 - height, resident.y + 62]
     const scanY = Array.from({ length: Math.max(1, Math.floor((viewport.height - gutter * 2 - height) / 4) + 1) },

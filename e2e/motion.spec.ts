@@ -237,7 +237,8 @@ test('a witnessed use walks to the visible thing, shakes both sprites under its 
   for (const sample of shakeSamples) {
     expect(sample.action.speed).toBe(0)
     expect(sample.figure.x - sample.action.x).toBeCloseTo(sample.action.offsetX, 0)
-    expect(sample.thing.x - sample.action.thingX).toBeCloseTo(sample.action.offsetX, 0)
+    // The thing rattles against the resident: opposite phase.
+    expect(sample.thing.x - sample.action.thingX).toBeCloseTo(-sample.action.offsetX, 0)
   }
   expect(Math.max(...shakeSamples.map(sample => sample.captionX)) - Math.min(...shakeSamples.map(sample => sample.captionX))).toBeGreaterThan(1)
 
