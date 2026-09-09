@@ -4,7 +4,7 @@ import { activityReduce, emptyActivity, type ActivityContext, type ActivityEntry
 const HISTORY_LIMIT = 200
 const compare = (a: ActivityEntry, b: ActivityEntry): number => a.time - b.time || a.changeId - b.changeId
 
-export function activityObservationWatermark(rows: readonly ReplayEvent[], observedAt: number): number {
+function activityObservationWatermark(rows: readonly ReplayEvent[], observedAt: number): number {
   let watermark = Number.isFinite(observedAt) ? observedAt : Number.NEGATIVE_INFINITY
   for (const row of rows) {
     const recordedAt = Date.parse(row.at)
