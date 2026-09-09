@@ -8,7 +8,9 @@ const MIN_CARD_LIFETIME_MS = 10_000
 const READING_ALLOWANCE_MS = 5_000
 const READ_AFTER_TYPE_MS = 2_500
 const MAX_TOTAL_MS = 15_000
-const MAX_WIDTH = 320
+const MAX_WIDTH = 240
+/** The card shows three lines at most; longer notes scroll up through it, like the terminal follow view. */
+const MAX_VISIBLE_LINES = 3
 const HORIZONTAL_PADDING = 12
 const VERTICAL_PADDING = 10
 const LINE_HEIGHT = 20
@@ -40,7 +42,8 @@ export function speechCardPlan(bubble: SpeechBubble, availableWidth = MAX_WIDTH,
 export function speechCardFrame(bubble: SpeechBubble, now: number, availableWidth = MAX_WIDTH, availableHeight = 200,
   measure: (text: string) => number = readableTextWidth, existingPlan?: SpeechCardPlan): SpeechCardFrame {
   const width = Math.min(MAX_WIDTH, Math.max(1, finiteFloor(availableWidth, MAX_WIDTH)))
-  const maxHeight = Math.max(VERTICAL_PADDING * 2 + LINE_HEIGHT, finiteFloor(availableHeight, 200))
+  const maxHeight = Math.min(VERTICAL_PADDING * 2 + MAX_VISIBLE_LINES * LINE_HEIGHT,
+    Math.max(VERTICAL_PADDING * 2 + LINE_HEIGHT, finiteFloor(availableHeight, 200)))
   const plan = existingPlan ?? speechCardPlan(bubble, width, measure)
   const graphemes = splitGraphemes(bubble.text)
   const count = now < plan.start ? 0 : now >= plan.revealEnd || plan.effectiveCharInterval === 0

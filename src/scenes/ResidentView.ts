@@ -9,7 +9,7 @@ import { BubbleView } from './BubbleView.ts'
 import { residentBobOffset } from '../resident-bob.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
 import { ROOM_RESIDENT_SIZE, roomFigureStyle } from '../room-appearance.ts'
-import { RESIDENT_LOCK_RECTS, residentOverlayDistance, residentOverlayRects } from '../resident-overlays.ts'
+import { RESIDENT_LOCK_RECTS, followMarkRects, residentOverlayDistance, residentOverlayRects } from '../resident-overlays.ts'
 import { NameLabel, type NameLabelBounds } from './NameLabel.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
@@ -27,6 +27,7 @@ export class ResidentView {
   private readonly name: NameLabel
   private readonly bubble: BubbleView
   private readonly sparkle: Phaser.GameObjects.Graphics
+  private readonly followMark: Phaser.GameObjects.Graphics
   private showing: Phaser.GameObjects.Graphics | null = null
   private contest: Phaser.GameObjects.Graphics | null = null
   private lock: Phaser.GameObjects.Graphics | null = null
@@ -44,14 +45,20 @@ export class ResidentView {
       const short = residentOverlayDistance(3); const long = residentOverlayDistance(9)
       this.sparkle.fillRect(x, y - short, short, long).fillRect(x - short, y, long, short)
     }
+    this.followMark = scene.add.graphics().setDepth(103).setVisible(false)
+    for (const cell of followMarkRects(true, true)) this.followMark.fillStyle(cell.color, cell.alpha)
+      .fillRect(cell.x, cell.y, cell.width, cell.height)
     this.bubble = new BubbleView(resident.id)
 
   }
 
   update(resident: ResidentState, now: number, places: readonly ReplayPlace[] = [],
-    viewport: Readonly<{ width: number; height: number }> = { width: 0, height: 0 }): VisibleSpeech | null {
+    viewport: Readonly<{ width: number; height: number }> = { width: 0, height: 0 }, followed = false,
+    shakeOffset = 0): VisibleSpeech | null {
     const bob = residentBobOffset(resident.id, now, resident.walking)
-    this.sprite.setPosition(resident.x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
+    const x = resident.x + shakeOffset
+    const projectedResident = shakeOffset === 0 ? resident : Object.freeze({ ...resident, x })
+    this.sprite.setPosition(x, resident.y + bob).setFlipX(resident.flipX).setVisible(resident.visible)
     const appearance = reappearanceAlpha(resident.relocatedAt, now)
     this.sprite.setAlpha(appearance)
     this.name.setAlpha(appearance)
@@ -59,13 +66,15 @@ export class ResidentView {
     this.name.setContent(plate ?? '')
     this.nameAllowed = plate !== null && resident.visible
     this.name.setAllowed(this.nameAllowed)
-    this.name.update(resident.x, resident.y + ROOM_RESIDENT_SIZE / 2 + 5, 1, now)
+    this.name.update(x, resident.y + ROOM_RESIDENT_SIZE / 2 + 5, 1, now)
     const alpha = sparkleAlpha(resident.sparkle, now)
-    this.sparkle.setPosition(resident.x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
+    this.sparkle.setPosition(x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
+    this.followMark.setPosition(x, resident.y + bob).setAlpha(appearance)
+      .setVisible(followMarkRects(resident.visible, followed).length > 0)
     const blocked = resident.visible ? resident.blockedAttempt : null
     if (blocked) {
       this.lock ??= this.sprite.scene.add.graphics().setDepth(204)
-      this.lock.clear().setPosition(resident.x + residentOverlayDistance(-5),
+      this.lock.clear().setPosition(x + residentOverlayDistance(-5),
         resident.y - ROOM_RESIDENT_SIZE / 2 + residentOverlayDistance(-20))
       for (const cell of RESIDENT_LOCK_RECTS) this.lock.fillStyle(cell.color, cell.alpha)
         .fillRect(cell.x, cell.y, cell.width, cell.height)
@@ -80,10 +89,10 @@ export class ResidentView {
       this.showing ??= this.sprite.scene.add.graphics().setDepth(99)
       this.contest ??= this.sprite.scene.add.graphics().setDepth(204)
       this.showing.clear(); this.contest.clear()
-      this.showing.setPosition(resident.x, resident.y)
+      this.showing.setPosition(x, resident.y)
       for (const cell of SPOTLIGHT_CELLS) this.showing.fillStyle(cell.color, cell.alpha * contest.alpha)
         .fillRect(cell.x, cell.y, cell.width, cell.height)
-      this.contest.setPosition(resident.x, resident.y)
+      this.contest.setPosition(x, resident.y)
       if (contest.ballotY !== null) for (const [index, cell] of BALLOT_CELLS.entries()) this.contest.fillStyle(cell.color, cell.alpha)
         .fillRect(cell.x, cell.y + (index < 2 ? residentOverlayDistance(contest.ballotY) : 0), cell.width, cell.height)
       if (contest.confetti) for (const cell of CONFETTI_CELLS) this.contest.fillStyle(cell.color, contest.confetti)
@@ -92,7 +101,7 @@ export class ResidentView {
       this.showing?.destroy(); this.contest?.destroy(); this.showing = null; this.contest = null
     }
     const shape = bubbleShape(bubble?.placeId ?? null, places)
-    const frame = this.bubble.update(resident.visible ? bubble : null, resident,
+    const frame = this.bubble.update(resident.visible ? bubble : null, projectedResident,
       viewport, shape, now, appearance)
     if (frame) return Object.freeze({ residentId: resident.id, text: frame.text, shape,
       showing: moment?.confetti ? 'confetti' : moment?.ballot ? 'ballot' : moment ? 'spotlight' : '' })
@@ -113,6 +122,7 @@ export class ResidentView {
     this.name.destroy()
     this.bubble.destroy()
     this.sparkle.destroy()
+    this.followMark.destroy()
     this.showing?.destroy()
     this.contest?.destroy()
     this.lock?.destroy()

@@ -100,13 +100,14 @@ export class RoomActivityLine {
       return true
     })
     if (!added.length) return Object.freeze([])
+    const witnessed = activityEntriesWitnessedInRoom(added, this.isPublic() ? this.selectedRoomId : null)
     this.state = Object.freeze({
       ...this.state,
       entries: this.addWitnessed(this.state.entries, added),
       seenKeys: Object.freeze([...seen].slice(-1000)),
     })
     this.render()
-    return Object.freeze(added)
+    return witnessed
   }
   clearHistory(): void {
     this.unshownSpeech = null

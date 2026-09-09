@@ -24,6 +24,16 @@ test('stores only events witnessed in the displayed room and never reveals misse
   log.selectRoom(2); log.appendEntries([entry('1', 2), entry('2', 3)]); assert.equal(line.textContent, 'event 1')
   log.selectRoom(3); assert.equal(line.textContent, 'event 1'); log.appendEntries([entry('3', 3)]); assert.equal(line.textContent, 'event 1\nevent 3') })
 
+test('returns only entries witnessed in the selected public room and never revives missed entries', () => {
+  const line = { textContent: '' } as HTMLElement; const log = new RoomActivityLine(line, context)
+  log.selectRoom(2)
+  assert.deepEqual(log.appendEntries([entry('1', 2), entry('2', 3)]).map(item => item.key), ['1'])
+  log.selectRoom(3)
+  assert.deepEqual(log.appendEntries([entry('2', 3)]), [])
+  log.selectRoom(9)
+  assert.deepEqual(log.appendEntries([entry('quiet', 9)]), [])
+})
+
 test('starts empty and clearHistory never seeds replay history', () => { const line = { textContent: 'stale' } as HTMLElement; const log = new RoomActivityLine(line, context)
   log.selectRoom(2); log.clearHistory(); assert.equal(line.textContent, '') })
 

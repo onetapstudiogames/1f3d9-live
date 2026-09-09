@@ -2,6 +2,7 @@ import { positionBubbleCard, type BubblePoint, type BubbleSize } from '../bubble
 import { ROOM_RESIDENT_SIZE } from '../room-appearance.ts'
 import { speechCardFrame, speechCardPlan, speechScrollTop, type BubbleShape, type SpeechBubble, type SpeechCardFrame,
   type SpeechCardPlan } from '../speech.ts'
+import type { SpeechRect } from '../action-captions.ts'
 
 const FONT = '14px Consolas, "Liberation Mono", monospace'
 let measurementContext: CanvasRenderingContext2D | null | undefined
@@ -49,7 +50,7 @@ export class BubbleView {
       this.lastPlan = null
       return null
     }
-    const availableWidth = Math.min(320, Math.max(1, viewport.width - 16))
+    const availableWidth = Math.min(240, Math.max(1, viewport.width - 16))
     const availableHeight = Math.max(40, viewport.height - 16)
     if (this.lastBubble !== bubble || this.lastWidth !== availableWidth || this.lastHeight !== availableHeight || !this.lastPlan) {
       setStyle(this.card, 'display', '')
@@ -88,7 +89,7 @@ export class BubbleView {
 }
 
 export function positionSpeechLayer(): boolean {
-  const shown = [...document.querySelectorAll<HTMLElement>('.room-speech-card')]
+  const shown = [...document.querySelectorAll<HTMLElement>('.room-speech-card, .room-action-caption')]
     .some(card => card.style.display !== 'none')
   if (!shown) return false
   const app = document.querySelector<HTMLElement>('#app')
@@ -99,6 +100,36 @@ export function positionSpeechLayer(): boolean {
   setStyle(layer, 'width', `${app.clientWidth}px`)
   setStyle(layer, 'height', `${app.clientHeight}px`)
   return true
+}
+
+export function visibleSpeechCardRects(captionResidents: ReadonlySet<number> = new Set(), viewportHeight?: number,
+  captionLaneHeight = 86): readonly SpeechRect[] {
+  if (typeof document === 'undefined') return Object.freeze([])
+  const layer = document.querySelector<HTMLElement>('#speech-layer')
+  if (!layer) return Object.freeze([])
+  const origin = layer.getBoundingClientRect?.() ?? { left: 0, top: 0 }
+  return Object.freeze([...document.querySelectorAll<HTMLElement>('.room-speech-card')].flatMap(card => {
+    const residentId = Number(card.dataset['residentId'])
+    if (card.style.display === 'none' || !Number.isSafeInteger(residentId)) return []
+    if (captionResidents.has(residentId) && Number.isFinite(viewportHeight)) {
+      const top = Number.parseFloat(card.style.top) || 8
+      const reservedBottom = Math.max(16, captionLaneHeight)
+      const maximum = Math.max(40, viewportHeight! - top - reservedBottom)
+      const current = Number.parseFloat(card.style.height)
+      if (Number.isFinite(current) && current > maximum) {
+        const words = card.querySelector?.<HTMLElement>('.room-speech-words') ?? card.children?.[0] as HTMLElement | undefined
+        const followedBottom = words ? words.scrollTop + words.clientHeight >= words.scrollHeight - 1 : false
+        card.style.height = `${maximum}px`
+        if (words && followedBottom) words.scrollTop = Math.max(0, words.scrollHeight - words.clientHeight)
+      }
+    }
+    const rect = card.getBoundingClientRect()
+    const left = Number.isFinite(rect.left) ? rect.left : Number.parseFloat(card.style.left) || 0
+    const top = Number.isFinite(rect.top) ? rect.top : Number.parseFloat(card.style.top) || 0
+    const width = Number.isFinite(rect.width) ? rect.width : Number.parseFloat(card.style.width) || 0
+    const height = Number.isFinite(rect.height) ? rect.height : Number.parseFloat(card.style.height) || 0
+    return [{ residentId, x: left - (Number(origin.left) || 0), y: top - (Number(origin.top) || 0), width, height }]
+  }))
 }
 
 function setDataset(element: HTMLElement, key: string, value: string): void {

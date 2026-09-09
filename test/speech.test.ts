@@ -11,7 +11,7 @@ test('card wrapping uses the measured text width after the scrollbar gutter', ()
   assert.equal(plan.lineWidth, 80)
   assert.ok(plan.lines.every(line => measured(line.trimEnd()) <= 80))
   const frame = speechCardFrame(bubble, bubble.expiresAt - 1, 320, 60, measured, plan)
-  assert.equal(frame.width, 320)
+  assert.equal(frame.width, 240)
   assert.deepEqual(frame.lines, plan.lines)
 })
 
@@ -91,6 +91,13 @@ test('card has its final capped height from the start, then scrolls upward as li
   assert.ok(frames.every(frame => frame.height <= 60)); assert.ok(frames.some(frame => frame.scrollTop > 0))
   const last = frames.at(-1)!; assert.equal(last.scrollTop, Math.max(0, last.contentHeight - last.height))
   assert.equal(last.fontSize, 14); assert.equal(last.lineHeight, 20)
+})
+
+test('a long note gets a three-line card even in a tall room, and scrolls through it', () => {
+  const bubble = { ...bubbleFor(note('word '.repeat(120)), 0)!, charInterval: 1 }
+  const frame = speechCardFrame(bubble, bubble.expiresAt - 1, 320, 600, measured)
+  assert.equal(frame.width, 240); assert.equal(frame.height, 10 * 2 + 3 * 20)
+  assert.ok(frame.contentHeight > frame.height); assert.equal(frame.scrollTop, frame.contentHeight - frame.height)
 })
 
 test('asking and telling shapes require the verified id and name', () => {

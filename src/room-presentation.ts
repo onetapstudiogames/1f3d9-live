@@ -9,7 +9,9 @@ type Figure = Entity & Readonly<{ walking?: boolean; bubble?: unknown; invention
 export type RoomPlacements = Readonly<Record<string, RoomCrowdingPlacement>>
 export type RoomScreenPose = Readonly<Point & { placeId: number; visible: boolean; moving: boolean; flipX?: boolean }>
 export type RoomPresentationMotion = Readonly<{
-  poses: ReadonlyMap<number, RoomScreenPose>; reservations: readonly RoomCrowdingRect[]; routes?: readonly RoomCrowdingRoute[]
+  poses: ReadonlyMap<number, RoomScreenPose>; thingPoses?: ReadonlyMap<number, RoomScreenPose>
+  pinnedResidentIds?: ReadonlySet<number>
+  reservations: readonly RoomCrowdingRect[]; routes?: readonly RoomCrowdingRoute[]
 }>
 
 export function roomFigurePriority(row: Figure, following: number | null): number {
@@ -49,21 +51,41 @@ export function presentRoom<R extends Figure, T extends Entity>(residents: Reado
     return Object.freeze({ ...row, x: pose.x, y: pose.y, visible: pose.visible,
       walking: Boolean(row.walking || pose.moving), ...(pose.flipX === undefined ? {} : { flipX: pose.flipX }) })
   })
-  const objects = Object.values(things).map(row => project(row))
+  const projectedObjects = new Map<number, Entity>()
+  const objects = Object.values(things).map(row => {
+    const projected = project(row)
+    projectedObjects.set(row.id, projected)
+    const pose = motion?.thingPoses?.get(row.id)
+    if (!pose || row.placeId !== pose.placeId || !target?.rooms[pose.placeId] || hidden.has(pose.placeId) ||
+      !source || !roomIsPublic(source, pose.placeId)) return projected
+    return Object.freeze({ ...row, x: pose.x, y: pose.y, visible: pose.visible })
+  })
   const entries: readonly RoomCrowdingEntry[] = [
-    ...figures.filter(row => row.visible && !motion?.poses.get(row.id)?.moving).map(row => ({ id: `resident:${row.id}`, kind: 'resident' as const,
+    ...figures.filter(row => row.visible && !motion?.poses.get(row.id)?.moving && !motion?.pinnedResidentIds?.has(row.id)).map(row => ({ id: `resident:${row.id}`, kind: 'resident' as const,
       preferred: row, priority: roomFigurePriority(row, following) })),
-    ...objects.filter(row => row.visible).map(row => ({ id: `thing:${row.id}`, kind: 'thing' as const,
+    ...objects.filter(row => row.visible && !motion?.thingPoses?.has(row.id)).map(row => ({ id: `thing:${row.id}`, kind: 'thing' as const,
       preferred: row, priority: 0 })),
   ]
   const room = target?.rooms[target.rootId]
-  const crowding: RoomCrowdingState = room ? allocateRoomCrowdingFrame(entries, room.standing, previous, motion?.reservations, motion?.routes) :
+  const allocated: RoomCrowdingState = room ? allocateRoomCrowdingFrame(entries, room.standing, previous, motion?.reservations, motion?.routes) :
     Object.freeze({ bandKey: 'no-room', key: 'no-room', grid: Object.freeze([]), placements: Object.freeze({}),
       metrics: Object.freeze({ gridBuilds: 0, candidateChecks: 0 }) })
-  const placements = crowding.placements
+  const hasPinned = Boolean(motion?.pinnedResidentIds?.size || motion?.thingPoses?.size)
+  const pinnedPlacements: Record<string, RoomCrowdingPlacement> = hasPinned ? { ...allocated.placements } : allocated.placements
+  for (const row of figures) if (row.visible && motion?.pinnedResidentIds?.has(row.id)) pinnedPlacements[`resident:${row.id}`] =
+    Object.freeze({ id: `resident:${row.id}`, kind: 'resident', x: row.x, y: row.y, visible: true, offsetX: 0, offsetY: 0 })
+  for (const row of objects) if (row.visible && motion?.thingPoses?.has(row.id)) {
+    const projected = projectedObjects.get(row.id)!
+    pinnedPlacements[`thing:${row.id}`] = Object.freeze({ id: `thing:${row.id}`, kind: 'thing', x: row.x, y: row.y,
+      visible: true, offsetX: row.x - projected.x, offsetY: row.y - projected.y })
+  }
+  const placements = hasPinned ? Object.freeze(pinnedPlacements) : allocated.placements
+  const crowding: RoomCrowdingState = hasPinned ? Object.freeze({ ...allocated, placements }) : allocated
   const placed = <E extends Entity>(rows: readonly E[], kind: 'resident' | 'thing'): Readonly<Record<number, E>> =>
     Object.freeze(Object.fromEntries(rows.map(row => {
       if (kind === 'resident' && row.visible && motion?.poses.get(row.id)?.moving) return [row.id, row]
+      if (kind === 'resident' && motion?.pinnedResidentIds?.has(row.id)) return [row.id, row]
+      if (kind === 'thing' && motion?.thingPoses?.has(row.id)) return [row.id, row]
       const spot = placements[`${kind}:${row.id}`]
       return [row.id, Object.freeze(spot?.visible ? { ...row, x: spot.x, y: spot.y } : { ...row, visible: false })]
     })))

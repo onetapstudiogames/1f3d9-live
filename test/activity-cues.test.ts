@@ -35,7 +35,9 @@ test('looking uses an eight by five eye with a pupil and expires at the public b
 })
 
 test('common cue categories use distinct readable pixel motifs', () => {
-  const cues = ['note', 'home', 'rules', 'wait', 'failed', 'change', 'trade', 'use', 'consume'] as const
+  const cues = ['note', 'home', 'rules', 'wait', 'failed', 'change', 'trade', 'use', 'consume', 'effect', 'move'] as const
   const state = stepActivityCues(emptyCueState(), cues.map((cue, index) => entry({ key: cue, cue, residentId: index + 1 })), 1_000)
   assert.equal(new Set(cueFrame(state, 1_000).map(frame => JSON.stringify(frame.cells))).size, cues.length)
+  assert(cueFrame(state, 1_000).filter(frame => frame.cue === 'effect' || frame.cue === 'move')
+    .every(frame => frame.cells.length > 4))
 })

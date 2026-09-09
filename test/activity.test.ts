@@ -32,7 +32,7 @@ test('formats recorded chats, moves, and made things with only linked entities',
   assert.equal(activityEntry(row(2, 'action', { action: 'move', status: 'applied', from_place_id: 1, to_place_id: 2 }), context)?.text,
     'vigil moved from the world to the new square.')
   const made = activityEntry(row(3, 'thing_created', { thing_id: 22, place_id: 2, name: 'small bell' }), context)!
-  assert.equal(made.text, 'vigil made small bell in the new square.')
+  assert.equal(made.text, 'vigil made small bell.')
   assert.deepEqual(made.entities.at(-1), { type: 'thing', id: 22, name: 'small bell', hasDrawing: null })
 })
 
@@ -106,7 +106,7 @@ test('uses optional historical actor, resident, thing, and effect resolvers with
   }
   const failed = activityEntry(row(1, 'action', { action: 'use', status: 'failed', source_thing_id: 22, error: 'too far' }), richer)!
   assert.equal(failed.cue, 'failed'); assert.equal(failed.roomId, null); assert.equal(failed.anchorRoomId, 2)
-  assert.match(failed.text, /tried to use bell; failed: too far/)
+  assert.match(failed.text, /tried to use a bell; failed: too far/)
   const gift = activityEntry(row(2, 'transfer', { mode: 'gift', thing_id: 22, resident_id: 8, place_id: 2 }), richer)!
   assert.deepEqual(gift.entities.map(entity => entity.name), ['vigil', 'the new square', 'bell', 'moss'])
   assert.equal(activityEntry(row(3, 'effect_resolved', { effect_id: 3, status: 'applied' }), richer)?.roomId, 2)

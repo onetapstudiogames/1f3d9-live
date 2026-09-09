@@ -106,6 +106,22 @@ test('idle screen poses remain continuous and a reserved walk target stays free'
   assert.ok(!other.visible || Math.abs(other.x - 100) >= ROOM_FIGURE_PITCH || Math.abs(other.y - 150) >= ROOM_FIGURE_PITCH)
 })
 
+test('a pinned displaced thing seeds its exact normal position after action motion ends', () => {
+  const things = { 4: actor(4), 5: actor(5) }
+  const before = presentRoom({}, things, world, target, new Set())
+  const displaced = before.things[5]!
+  const projected = presentRoom({}, { 5: things[5]! }, world, target, new Set()).things[5]!
+  assert.notDeepEqual({ x: displaced.x, y: displaced.y }, { x: projected.x, y: projected.y })
+
+  const active = presentRoom({}, things, world, target, new Set(), before.crowding, null, new Map(), {
+    poses: new Map(), thingPoses: new Map([[5, { ...displaced, moving: false }]]), reservations: [],
+  })
+  assert.notEqual(active.placements['thing:5']!.offsetX || active.placements['thing:5']!.offsetY, 0)
+  const completed = presentRoom({}, things, world, target, new Set(), active.crowding)
+  assert.deepEqual({ x: completed.things[5]!.x, y: completed.things[5]!.y },
+    { x: displaced.x, y: displaced.y })
+})
+
 test('screen poses cannot expose a quiet room or hide its public speaker for lack of a prior seat', () => {
   const motion = { poses: new Map([[1, { x: 10, y: 20, placeId: 2, visible: false, moving: false }]]), reservations: [] }
   const speaker = { ...actor(1), bubble: { text: 'recorded words' } }

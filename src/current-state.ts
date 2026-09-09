@@ -164,5 +164,5 @@ function rawPublicNoteInRoom(event: ReplayEvent, context: ActivityContext, roomI
 function isPending(resident: ResidentState): boolean {
   return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.showingNotice != null
     || resident.blockedAttempt != null || resident.transferUntil !== null || resident.inventionUntil != null
-    || resident.agreementUntil != null || resident.queue.length > 0
+    || resident.agreementUntil != null || resident.actionUntil != null || resident.queue.length > 0
 }

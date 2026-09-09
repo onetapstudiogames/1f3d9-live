@@ -21,6 +21,7 @@ import { roomIsPublic } from '../room-view.ts'
 import { ROOM_FIGURE_PITCH } from '../room-crowding.ts'
 import { presentRoom } from '../room-presentation.ts'
 import { resizeRoomWalk } from '../room-walk-resize.ts'
+import { ACTION_WALK_SPEED, createActionMotion, sampleActionMotion, type ActionMotionPlan } from '../action-motion.ts'
 
 export type RoomMotionPose = Readonly<{
   x: number
@@ -33,9 +34,14 @@ export type RoomMotionPose = Readonly<{
 
 export type RoomMotionPresentation = Readonly<{
   poses: ReadonlyMap<number, RoomMotionPose>
+  thingPoses?: ReadonlyMap<number, RoomMotionPose>
+  pinnedResidentIds?: ReadonlySet<number>
   reservations: readonly MotionRect[]
   routes: readonly Readonly<{ points: readonly Point[]; radius: number }>[]
 }>
+
+export type RoomActionFrame = Readonly<{ residentId: number; thingId: number; phase: 'approach' | 'shake';
+  x: number; y: number; thingX: number; thingY: number; offsetX: number; speed: number }>
 
 type PresentedEntity = Readonly<{ id: number; placeId: number | null; x: number; y: number; visible: boolean }>
 type Viewport = Readonly<{ width: number; height: number }>
@@ -78,6 +84,8 @@ export class RoomMotion {
   private idleDue = new Map<number, number>()
   private lastResidents: Readonly<Record<number, ResidentState>> = {}
   private summaries = new Map<number, Readonly<{ roomId: number; occupants: string }>>()
+  private actions = new Map<number, { plan: ActionMotionPlan; elapsedMs: number; thingId: number; roomId: number;
+    thing: Point; event: ReplayEvent; cancelRequested?: boolean }>()
 
   configure(
     layout: NestedLayout,
@@ -111,6 +119,7 @@ export class RoomMotion {
       }
     }
     if (resized) {
+      for (const action of this.actions.values()) action.cancelRequested = true
       this.idleWalks.clear(); this.diagnosticFrames.clear()
       for (const id of [...this.remembered.keys()]) if (!this.walks.has(id)) this.remembered.delete(id)
       this.rememberedThings.clear()
@@ -141,20 +150,85 @@ export class RoomMotion {
     }
   }
 
+  startAction(resident: ResidentState, event: ReplayEvent, all: Readonly<Record<number, ResidentState>>,
+    nowMs: number): ResidentState | null | undefined {
+    const thingId = recordedActionThing(event)
+    if (thingId === null || this.sleepers.has(resident.id) || this.selectedRoomId === null ||
+      event.detail.place_id !== this.selectedRoomId || resident.placeId !== this.selectedRoomId ||
+      this.hidden.has(this.selectedRoomId) || !resident.visible) return undefined
+    const thing = this.things[thingId]
+    if (!thing || !thing.visible || thing.placeId !== this.selectedRoomId || !this.layout?.rooms[this.selectedRoomId] ||
+      !roomViewportUsable(this.viewport.width, this.viewport.height)) return undefined
+    if (this.actions.size || residentActionBusy(resident)) return null
+    const display = displayRoom(this.layout.rooms[this.selectedRoomId]!, this.viewport)
+    const origin = this.remembered.get(resident.id)
+    const target = this.unseated.has(`thing:${this.selectedRoomId}:${thingId}`) ? null : this.rememberedThings.get(thingId)
+    if (!origin?.visible || origin.placeId !== this.selectedRoomId || !target?.visible ||
+      target.placeId !== this.selectedRoomId) return undefined
+    const obstacles = [...this.obstacles(this.selectedRoomId, display, all, resident.id),
+      ...this.routeReservations(this.selectedRoomId, resident.id)]
+    const plan = createActionMotion(display, origin, target, obstacles)
+    if (!plan) return undefined
+    this.cancelIdle()
+    this.actions.set(resident.id, { plan, elapsedMs: 0, thingId, roomId: this.selectedRoomId,
+      thing: Object.freeze({ x: target.x, y: target.y }), event })
+    this.remembered.set(resident.id, Object.freeze({ ...origin, moving: true }))
+    return Object.freeze({ ...resident, walking: true, walkDuration: plan.walkDurationMs, walkElapsed: 0,
+      actionUntil: nowMs + plan.durationMs, actionEvent: event })
+  }
+
+  advanceAction(resident: ResidentState, deltaMs: number, _nowMs: number): ResidentState | undefined {
+    const active = this.actions.get(resident.id)
+    if (!active) return undefined
+    const thing = this.things[active.thingId]
+    if (active.cancelRequested || this.sleepers.has(resident.id) || this.selectedRoomId !== active.roomId || this.hidden.has(active.roomId) || !thing?.visible ||
+      thing.placeId !== active.roomId || !roomViewportUsable(this.viewport.width, this.viewport.height)) {
+      return this.cancelAction(resident)
+    }
+    active.elapsedMs = Math.min(active.plan.durationMs,
+      active.elapsedMs + Math.max(0, Number.isFinite(deltaMs) ? deltaMs : 0))
+    const sample = sampleActionMotion(active.plan, active.elapsedMs)
+    this.remembered.set(resident.id, Object.freeze({ x: sample.x, y: sample.y, placeId: active.roomId,
+      visible: true, moving: sample.phase === 'approach', flipX: sample.flipX }))
+    if (sample.done) {
+      return this.cancelAction(resident)
+    }
+    return Object.freeze({ ...resident, walking: sample.phase === 'approach', walkElapsed: active.elapsedMs })
+  }
+
+  actionFrames(): readonly RoomActionFrame[] {
+    return Object.freeze([...this.actions.entries()].flatMap(([residentId, active]) => {
+      if (active.cancelRequested || this.sleepers.has(residentId) || this.selectedRoomId !== active.roomId ||
+        this.hidden.has(active.roomId)) return []
+      const sample = sampleActionMotion(active.plan, active.elapsedMs)
+      return [Object.freeze({ residentId, thingId: active.thingId, phase: sample.phase as 'approach' | 'shake',
+        x: sample.x, y: sample.y, thingX: active.thing.x, thingY: active.thing.y, offsetX: sample.offsetX,
+        speed: sample.phase === 'approach' ? ACTION_WALK_SPEED : 0 })]
+    }).filter(row => row.phase !== ('done' as string)).sort((a, b) => a.residentId - b.residentId))
+  }
+
+  private cancelAction(resident: ResidentState): ResidentState {
+    this.actions.delete(resident.id)
+    const pose = this.remembered.get(resident.id)
+    if (pose) this.remembered.set(resident.id, Object.freeze({ ...pose, moving: false }))
+    return Object.freeze({ ...resident, walking: false, walkElapsed: 0, walkDuration: 0,
+      actionUntil: null, actionEvent: null })
+  }
+
   remember(
     residents: Readonly<Record<number, PresentedEntity>>,
     things: Readonly<Record<number, PresentedEntity>>,
   ): void {
-    const active = new Set([...this.walks.keys(), ...this.idleWalks.keys()])
+    const active = new Set([...this.walks.keys(), ...this.idleWalks.keys(), ...this.actions.keys()])
     for (const row of Object.values(residents)) {
       if (active.has(row.id) || row.placeId === null || this.sleepers.has(row.id)) continue
-      if (!row.visible) continue
+      if (!row.visible) { this.remembered.delete(row.id); continue }
       this.summaries.delete(row.id)
       this.remembered.set(row.id, Object.freeze({ x: row.x, y: row.y, placeId: row.placeId,
         visible: true, moving: false }))
     }
     for (const row of Object.values(things)) {
-      if (row.placeId === null || !row.visible) continue
+      if (row.placeId === null || !row.visible) { this.rememberedThings.delete(row.id); continue }
       this.rememberedThings.set(row.id, Object.freeze({ x: row.x, y: row.y, placeId: row.placeId,
         visible: true, moving: false }))
     }
@@ -168,6 +242,7 @@ export class RoomMotion {
       this.idleDue.delete(id)
       this.diagnosticFrames.delete(id)
       this.summaries.delete(id)
+      this.actions.delete(id)
     }
     this.unseated = new Set([...this.unseated].filter(key => {
       const match = /^resident:\d+:(\d+)$/.exec(key)
@@ -272,7 +347,25 @@ export class RoomMotion {
     }
     for (const [id, active] of this.idleWalks) if (!this.sleepers.has(id) && active.roomId === roomId) routes.push(Object.freeze({
       points: Object.freeze([active.plan.from, active.plan.to]), radius: reservationHalf }))
-    return Object.freeze({ poses, reservations: Object.freeze(reservations), routes: Object.freeze(routes) })
+    for (const [id, active] of this.actions) if (this.actionIsShown(id, active, roomId)) routes.push(Object.freeze({
+      points: active.plan.path, radius: reservationHalf }))
+    const thingPoses = new Map<number, RoomMotionPose>()
+    const pinnedResidentIds = new Set<number>()
+    for (const [id, active] of this.actions) if (this.actionIsShown(id, active, roomId)) thingPoses.set(active.thingId,
+      Object.freeze({ ...active.thing, placeId: active.roomId, visible: true, moving: false }))
+    for (const [id, active] of this.actions) if (this.actionIsShown(id, active, roomId)) {
+      pinnedResidentIds.add(id)
+      reservations.push(Object.freeze({ x: active.thing.x - 16, y: active.thing.y - 16, width: 32, height: 32 }))
+      const actor = poses.get(id)
+      if (actor && !actor.moving) reservations.push(Object.freeze({ x: actor.x - reservationHalf,
+        y: actor.y - reservationHalf, width: ROOM_FIGURE_PITCH, height: ROOM_FIGURE_PITCH }))
+    }
+    return Object.freeze({ poses, thingPoses, pinnedResidentIds, reservations: Object.freeze(reservations), routes: Object.freeze(routes) })
+  }
+
+  private actionIsShown(id: number, active: { roomId: number; cancelRequested?: boolean }, roomId: number | null): boolean {
+    return !active.cancelRequested && !this.sleepers.has(id) && roomId !== null && active.roomId === roomId &&
+      this.selectedRoomId === roomId && !this.hidden.has(roomId)
   }
 
   idle(all: Readonly<Record<number, ResidentState>>, deltaMs: number, nowMs: number,
@@ -396,6 +489,9 @@ export class RoomMotion {
     for (const [id, active] of this.idleWalks) if (id !== excludedId && !this.sleepers.has(id) && active.roomId === roomId) {
       result.push(...sweptRects([active.plan.from, active.plan.to]))
     }
+    for (const [id, active] of this.actions) if (id !== excludedId && !this.sleepers.has(id) && active.roomId === roomId) {
+      result.push(...sweptRects(active.plan.path))
+    }
     return Object.freeze(result)
   }
 
@@ -429,6 +525,15 @@ export class RoomMotion {
   private cancelIdle(): void {
     for (const id of this.idleWalks.keys()) this.cancelOneIdle(id)
   }
+}
+
+function recordedActionThing(event: ReplayEvent): number | null {
+  const id = event.detail.source_thing_id ?? event.detail.thing_id
+  const validStatus = event.detail.action === 'use'
+    ? event.detail.status === 'applied' || event.detail.status === 'noop'
+    : event.detail.action === 'consume' && event.detail.status === 'applied'
+  return event.kind === 'action' && validStatus && event.detail.error == null && Number.isSafeInteger(id) && Number(id) > 0
+    ? Number(id) : null
 }
 
 function recordedMove(event: ReplayEvent): Readonly<{ fromId: number; toId: number }> | null {
@@ -468,7 +573,13 @@ function finishResident(resident: ResidentState, eventId: string | null, placeId
 function residentBusy(resident: ResidentState): boolean {
   return resident.walking || resident.queue.length > 0 || resident.bubble !== null || resident.sparkle !== null ||
     resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null ||
-    resident.showingNotice != null || resident.blockedAttempt != null
+    resident.showingNotice != null || resident.blockedAttempt != null || resident.actionUntil != null
+}
+
+function residentActionBusy(resident: ResidentState): boolean {
+  return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.transferUntil !== null ||
+    resident.inventionUntil != null || resident.agreementUntil != null || resident.showingNotice != null ||
+    resident.blockedAttempt != null || resident.actionUntil != null
 }
 
 function departureOnlyPlan(fromId: number, toId: number, departure: readonly Point[]): RoomWalkPlan {
