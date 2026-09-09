@@ -8,7 +8,6 @@ import {
   type Transfer,
   type TransferPartners,
 } from './giving.ts'
-import { BASE_SPEED } from './replay/index.ts'
 
 export type CarryPlan = CarriedMove & Readonly<{
   noticeChangeId: string
@@ -24,7 +23,6 @@ type ActiveFloat = Readonly<{
   changeId: string
   partners: TransferPartners
   startedAt: number
-  speed: number
 }>
 export type HandoverState = Readonly<{
   carries: readonly CarryPlan[]
@@ -77,7 +75,6 @@ export function stepHandovers(
   simulation: Simulation,
   _layout: NestedLayout,
   nowMs: number,
-  _speed: number = BASE_SPEED,
 ): HandoverStep {
   const residents = simulation.residents
   let held = state.held.map(item => ({ ...item, rows: [...item.rows] }))
@@ -134,11 +131,11 @@ export function stepHandovers(
 
   const floats: ActiveFloat[] = [...state.floats]
   for (const started of simulation.startedTransfers) {
-    floats.push(Object.freeze({ transfer: started.transfer, changeId: started.changeId, partners: started.partners, startedAt: started.startedAt, speed: started.speed }))
+    floats.push(Object.freeze({ transfer: started.transfer, changeId: started.changeId, partners: started.partners, startedAt: started.startedAt }))
   }
   const activeFloats: ActiveFloat[] = []
   for (const active of floats) {
-    const frame = floatFrame(active.partners.from, active.partners.to, active.startedAt, nowMs, active.speed)
+    const frame = floatFrame(active.partners.from, active.partners.to, active.startedAt, nowMs)
     if (!frame) continue
     activeFloats.push(active)
     // A heart only when the record says gift. An effect-mode transfer is the thing's own

@@ -1,5 +1,3 @@
-export type PlaybackMode = 'pause' | 'normal' | 'fast' | 'rewind'
-
 export type TapeOptions = Readonly<{
   sampleIntervalMs?: number
   checkpointIntervalMs?: number
@@ -8,8 +6,6 @@ export type TapeOptions = Readonly<{
 export type RecordOptions = Readonly<{ force?: boolean }>
 
 export type SeekResult<T> = Readonly<{ time: number, frame: T }>
-export type PlaybackPosition = Readonly<{ time: number, atHead: boolean, atStart: boolean }>
-
 type Replace = { readonly kind: 'replace', readonly value: unknown }
 type Children = { readonly kind: 'children', readonly container: 'array' | 'object', readonly changes: ReadonlyMap<PropertyKey, Patch>, readonly removed: readonly PropertyKey[] }
 type Patch = Replace | Children
@@ -173,16 +169,6 @@ export function seekFrame<T>(tape: PresentationTape<T>, time: number): SeekResul
     restoredTime = entry.time
   }
   return Object.freeze({ time: restoredTime, frame: copy(restored) as T })
-}
-
-export function playbackCursor<T>(tape: PresentationTape<T>, cursor: number, deltaMs: number, mode: PlaybackMode): PlaybackPosition {
-  assertTime(cursor); assertTime(deltaMs)
-  if (deltaMs < 0) throw new RangeError('deltaMs must be non-negative')
-  const start = tape.startTime ?? cursor
-  const head = tape.endTime ?? cursor
-  const speed = mode === 'rewind' ? -30 : mode === 'fast' ? 60 : mode === 'normal' ? 1 : 0
-  const time = Math.min(head, Math.max(start, cursor + deltaMs * speed))
-  return Object.freeze({ time, atHead: time === head, atStart: time === start })
 }
 
 export function truncateTape<T>(tape: PresentationTape<T>, time: number): PresentationTape<T> {

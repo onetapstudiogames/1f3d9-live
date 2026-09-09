@@ -1,4 +1,4 @@
-import type { ReplayEvent, ReplayPlace, Resident } from './city/types.ts'
+import type { ReplayPlace, Resident } from './city/types.ts'
 import type { NestedLayout, Point, Room } from './ground/nested.ts'
 import { ROOM_FIGURE_SIZE } from './room-crowding.ts'
 
@@ -21,33 +21,8 @@ function publicPlaceIds(places: readonly ReplayPlace[]): ReadonlySet<number> {
   return result
 }
 
-const RECENT_ACTIVITY_MS = 30 * 60 * 1_000
-
-function activityWindowEnd(timeline: readonly ReplayEvent[]): number {
-  const seen = new Set<number>()
-  const recordedTimes = timeline.filter(event => {
-    if (seen.has(event.event_id)) return false
-    seen.add(event.event_id)
-    return true
-  }).map(event => Date.parse(event.at)).filter(Number.isFinite).sort((left, right) => right - left)
-  for (let index = 0; index < recordedTimes.length - 1; index += 1) {
-    if (recordedTimes[index]! - recordedTimes[index + 1]! <= RECENT_ACTIVITY_MS) return recordedTimes[index]!
-  }
-  return recordedTimes[0] ?? Number.NEGATIVE_INFINITY
-}
-
-function recordedPlaceId(event: ReplayEvent): number | null {
-  const move = event.kind === 'action' && (event.detail.action === 'move' || event.detail.action === 'go_home')
-  if (move && event.detail.status === 'applied' && event.detail.error == null &&
-      typeof event.detail.to_place_id === 'number') {
-    return event.detail.to_place_id
-  }
-  return typeof event.detail.place_id === 'number' ? event.detail.place_id : null
-}
-
-// The initial room is a presentation choice based only on recent records and the current census.
-export function busiestRoom(places: readonly ReplayPlace[], census: readonly Resident[],
-  timeline: readonly ReplayEvent[]): number | null {
+// The initial room is a presentation choice based only on residents standing there now.
+export function busiestRoom(places: readonly ReplayPlace[], census: readonly Resident[]): number | null {
   const publicIds = publicPlaceIds(places)
   const parents = new Set(places.filter(place => publicIds.has(place.id)).map(place => place.parent_id)
     .filter((id): id is number => id !== null))
@@ -56,21 +31,9 @@ export function busiestRoom(places: readonly ReplayPlace[], census: readonly Res
   const counts = new Map<number, number>()
   for (const resident of census) {
     const id = resident.current_place_id
-    if (id !== null && eligibleIds.has(id)) counts.set(id, (counts.get(id) ?? 0) + 1)
-  }
-  const activity = new Map<number, number>()
-  const seen = new Set<number>()
-  const newestRecordedAt = activityWindowEnd(timeline)
-  for (const event of timeline) {
-    const at = Date.parse(event.at)
-    if (!Number.isFinite(at) || at < newestRecordedAt - RECENT_ACTIVITY_MS || at > newestRecordedAt ||
-        seen.has(event.event_id)) continue
-    seen.add(event.event_id)
-    const id = recordedPlaceId(event)
-    if (id !== null && eligibleIds.has(id)) activity.set(id, (activity.get(id) ?? 0) + 1)
+    if (!resident.asleep && id !== null && eligibleIds.has(id)) counts.set(id, (counts.get(id) ?? 0) + 1)
   }
   return [...eligibleIds].sort((left, right) =>
-    (activity.get(right) ?? 0) - (activity.get(left) ?? 0) ||
     (counts.get(right) ?? 0) - (counts.get(left) ?? 0) || left - right)[0] ?? null
 }
 

@@ -132,10 +132,8 @@ test('newcomer spots return null when the top edge is full or facts are unsafe',
   assert.equal(newcomerSpot(7, room(), [null] as unknown as readonly Point[]), null)
 })
 
-test('sparkles last about 1200 ms at normal speed and scale down to a 400 ms floor', () => {
-  assert.deepEqual(sparkleFor(5_000), { shownAt: 5_000, expiresAt: 6_200 })
-  assert.deepEqual(sparkleFor(5_000, 60), { shownAt: 5_000, expiresAt: 7_400 })
-  assert.deepEqual(sparkleFor(5_000, 600), { shownAt: 5_000, expiresAt: 5_400 })
+test('sparkles last 2.4 seconds', () => {
+  assert.deepEqual(sparkleFor(5_000), { shownAt: 5_000, expiresAt: 7_400 })
   assert.equal(sparkleFor(Number.NaN), null)
 })
 
@@ -143,9 +141,8 @@ test('sparkle alpha fades linearly and is zero outside valid time', () => {
   const sparkle = sparkleFor(1_000)!
   assert.equal(sparkleAlpha(sparkle, 999), 0)
   assert.equal(sparkleAlpha(sparkle, 1_000), 1)
-  assert.equal(sparkleAlpha(sparkle, 1_600), 0.5)
-  assert.equal(sparkleAlpha(sparkle, 2_200), 0)
-  assert.equal(sparkleAlpha(sparkle, 3_000), 0)
+  assert.equal(sparkleAlpha(sparkle, 2_200), 0.5)
+  assert.equal(sparkleAlpha(sparkle, 3_400), 0)
   assert.equal(sparkleAlpha(null, 1_000), 0)
   assert.equal(sparkleAlpha({ shownAt: 2_000, expiresAt: 1_000 }, 1_500), 0)
   assert.equal(sparkleAlpha({ shownAt: Number.NaN, expiresAt: 2_000 }, 1_500), 0)

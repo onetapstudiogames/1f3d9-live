@@ -2,6 +2,7 @@ import type { ReplayEvent } from './city/types.ts'
 
 type QueuedLike = Readonly<{ event?: ReplayEvent }>
 export type RoomSpeechResident = Readonly<{
+  id?: number
   queue?: readonly QueuedLike[]
   bubble?: Readonly<{ placeId?: number | null; expiresAt?: number }> | null
   placeId?: number | null
@@ -17,14 +18,16 @@ export function roomNoteMayStart(
   event: ReplayEvent,
   residents: Readonly<Record<string | number, RoomSpeechResident>> | readonly RoomSpeechResident[],
   now: number,
+  sleepers: ReadonlySet<number> = new Set(),
 ): boolean {
   const roomId = noteRoom(event)
   if (roomId === null) return true
   const rows = Array.isArray(residents) ? residents : residents && typeof residents === 'object' ? Object.values(residents) : []
-  if (rows.some(row => row?.bubble && row.bubble.placeId === roomId
+  const awakeRows = rows.filter(row => !finiteResidentId(row?.id) || !sleepers.has(row.id))
+  if (awakeRows.some(row => row?.bubble && row.bubble.placeId === roomId
     && finiteNumber(row.bubble.expiresAt) && row.bubble.expiresAt > now)) return false
 
-  const queuedNotes = rows.flatMap((row, residentIndex) => {
+  const queuedNotes = awakeRows.flatMap((row, residentIndex) => {
     const queue: readonly QueuedLike[] = Array.isArray(row?.queue) ? row.queue : []
     return queue.flatMap((queued, queueIndex) => {
       const queuedEvent = queued?.event
@@ -36,6 +39,10 @@ export function roomNoteMayStart(
   if (!candidate) return true
   const first = [...queuedNotes].sort(compareQueuedNotes)[0]
   return first?.event === event
+}
+
+function finiteResidentId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
 }
 
 function noteRoom(event: ReplayEvent | undefined): number | null {

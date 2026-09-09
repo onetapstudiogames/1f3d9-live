@@ -8,8 +8,8 @@ const event = (changeId: string, actor: string, placeId: number, kind = 'note'):
   actor, at: '2026-01-01T00:00:00Z', change_id: changeId, event_id: Number(changeId), kind,
   detail: kind === 'note' ? { place_id: placeId } : { action: 'move', to_place_id: placeId }, line: kind === 'note' ? actor : undefined,
 })
-const resident = (placeId: number | null, queue: readonly ReplayEvent[] = [], bubble: null | { placeId: number | null; expiresAt: number } = null) =>
-  ({ placeId, queue: queue.map(item => ({ event: item })), bubble })
+const resident = (placeId: number | null, queue: readonly ReplayEvent[] = [], bubble: null | { placeId: number | null; expiresAt: number } = null,
+  id?: number) => ({ id, placeId, queue: queue.map(item => ({ event: item })), bubble })
 
 test('only the earliest recorded queued note in a room may start', () => {
   const early = event('10', 'ada', 3)
@@ -47,4 +47,11 @@ test('unknown rooms and malformed resident data cannot starve a note', () => {
   const candidate = event('31', 'bea', 3)
   assert.equal(roomNoteMayStart(unknown, [resident(null, [unknown])], 0), true)
   assert.equal(roomNoteMayStart(candidate, { broken: {}, bea: resident(3, [candidate]) }, 0), true)
+})
+
+test('sleepers neither hold a room bubble nor keep their waiting turn', () => {
+  const sleeper = event('10', 'ada', 3)
+  const awake = event('11', 'bea', 3)
+  const residents = [resident(3, [sleeper], { placeId: 3, expiresAt: 999 }, 7), resident(3, [awake], null, 8)]
+  assert.equal(roomNoteMayStart(awake, residents, 100, new Set([7])), true)
 })

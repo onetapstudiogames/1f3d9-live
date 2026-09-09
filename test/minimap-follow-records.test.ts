@@ -6,7 +6,7 @@ import type { ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { createHandovers, stepHandovers } from '../src/handovers.ts'
 import { followScroll } from '../src/minimap.ts'
-import { advanceToPlaceMoment, placeAnimation, stepPlaceAnimations, type PlaceAnimation } from '../src/place-animation.ts'
+import { placeAnimation, stepPlaceAnimations, type PlaceAnimation } from '../src/place-animation.ts'
 import { planPlaces } from '../src/places.ts'
 import { createClock, dueEvents, prepareTimeline } from '../src/replay/index.ts'
 import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
@@ -22,14 +22,12 @@ test('follow keeps the actual longest-route walker on a phone after acquisition'
   let residents = createResidents(replay, census, layout, things.reservations)
   let handovers = createHandovers(replay.timeline)
   let handoverFrame: ReturnType<typeof stepHandovers> | null = null
-  let clock = createClock(replay.window_start, replay.window_end, 120)
+  let clock = createClock(replay.window_start, replay.window_end)
   const timeline = prepareTimeline(replay.timeline)
   const places = planPlaces(replay)
-  const placeMoments = [...places.foundings.values(), ...[...places.renamings.values()].flat()]
-    .map(event => event.time).sort((left, right) => left - right)
   let animations: readonly PlaceAnimation[] = [...places.foundings.values()]
     .filter(event => event.time === clock.start)
-    .map(event => placeAnimation('founding', event.placeId, event.changeId, 0, 120))
+    .map(event => placeAnimation('founding', event.placeId, event.changeId, 0))
   const view = { width: 375 / 0.65, height: 812 / 0.65 }
   let scroll: ReturnType<typeof followScroll> | null = null
   let cursor = 0
@@ -40,7 +38,10 @@ test('follow keeps the actual longest-route walker on a phone after acquisition'
     const pending = residents.pending || things.pending || handoverFrame?.pending === true || animations.length > 0
     if (clock.time >= clock.end && !pending && cursor >= timeline.length) break
     elapsed += 100
-    if (!pending) clock = advanceToPlaceMoment(clock, 100, placeMoments)
+    if (!pending) {
+      const nextRecordedAt = timeline[cursor]?.time ?? clock.end
+      clock = Object.freeze({ ...clock, time: Math.min(clock.end, nextRecordedAt) })
+    }
     const due = dueEvents(timeline, cursor, clock.time)
     cursor = due.cursor
     const incoming = due.events.flatMap(event => {
@@ -49,13 +50,13 @@ test('follow keeps the actual longest-route walker on a phone after acquisition'
       const founding = places.foundings.get(id)
       const rename = places.renamings.get(id)?.find(row => row.changeId === event.change_id)
       const kind = founding?.changeId === event.change_id ? 'founding' : rename ? 'renaming' : null
-      return kind ? [placeAnimation(kind, id, event.change_id, elapsed, 120)] : []
+      return kind ? [placeAnimation(kind, id, event.change_id, elapsed)] : []
     })
     animations = stepPlaceAnimations(animations, incoming, elapsed)
-    residents = stepResidents(residents, due.events, 100, elapsed, layout, 120)
-    handoverFrame = stepHandovers(handovers, due.events, residents, layout, elapsed, 120)
+    residents = stepResidents(residents, due.events, 100, elapsed, layout)
+    handoverFrame = stepHandovers(handovers, due.events, residents, layout, elapsed)
     handovers = handoverFrame.state
-    things = stepThings(things, handoverFrame.floorEvents, elapsed, 120)
+    things = stepThings(things, handoverFrame.floorEvents, elapsed)
 
     const walker = Object.values(residents.residents).find(resident => resident.walkEventId === '98186')
     if (!walker) continue

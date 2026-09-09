@@ -1,7 +1,6 @@
 import type { PlaceOutline, ReplayEvent, ReplayFile } from './city/types.ts'
 import type { NestedLayout } from './ground/nested.ts'
 import { stageFindFreeSpots, type StageStandingEntry, type StageStandingSpot } from './ground/stage-ground.ts'
-import { BASE_SPEED, holdScale } from './replay/index.ts'
 
 export type ThingEffectKind = 'puff' | 'glow' | 'crumbs'
 export type ThingEffect = Readonly<{ kind: ThingEffectKind; startedAt: number; expiresAt: number }>
@@ -31,8 +30,7 @@ export type EffectFrame = Readonly<{ progress: number; puff: boolean; glow: bool
 export type CreatedThing = Readonly<{ id: number; placeId: number; name: string | null }>
 export type MovedThing = Readonly<{ id: number; placeId: number }>
 
-const EFFECT_MS: Readonly<Record<ThingEffectKind, number>> = { puff: 900, glow: 800, crumbs: 700 }
-const EFFECT_FLOOR_MS = 250
+const EFFECT_MS: Readonly<Record<ThingEffectKind, number>> = { puff: 1_800, glow: 1_600, crumbs: 1_400 }
 const OVERFLOW_ISSUE = 'Some things did not fit on the floor, so they are not shown.'
 
 export function planThingSpots(replay: ReplayFile, layout: NestedLayout): ThingPlan {
@@ -153,7 +151,7 @@ export function reserveLiveThingEvents(
   return freezeThings({ ...state.things }, freezeReservations(reservations), issues, state.queue)
 }
 
-export function stepThings(state: ThingSimulation, events: readonly ReplayEvent[], nowMs: number, speed: number = BASE_SPEED): ThingSimulation {
+export function stepThings(state: ThingSimulation, events: readonly ReplayEvent[], nowMs: number): ThingSimulation {
   const things: Record<number, ThingState> = {}
   for (const [idText, thing] of Object.entries(state.things)) {
     if (thing.effect?.kind === 'crumbs' && nowMs >= thing.effect.expiresAt) continue
@@ -178,7 +176,7 @@ export function stepThings(state: ThingSimulation, events: readonly ReplayEvent[
     if (created) {
       const spot = reservationSpot(state.reservations, created.id, created.placeId)
       if (!spot || things[created.id]) continue
-      things[created.id] = thingAt(spot, created.name, makeEffect('puff', nowMs, speed))
+      things[created.id] = thingAt(spot, created.name, makeEffect('puff', nowMs))
       continue
     }
     const moved = movedThing(event)
@@ -199,14 +197,14 @@ export function stepThings(state: ThingSimulation, events: readonly ReplayEvent[
     if (usedId !== null) {
       const thing = things[usedId]
       if (thing?.visible && event.detail.place_id === thing.placeId) {
-        things[usedId] = { ...thing, effect: makeEffect('glow', nowMs, speed) }
+        things[usedId] = { ...thing, effect: makeEffect('glow', nowMs) }
       }
       continue
     }
     const consumedId = consumedThing(event)
     if (consumedId !== null && things[consumedId]) {
       const thing = things[consumedId]!
-      if (thing.visible) things[consumedId] = { ...thing, effect: makeEffect('crumbs', nowMs, speed) }
+      if (thing.visible) things[consumedId] = { ...thing, effect: makeEffect('crumbs', nowMs) }
       else delete things[consumedId]
     }
   }
@@ -263,9 +261,8 @@ function affectedThingId(event: ReplayEvent): number | null {
   return createdThing(event)?.id ?? movedThing(event)?.id ?? carriedThing(event) ?? usedThing(event) ?? consumedThing(event)
 }
 
-function makeEffect(kind: ThingEffectKind, nowMs: number, speed: number): ThingEffect {
-  const scale = holdScale(speed)
-  const duration = Math.max(EFFECT_FLOOR_MS, EFFECT_MS[kind] * scale)
+function makeEffect(kind: ThingEffectKind, nowMs: number): ThingEffect {
+  const duration = EFFECT_MS[kind]
   return Object.freeze({ kind, startedAt: nowMs, expiresAt: nowMs + duration })
 }
 

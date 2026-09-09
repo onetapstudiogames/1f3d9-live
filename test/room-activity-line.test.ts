@@ -2,189 +2,92 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ActivityContext, ActivityEntry } from '../src/activity.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { RoomActivityLine } from '../src/scenes/RoomActivityLine.ts'
+import { activityEntriesWitnessedInRoom, roomActivityScrollTop, roomActivityStripHeight, RoomActivityLine } from '../src/scenes/RoomActivityLine.ts'
 
-const context: ActivityContext = {
-  resident: name => ({ type: 'resident', id: 1, name, hasDrawing: false }),
-  place: id => ({ id, name: `room ${id}`, parentId: null, quiet: false, hasDrawing: false }),
-  roomName: id => `room ${id}`,
-}
+const context: ActivityContext = { resident: name => ({ type: 'resident', id: 1, name, hasDrawing: false }),
+  place: id => ({ id, name: `room ${id}`, parentId: null, quiet: id === 9, hasDrawing: false }), roomName: id => `room ${id}` }
+const entry = (key: string, roomId: number, time = Number(key) || 1): ActivityEntry => Object.freeze({ key, changeId: Number(key) || 0,
+  time, kind: 'event', text: `event ${key}`, entities: Object.freeze([]), roomId })
+const row = (id: number, roomId: number): ReplayEvent => ({ actor: 'author', at: new Date(id).toISOString(), change_id: String(id), event_id: id,
+  kind: 'note', detail: { note_id: id, place_id: roomId }, line: `note ${id}`, line_cut: false })
 
-const entry = (key: string, roomId?: number | null, anchorRoomId?: number | null): ActivityEntry => Object.freeze({
-  key, changeId: Number(key) || 0, time: 1_000, kind: 'event', text: `event ${key}`,
-  entities: Object.freeze([]), roomId, anchorRoomId,
-})
+class FakeNode { textContent = ''; dataset: Record<string, string> = {}; parentNode: FakeElement | null = null }
+class FakeElement extends FakeNode { children: FakeNode[] = []; scrollTop = 0; clientHeight = 60; scrollHeight = 0; style = { height: '', minHeight: '' }
+  ownerDocument = { createElement: () => new FakeNode() }
+  appendChild(node: FakeNode): FakeNode { node.parentNode = this; this.children.push(node); this.sync(); return node }
+  insertBefore(node: FakeNode, reference: FakeNode | null): FakeNode { node.parentNode?.removeChild(node); node.parentNode = this; const at = reference ? this.children.indexOf(reference) : -1; this.children.splice(at < 0 ? this.children.length : at, 0, node); this.sync(); return node }
+  removeChild(node: FakeNode): FakeNode { this.children = this.children.filter(child => child !== node); node.parentNode = null; this.sync(); return node }
+  replaceChildren(): void { for (const child of this.children) child.parentNode = null; this.children = []; this.sync() }
+  private sync(): void { this.textContent = this.children.map(child => child.textContent).join('\n'); this.scrollHeight = this.children.length * 20 } }
 
-test('presents direct, anchored, and both endpoints of stored room activity', () => {
-  const line = { textContent: '' } as HTMLElement
-  const log = new RoomActivityLine(line, context)
-  const move: ActivityEntry = Object.freeze({ ...entry('3', 3, 3), kind: 'move',
-    entities: Object.freeze([
-      { type: 'resident' as const, id: 1, name: 'walker', hasDrawing: false },
-      { type: 'place' as const, id: 2, name: 'room 2', hasDrawing: false },
-      { type: 'place' as const, id: 3, name: 'room 3', hasDrawing: false },
-    ]) })
-  log.appendEntries([entry('1', 2), entry('2', null, 4), move])
-  for (const [roomId, text] of [[2, 'event 3'], [3, 'event 3'], [4, 'event 2']] as const) {
-    log.selectRoom(roomId)
-    assert.equal(line.textContent, text)
-  }
-  log.selectRoom(5)
-  assert.equal(line.textContent, '')
-})
+test('stores only events witnessed in the displayed room and never reveals missed events later', () => { const line = { textContent: '' } as HTMLElement; const log = new RoomActivityLine(line, context)
+  log.selectRoom(2); log.appendEntries([entry('1', 2), entry('2', 3)]); assert.equal(line.textContent, 'event 1')
+  log.selectRoom(3); assert.equal(line.textContent, 'event 1'); log.appendEntries([entry('3', 3)]); assert.equal(line.textContent, 'event 1\nevent 3') })
 
-test('renders the newest stored activity when selecting, restoring, and resetting rooms', () => {
-  const line = { textContent: 'old' } as HTMLElement
-  const log = new RoomActivityLine(line, context)
-  log.selectRoom(2)
-  assert.equal(line.textContent, '')
+test('starts empty and reset never seeds replay history', () => { const line = { textContent: 'stale' } as HTMLElement; const log = new RoomActivityLine(line, context)
+  log.selectRoom(2); log.reset([row(1, 2)], 10); assert.equal(line.textContent, ''); assert.deepEqual(log.snapshot().entries, []) })
 
-  const roomTwo = entry('1', 2)
-  const roomThree = entry('2', 3)
-  assert.deepEqual(log.appendEntries([roomThree, roomTwo]).map(row => row.key), ['2', '1'])
-  assert.equal(line.textContent, 'event 1')
-
-  const snapshot = log.snapshot()
-  log.selectRoom(3)
-  assert.equal(line.textContent, 'event 2')
-  log.restore(snapshot)
-  assert.equal(line.textContent, 'event 2')
-  assert.equal(log.appendEntries([roomThree]).length, 0)
-
-  log.selectRoom(2)
-  assert.equal(line.textContent, 'event 1')
-  log.reset([])
-  assert.equal(line.textContent, '')
-  log.destroy()
-  assert.equal(line.textContent, '')
-})
-
-test('keeps each room latest line from a loaded window larger than the live history limit', () => {
+test('witnesses a future-dated event immediately once with a finite observation watermark', () => {
   const line = { textContent: '' } as HTMLElement
   const log = new RoomActivityLine(line, context)
   log.selectRoom(2)
-  const rows: ReplayEvent[] = [
-    { actor: 'author', at: new Date(1_000).toISOString(), change_id: '1', event_id: 1,
-      kind: 'note', detail: { note_id: 1, place_id: 2 }, line: 'room two latest', line_cut: false },
-    ...Array.from({ length: 101 }, (_, index): ReplayEvent => ({
-      actor: 'author', at: new Date(1_001 + index).toISOString(), change_id: String(index + 2), event_id: index + 2,
-      kind: 'note', detail: { note_id: index + 2, place_id: 3 }, line: `room three ${index}`, line_cut: false,
-    })),
-  ]
+  const future = { ...row(1, 2), at: '2099-01-01T00:00:00.000Z' }
 
-  log.reset(rows, 2_000)
-  assert.equal(line.textContent, 'author in room 2: room two latest')
-  log.selectRoom(3)
-  assert.equal(line.textContent, 'author in room 3: room three 100')
-  log.selectRoom(999)
-  assert.equal(line.textContent, '')
-})
-
-test('retains a room latest line through live churn and snapshot restore', () => {
-  const line = { textContent: '' } as HTMLElement
-  const log = new RoomActivityLine(line, context)
-  const row = (changeId: number, roomId: number): ReplayEvent => ({
-    actor: 'author', at: new Date(changeId).toISOString(), change_id: String(changeId), event_id: changeId,
-    kind: 'note', detail: { note_id: changeId, place_id: roomId }, line: `note ${changeId}`, line_cut: false,
-  })
-  log.reset([row(1, 2), ...Array.from({ length: 101 }, (_, index) => row(index + 2, 3))], 200)
-  for (let changeId = 103; changeId <= 252; changeId += 1) log.append([row(changeId, 3)], changeId)
-
-  log.selectRoom(2)
-  assert.equal(line.textContent, 'author in room 2: note 1')
-  const snapshot = log.snapshot()
-  assert.ok(snapshot.entries.length <= 103)
-
-  const restored = new RoomActivityLine(line, context)
-  restored.restore(snapshot)
-  restored.selectRoom(2)
+  assert.equal(log.witness([future], 1_000).length, 1)
+  assert.equal(log.witness([future], 1_000).length, 0)
   assert.equal(line.textContent, 'author in room 2: note 1')
 })
 
-test('never presents activity for quiet, quiet-descendant, unknown, or null selections', () => {
-  const places = new Map([
-    [2, { id: 2, name: 'public', parentId: null, quiet: false, hasDrawing: false }],
-    [4, { id: 4, name: 'quiet', parentId: null, quiet: true, hasDrawing: false }],
-    [5, { id: 5, name: 'quiet child', parentId: 4, quiet: false, hasDrawing: false }],
-  ])
-  const privateContext: ActivityContext = { ...context, place: id => places.get(id) ?? null }
-  const line = { textContent: '' } as HTMLElement
-  const log = new RoomActivityLine(line, privateContext)
-  log.appendEntries([entry('1', 2), entry('2', 4), entry('3', 5), entry('4', 99)])
+test('keeps latest 200 witnessed entries globally across public room moves', () => { const log = new RoomActivityLine({ textContent: '' } as HTMLElement, context); log.selectRoom(2)
+  log.appendEntries(Array.from({ length: 150 }, (_, i) => entry(String(i + 1), 2))); log.selectRoom(3)
+  log.appendEntries(Array.from({ length: 100 }, (_, i) => entry(String(i + 151), 3))); assert.equal(log.snapshot().entries.length, 200); assert.equal(log.snapshot().entries[0]?.key, '51') })
 
-  log.selectRoom(2)
-  assert.equal(line.textContent, 'event 1')
-  for (const roomId of [4, 5, 99, null]) {
-    log.selectRoom(roomId)
-    log.setUnshownSpeech('private: words')
-    assert.equal(line.textContent, '')
+test('quiet room clears history and public room cannot reveal it again', () => { const line = { textContent: '' } as HTMLElement; const log = new RoomActivityLine(line, context)
+  log.selectRoom(2); log.appendEntries([entry('1', 2)]); log.selectRoom(9); assert.deepEqual(log.snapshot().entries, []); log.selectRoom(2); assert.equal(line.textContent, '') })
+
+test('refreshing the same room clears history when it becomes quiet', () => {
+  let quiet = false
+  const dynamicContext: ActivityContext = {
+    ...context,
+    place: id => ({ id, name: `room ${id}`, parentId: null, quiet, hasDrawing: false }),
   }
-})
-
-test('uses wall time before change id for live presence, restore, and out-of-order appends', () => {
   const line = { textContent: '' } as HTMLElement
-  const log = new RoomActivityLine(line, context)
+  const log = new RoomActivityLine(line, dynamicContext)
   log.selectRoom(2)
-  const record = Object.freeze({ ...entry('50', 2), time: 1_000, text: 'record' })
-  const looking = Object.freeze({ ...entry('presence', 2), changeId: 0, time: 2_000,
-    cue: 'looking' as const, text: 'looking' })
-  const older = Object.freeze({ ...entry('49', 2), time: 900, text: 'older' })
-
-  assert.deepEqual(log.appendEntries([record, looking]).map(row => row.key), ['50', 'presence'])
-  assert.equal(line.textContent, 'looking')
-  assert.deepEqual(log.appendEntries([older]).map(row => row.key), ['49'])
-  assert.equal(line.textContent, 'looking')
-
-  const restored = new RoomActivityLine(line, context)
-  restored.restore(log.snapshot())
-  restored.selectRoom(2)
-  assert.equal(line.textContent, 'looking')
-})
-
-test('shows unshown speech as a temporary fallback and restores activity when it clears or the room changes', () => {
-  const line = { textContent: '' } as HTMLElement
-  const log = new RoomActivityLine(line, context)
-  log.appendEntries([entry('1', 2), entry('2', 3)])
-  log.selectRoom(2)
-
-  log.setUnshownSpeech('speaker: exact words')
-  assert.equal(line.textContent, 'speaker: exact words')
-  log.setUnshownSpeech(null)
-  assert.equal(line.textContent, 'event 1')
-  log.setUnshownSpeech('speaker: exact words')
-  log.selectRoom(3)
-  assert.equal(line.textContent, 'event 2')
-})
-
-test('does not rewrite the line for unchanged unshown speech', () => {
-  let value = ''
-  let writes = 0
-  const line = {} as HTMLElement
-  Object.defineProperty(line, 'textContent', {
-    get: () => value,
-    set: next => { value = String(next); writes += 1 },
-  })
-  const log = new RoomActivityLine(line, context)
-  log.selectRoom(2)
-  log.setUnshownSpeech('speaker: words')
-  const settledWrites = writes
-
-  log.setUnshownSpeech('speaker: words')
-  assert.equal(writes, settledWrites)
   log.appendEntries([entry('1', 2)])
-  assert.ok(writes > settledWrites)
+
+  quiet = true
+  log.selectRoom(2)
+
+  assert.equal(line.textContent, '')
+  assert.deepEqual(log.snapshot().entries, [])
 })
 
-test('reduces replay events with shared wording and returns all additions for scene effects', () => {
-  const line = { textContent: '' } as HTMLElement
-  const log = new RoomActivityLine(line, context)
+test('inserts older and newer witnessed events in order without exceeding 200', () => {
+  const log = new RoomActivityLine({ textContent: '' } as HTMLElement, context)
   log.selectRoom(2)
-  const rows: ReplayEvent[] = [
-    { actor: 'author', at: new Date(1_000).toISOString(), change_id: '1', event_id: 1,
-      kind: 'note', detail: { note_id: 1, place_id: 2 }, line: 'hello', line_cut: false },
-    { actor: 'author', at: new Date(1_001).toISOString(), change_id: '2', event_id: 2,
-      kind: 'note', detail: { note_id: 2, place_id: 3 }, line: 'elsewhere', line_cut: false },
-  ]
-  assert.deepEqual(log.append(rows, 2_000).map(row => row.key), ['1', '2'])
-  assert.equal(line.textContent, 'author in room 2: hello')
+  log.appendEntries([entry('new', 2, 300), entry('old', 2, 100), entry('middle', 2, 200)])
+  log.appendEntries(Array.from({ length: 198 }, (_, index) => entry(`later-${index}`, 2, 400 + index)))
+
+  const history = log.snapshot().entries
+  assert.equal(history.length, 200)
+  assert.equal(history[0]?.key, 'middle')
+  assert.equal(history[1]?.key, 'new')
 })
+
+test('clearHistory resets followed-resident history', () => { const line = { textContent: '' } as HTMLElement; const log = new RoomActivityLine(line, context)
+  log.selectRoom(2); log.appendEntries([entry('1', 2)]); log.clearHistory(); assert.equal(line.textContent, ''); assert.deepEqual(log.snapshot().entries, []) })
+
+test('snapshot restore retains witnessed history', () => { const line = { textContent: '' } as HTMLElement; const log = new RoomActivityLine(line, context)
+  log.selectRoom(2); log.appendEntries([entry('1', 2)]); const saved = log.snapshot(); log.clearHistory(); log.restore(saved); assert.equal(line.textContent, 'event 1') })
+
+test('keeps keyed DOM nodes while appending and trimming', () => { const line = new FakeElement(); const log = new RoomActivityLine(line as unknown as HTMLElement, context)
+  log.selectRoom(2); log.appendEntries([entry('1', 2), entry('2', 2)]); const second = line.children[1]
+  log.appendEntries(Array.from({ length: 199 }, (_, i) => entry(String(i + 3), 2))); assert.equal(line.children.length, 200); assert.equal(line.children[0], second) })
+
+test('move is witnessed from either endpoint and sorted by event time', () => { const move = Object.freeze({ ...entry('2', 3, 2), kind: 'move' as const,
+  entities: Object.freeze([{ type: 'place' as const, id: 2, name: 'two', hasDrawing: false }, { type: 'place' as const, id: 3, name: 'three', hasDrawing: false }]) })
+  assert.deepEqual(activityEntriesWitnessedInRoom([entry('3', 2, 3), move, entry('1', 4, 1)], 2).map(row => row.key), ['2', '3']) })
+
+test('keeps scrollback and responsive strip policy', () => { assert.equal(roomActivityScrollTop({ scrollTop: 20, clientHeight: 60, scrollHeight: 200 }, 240), 20)
+  assert.equal(roomActivityScrollTop({ scrollTop: 140, clientHeight: 60, scrollHeight: 200 }, 240), 180); assert.equal(roomActivityStripHeight(600), 40); assert.equal(roomActivityStripHeight(601), 60) })

@@ -1,10 +1,8 @@
 import type { ReplayEvent } from './city/types.ts'
 import type { Point, Room } from './ground/nested.ts'
-import { BASE_SPEED, holdScale } from './replay/index.ts'
 
 const NEWCOMER_DURATION_MS = 24 * 60 * 60 * 1_000
-const SPARKLE_DURATION_MS = 1_200
-const SPARKLE_FLOOR_MS = 400
+const SPARKLE_DURATION_MS = 2_400
 const FIGURE_EDGE_INSET = 32
 const FIGURE_CENTER_SEPARATION = 48
 
@@ -49,9 +47,9 @@ export function newcomerSpot(id: number, room: Room, occupied: readonly Point[])
   return null
 }
 
-export function sparkleFor(shownAt: number, speed: number = BASE_SPEED): Sparkle | null {
+export function sparkleFor(shownAt: number): Sparkle | null {
   if (!Number.isFinite(shownAt)) return null
-  const duration = Math.max(SPARKLE_FLOOR_MS, SPARKLE_DURATION_MS * holdScale(speed))
+  const duration = SPARKLE_DURATION_MS
   const expiresAt = shownAt + duration
   if (!Number.isFinite(expiresAt)) return null
   return Object.freeze({ shownAt, expiresAt })

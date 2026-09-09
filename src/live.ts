@@ -4,7 +4,6 @@ import type { NestedLayout } from './ground/nested.ts'
 import { createHandovers, stepHandovers, type HandoverState } from './handovers.ts'
 import { createThings, stepThings, type ThingSimulation } from './things.ts'
 import { createResidents, stepResidents, type Simulation } from './replay/simulation.ts'
-import { BASE_SPEED } from './replay/index.ts'
 
 export type LiveReadState = Readonly<{
   marker: string
@@ -14,7 +13,7 @@ export type LiveReadState = Readonly<{
   retryMs?: number
 }>
 
-const POLL_MS = 15_000
+const POLL_MS = 30_000
 const MAX_RETRY_MS = 120_000
 
 export function liveNoteReferences(events: readonly ReplayEvent[], layout: NestedLayout):
@@ -49,20 +48,13 @@ export function liveReadSucceeded(
 
 export function liveReadFailed(state: LiveReadState): LiveReadState {
   const failures = state.failures + 1
-  return Object.freeze({ ...state, failures, retryMs: Math.min(MAX_RETRY_MS, POLL_MS * 2 ** failures) })
+  return Object.freeze({ ...state, failures, retryMs: Math.min(MAX_RETRY_MS, POLL_MS * 2 ** (failures - 1)) })
 }
 
 export function validContinuation(current: string, next: string, hasMore: boolean): boolean {
   const before = numericId(current)
   const after = numericId(next)
   return after >= before && (!hasMore || after > before)
-}
-
-export function wakeActiveSleepers(
-  sleepers: ReadonlySet<number>, residents: Simulation['residents'], events: readonly ReplayEvent[],
-): ReadonlySet<number> {
-  const active = new Set(events.flatMap(event => typeof event.actor === 'string' ? [event.actor.trim()] : []))
-  return new Set([...sleepers].filter(id => !active.has(residents[id]?.handle ?? '')))
 }
 
 function numericId(value: string): number {
@@ -73,7 +65,7 @@ function numericId(value: string): number {
 export type SettledCity = Readonly<{ residents: Simulation; things: ThingSimulation; handovers: HandoverState; elapsed: number }>
 
 export function settleAtNow(
-  replay: ReplayFile, census: readonly Resident[], layout: NestedLayout, speed: number = BASE_SPEED,
+  replay: ReplayFile, census: readonly Resident[], layout: NestedLayout,
   agreementPairs: ReadonlyMap<string, AgreementPair> = new Map(),
 ): SettledCity {
   let things = createThings(replay, layout)
@@ -85,10 +77,10 @@ export function settleAtNow(
     let incoming: readonly ReplayEvent[] = [event]
     for (let frame = 0; frame < 100_000; frame += 1) {
       elapsed += settleStep
-      residents = stepResidents(residents, incoming, settleStep, elapsed, layout, speed, agreementPairs)
-      const handover = stepHandovers(handovers, incoming, residents, layout, elapsed, speed)
+      residents = stepResidents(residents, incoming, settleStep, elapsed, layout, agreementPairs)
+      const handover = stepHandovers(handovers, incoming, residents, layout, elapsed)
       handovers = handover.state
-      things = stepThings(things, handover.floorEvents, elapsed, speed)
+      things = stepThings(things, handover.floorEvents, elapsed)
       incoming = []
       if (!residents.pending && !things.pending && !handover.pending) break
       if (frame === 99_999) throw new Error('A recorded moment did not settle into the current state.')

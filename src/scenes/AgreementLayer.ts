@@ -19,7 +19,7 @@ export class AgreementLayer {
   project(now: number): ReadonlyMap<number, Point> {
     const remaining: StartedHandshake[] = []; const positions = new Map<number, Point>(); const frames = []
     for (const active of this.active) {
-      const frame = handshakeFrame(active.plan, now, active.speed); if (!frame) continue
+      const frame = handshakeFrame(active.plan, now); if (!frame) continue
       remaining.push(active); frames.push({ active, frame }); positions.set(active.plan.leftId, frame.left); positions.set(active.plan.rightId, frame.right)
     }
     this.active = Object.freeze(remaining); this.frames = Object.freeze(frames)

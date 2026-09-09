@@ -2,7 +2,6 @@ import type { AgreementPair } from './city/agreements.ts'
 import type { ReplayEvent } from './city/types.ts'
 import type { NestedLayout, Point } from './ground/nested.ts'
 import type { ThingReservations } from './things.ts'
-import { BASE_SPEED, holdScale } from './replay/index.ts'
 
 export type AgreementSignature = Readonly<{ changeId: string; agreementId: number; signer: string; parties: readonly [string, string] }>
 export type HandshakeResident = Readonly<{ id: number; handle: string; placeId: number | null; x: number; y: number;
@@ -10,10 +9,9 @@ export type HandshakeResident = Readonly<{ id: number; handle: string; placeId: 
 export type HandshakePlan = Readonly<{ signature: AgreementSignature; leftId: number; rightId: number; placeId: number;
   leftStart: Point; rightStart: Point; leftTarget: Point; rightTarget: Point; startedAt: number }>
 export type HandshakeFrame = Readonly<{ left: Point; right: Point; hands: boolean; shake: number; agreementId: number }>
-export type StartedHandshake = Readonly<{ plan: HandshakePlan; speed: number }>
+export type StartedHandshake = Readonly<{ plan: HandshakePlan }>
 
-const DURATION_MS = 5_600
-const FLOOR_MS = 1_800
+const DURATION_MS = 11_200
 const HAND_CELL_VALUES: Array<{ x: number; y: number }> = [
   { x: -3, y: 0 }, { x: -2, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 },
   { x: -1, y: 1 }, { x: 0, y: 1 },
@@ -29,8 +27,8 @@ export function agreementSignature(event: ReplayEvent, pairs: ReadonlyMap<string
   return Object.freeze({ changeId: event.change_id, agreementId: id, signer: actor, parties: pair.parties })
 }
 
-export function handshakeDuration(speed: number = BASE_SPEED): number {
-  return Math.max(FLOOR_MS, DURATION_MS * holdScale(speed))
+export function handshakeDuration(): number {
+  return DURATION_MS
 }
 
 export function planHandshake(signature: AgreementSignature, residents: Readonly<Record<number, HandshakeResident>>,
@@ -63,9 +61,9 @@ export function planHandshake(signature: AgreementSignature, residents: Readonly
     leftTarget, rightTarget, startedAt })
 }
 
-export function handshakeFrame(plan: HandshakePlan, now: number, speed = BASE_SPEED): HandshakeFrame | null {
+export function handshakeFrame(plan: HandshakePlan, now: number): HandshakeFrame | null {
   if (!Number.isFinite(now) || now < plan.startedAt) return null
-  const duration = handshakeDuration(speed); const progress = (now - plan.startedAt) / duration
+  const duration = handshakeDuration(); const progress = (now - plan.startedAt) / duration
   if (progress >= 1) return null
   const meeting = progress < 0.4 ? progress / 0.4 : progress <= 0.6 ? 1 : (1 - progress) / 0.4
   const point = (from: Point, to: Point): Point => Object.freeze({ x: Math.round(from.x + (to.x - from.x) * meeting), y: Math.round(from.y + (to.y - from.y) * meeting) })

@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
 import { mkdir, readFile } from 'node:fs/promises'
+import { keepFixtureOffline, liveFixtureUrl } from './live-fixture.ts'
 
-const fixtureUrl = '/?replay=/fixtures/replay-24h.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
-const removedControlIds = ['rewind', 'normal', 'fast', 'live-now', 'replay-day', 'nearby', 'city', 'follow-stop', 'show-sleepers', 'minimap-toggle', 'minimap-canvas', 'ui-toggle', 'activity-panel', 'activity-filter', 'activity-toggle']
+const fixtureUrl = liveFixtureUrl
+const removedControlIds = ['pause', 'rewind', 'normal', 'fast', 'live-now', 'replay-day', 'nearby', 'city', 'follow-stop', 'show-sleepers', 'minimap-toggle', 'minimap-canvas', 'ui-toggle', 'activity-panel', 'activity-filter', 'activity-toggle']
 type Resident = { id: number; current_place_id: number }
 
 async function fixtureResidents(): Promise<Resident[]> {
@@ -12,22 +13,9 @@ async function fixtureResidents(): Promise<Resident[]> {
 }
 
 async function openFixture(page: Page): Promise<{ external: string[]; errors: string[] }> {
-  const external: string[] = []; const errors: string[] = []
-  const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
-  page.on('pageerror', error => errors.push(error.message))
-  await page.route('**/*', async route => {
-    const url = new URL(route.request().url())
-    if (url.origin !== fixtureOrigin) { external.push(url.href); await route.abort(); return }
-    const drawing = /^\/fixtures\/drawings\/resident-(\d+)\.json$/.exec(url.pathname)
-    if (drawing) {
-      try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/drawings/resident-${drawing[1]}.json`, 'utf8') }) }
-      catch { await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }) }
-      return
-    }
-    await route.continue()
-  })
+  const diagnostics = await keepFixtureOffline(page)
   await page.goto(fixtureUrl)
-  return { external, errors }
+  return diagnostics
 }
 
 async function waitUntilReady(page: Page): Promise<void> {
@@ -43,13 +31,12 @@ async function visibleFigures(page: Page): Promise<Array<{ id: number; x: number
 test('opens live in the busiest room with only the one-room controls', async ({ page }) => {
   await page.clock.install({ time: Date.parse('2026-09-07T01:30:42.383Z') })
   const diagnostics = await openFixture(page); await waitUntilReady(page)
-  await expect(page.locator('body')).toHaveAttribute('data-live-room', '8')
-  await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
-  await expect(page.locator('select')).toHaveCount(2)
-  await expect(page.locator('button')).toHaveCount(1)
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '3')
+  await expect(page.locator('#room-controls > select')).toHaveCount(2)
+  await expect(page.locator('#room-controls > *')).toHaveCount(2)
+  await expect(page.locator('button, input')).toHaveCount(0)
   await expect(page.locator('#follow-picker')).toHaveAttribute('aria-label', 'Choose resident')
   await expect(page.locator('#place-picker')).toHaveAttribute('aria-label', 'Choose place')
-  await expect(page.locator('#pause')).toHaveAttribute('aria-label', 'Pause')
   await expect(page.locator(removedControlIds.map(id => `#${id}`).join(','))).toHaveCount(0)
   await mkdir('docs/screenshots', { recursive: true })
   await page.screenshot({ path: 'docs/screenshots/latest.png' })
@@ -77,29 +64,6 @@ test('resident and place choices control the one room', async ({ page }) => {
   await expect(page.locator('body')).toHaveAttribute('data-live-room', emptyRoom!)
   await expect(page.locator('body')).toHaveAttribute('data-live-following', '')
   await expect.poll(() => visibleFigures(page)).toEqual([])
-  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
-})
-
-test('pause holds an advancing scene, resume advances it, and pointer navigation does nothing', async ({ page }) => {
-  const diagnostics = await openFixture(page); await waitUntilReady(page)
-  const elapsed = () => page.evaluate(() => Number(document.body.dataset['liveElapsed']))
-  const first = await elapsed()
-  await expect.poll(elapsed).toBeGreaterThan(first)
-  const pause = page.locator('#pause'); await pause.click()
-  await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'true')
-  await expect(pause).toHaveAttribute('aria-label', 'Resume')
-  const roomBefore = await page.locator('body').getAttribute('data-live-room')
-  const frameBefore = await visibleFigures(page); const elapsedBefore = await elapsed()
-  const box = await page.locator('#app canvas').boundingBox(); expect(box).not.toBeNull()
-  await page.mouse.move(box!.x + box!.width * 0.4, box!.y + box!.height * 0.4); await page.mouse.down()
-  await page.mouse.move(box!.x + box!.width * 0.65, box!.y + box!.height * 0.6, { steps: 4 }); await page.mouse.up(); await page.mouse.wheel(0, -180)
-  await expect(page.locator('body')).toHaveAttribute('data-live-room', roomBefore!)
-  await expect.poll(() => visibleFigures(page)).toEqual(frameBefore)
-  await page.waitForTimeout(250)
-  expect(await elapsed()).toBe(elapsedBefore)
-  await pause.click()
-  await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
-  await expect.poll(elapsed).toBeGreaterThan(elapsedBefore)
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
 

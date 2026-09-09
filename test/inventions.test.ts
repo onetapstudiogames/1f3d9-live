@@ -30,11 +30,8 @@ test('strictly reads invented kinds, revisions, and coined traits', () => {
   ]) assert.equal(inventionFor(bad), null)
 })
 
-test('duration scales with replay speed and keeps a readable floor', () => {
-  assert.equal(inventionDuration(60), 4400)
-  assert.equal(inventionDuration(120), 2200)
-  assert.equal(inventionDuration(300), 1100)
-  assert.equal(inventionDuration(Number.NaN), 2200)
+test('an invention stays visible for 4.4 seconds', () => {
+  assert.equal(inventionDuration(), 4_400)
 })
 
 test('shows an invention without changing its resident and expires cleanly', () => {

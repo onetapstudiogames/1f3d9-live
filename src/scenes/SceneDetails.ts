@@ -1,6 +1,7 @@
 import type { Drawing, ReplayEvent, ReplayFile, Resident, Thing } from '../city/types.ts'
 import type { NestedLayout } from '../ground/nested.ts'
 import { liveNoteReferences } from '../live.ts'
+import { NOTE_READ_ISSUE, verifiedNoteEvent } from '../note-words.ts'
 import { planPlaces, type PlacePlan } from '../places.ts'
 import { placesWithDrawings } from '../room-art.ts'
 import type { Simulation } from '../replay/simulation.ts'
@@ -48,12 +49,10 @@ export async function readNoteWords(events: readonly ReplayEvent[], layout: Nest
   await inFours(candidates.map((_, index) => index), async candidateIndex => {
     const { event, index } = candidates[candidateIndex]!
     try {
-      const note = await read(event.detail.note_id as number)
-      if (!note || note.author.trim() !== event.actor?.trim() || note.placeId !== event.detail.place_id) {
-        issue('Some live note words could not be verified, so their reference stays silent.'); return
-      }
-      result[index] = Object.freeze({ ...event, line: note.text, line_cut: note.cut })
-    } catch (error) { console.error(error); issue('Some live note words could not be read, so their reference stays silent.') }
+      const note = verifiedNoteEvent(event, await read(event.detail.note_id as number))
+      if (note) result[index] = note
+      else issue(NOTE_READ_ISSUE)
+    } catch (error) { console.error(error); issue(NOTE_READ_ISSUE) }
   })
   return Object.freeze(result)
 }

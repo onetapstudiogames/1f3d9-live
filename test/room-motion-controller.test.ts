@@ -41,17 +41,6 @@ test('controller keeps logical source until full departure, then finishes at the
   assert.equal(controller.diagnostics()[0]?.phase, 'done')
 })
 
-test('suppressed startup move applies census destination without visible animation', () => {
-  const controller = new RoomMotion()
-  controller.configure(layout, {}, { width: 400, height: 320 }, 1, null, new Set(), new Set(['12']))
-  const current = resident({ placeId: 2 })
-  const result = controller.start(current, move(), { 7: current })
-  assert.ok(result)
-  assert.equal(result.walking, false)
-  assert.equal(result.placeId, 2)
-  assert.equal(controller.presentation(1).poses.has(7), false)
-})
-
 test('move outside the selected room updates directly without inventing visible travel', () => {
   const controller = new RoomMotion()
   controller.configure(layout, {}, { width: 400, height: 320 }, null, null, new Set(), new Set())
@@ -181,4 +170,73 @@ test('a crowded arrival remains summarised until the room changes and can then t
   assert.equal(controller.presentation(2).poses.get(7)?.visible, false)
   controller.idle({ 7: arrived, 8: { ...host, placeId: 1 } }, 16, 32, new Set())
   assert.equal(controller.presentation(2).poses.has(7), false, 'the crowd allocator can try again after space is freed')
+})
+
+test('forgetting a census-snapped resident clears stale seating and active motion', () => {
+  const controller = new RoomMotion()
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, 7, new Set(), new Set())
+  controller.remember({ 7: resident() }, {})
+  controller.start(resident(), move(), { 7: resident() })
+  assert.equal(controller.presentation(1).poses.has(7), true)
+
+  controller.forgetResidents(new Set([7]))
+
+  assert.equal(controller.presentation(1).poses.has(7), false)
+  assert.equal(controller.presentation(1).routes.length, 0)
+  assert.deepEqual(controller.diagnostics(), [])
+})
+
+test('sleep clears remembered seating and waking allows a fresh seat', () => {
+  const controller = new RoomMotion()
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, null, new Set(), new Set())
+  controller.remember({ 7: resident() }, {})
+  assert.equal(controller.presentation(1).poses.has(7), true)
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, null, new Set(), new Set([7]))
+  assert.equal(controller.presentation(1).poses.has(7), false)
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, null, new Set(), new Set())
+  controller.remember({ 7: resident() }, {})
+  assert.equal(controller.presentation(1).poses.get(7)?.visible, true)
+})
+
+test('sleep hides an active move from presentation, releases its route, and wakes at the destination', () => {
+  const controller = new RoomMotion()
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, 7, new Set(), new Set())
+  controller.remember({ 7: resident() }, {})
+  const started = controller.start(resident(), move(), { 7: resident() })!
+  assert.equal(started.walking, true)
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, 7, new Set(), new Set([7]))
+  const finished = controller.advance(started, 16)!
+  assert.equal(finished.walking, false)
+  assert.equal(finished.visible, true, 'simulation keeps the public destination drawable after waking')
+  assert.equal(finished.placeId, 2)
+  assert.equal(controller.presentation(2).poses.has(7), false, 'sleep alone suppresses the display figure')
+  assert.equal(controller.presentation(1).routes.length, 0)
+  assert.equal(controller.presentation(2).routes.length, 0)
+  controller.configure(layout, {}, { width: 400, height: 320 }, 2, 7, new Set(), new Set())
+  controller.remember({ 7: finished }, {})
+  assert.equal(controller.presentation(2).poses.get(7)?.visible, true)
+})
+
+test('reconfiguring an unchanged sleeper set does not churn awake poses', () => {
+  const controller = new RoomMotion()
+  const awake = resident({ id: 8, handle: 'eight' })
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, null, new Set(), new Set([7]))
+  controller.remember({ 7: resident(), 8: awake }, {})
+  const pose = controller.presentation(1).poses.get(8)
+  controller.configure(layout, {}, { width: 400, height: 320 }, 1, null, new Set(), new Set([7]))
+  assert.equal(controller.presentation(1).poses.get(8), pose)
+})
+
+test('a sleeper does not occupy an arrival target', () => {
+  const empty = new RoomMotion()
+  empty.configure(layout, {}, { width: 500, height: 380 }, 2, null, new Set(), new Set())
+  const emptyArrival = empty.start(resident(), move(), { 7: resident() })!
+
+  const withSleeper = new RoomMotion()
+  withSleeper.configure(layout, {}, { width: 500, height: 380 }, 2, null, new Set(), new Set([8]))
+  const sleeper = resident({ id: 8, handle: 'eight', placeId: 2,
+    x: layout.rooms[2]!.standing.x + layout.rooms[2]!.standing.width / 2,
+    y: layout.rooms[2]!.standing.y + layout.rooms[2]!.standing.height / 2 })
+  const arrival = withSleeper.start(resident(), move(), { 7: resident(), 8: sleeper })!
+  assert.deepEqual(arrival.destination, emptyArrival.destination)
 })

@@ -26,9 +26,9 @@ test('both 32-pixel figures keep clear through many meeting angles and return to
     const before = JSON.stringify(residents)
     const plan = planHandshake(signature, residents, layout, {}, 0)
     assert.ok(plan, `clear presentation pair ${a}/${b} can meet`)
-    const duration = handshakeDuration(120)
+    const duration = handshakeDuration()
     for (let step = 0; step < 100; step += 1) {
-      const frame = handshakeFrame(plan, duration * step / 100, 120)!
+      const frame = handshakeFrame(plan, duration * step / 100)!
       assert.ok(Math.max(Math.abs(frame.left.x - frame.right.x), Math.abs(frame.left.y - frame.right.y)) >= 32,
         `32-pixel squares overlap for ${a}/${b} at ${step}`)
       for (const point of [frame.left, frame.right]) {
@@ -36,7 +36,7 @@ test('both 32-pixel figures keep clear through many meeting angles and return to
         assert.ok(point.y >= room.standing.y + 16 && point.y <= room.standing.y + room.standing.height - 16)
       }
     }
-    assert.equal(handshakeFrame(plan, duration, 120), null)
+    assert.equal(handshakeFrame(plan, duration), null)
     assert.equal(JSON.stringify(residents), before)
   }
 })

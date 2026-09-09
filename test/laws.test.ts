@@ -44,11 +44,8 @@ test('only the verified blocked move shape makes a recorded padlock moment', () 
   assert.equal(blockedAttemptFor({ ...event, actor: null }), null)
 })
 
-test('padlock timing scales without inventing a countdown', () => {
-  assert.equal(blockDuration(60), 4_400)
-  assert.equal(blockDuration(120), 2_200)
-  assert.equal(blockDuration(300), 1_100)
-  assert.equal(blockDuration(1_000), 1_100)
+test('a blocked-action padlock stays visible for 4.4 seconds', () => {
+  assert.equal(blockDuration(), 4_400)
 })
 
 test('the lock is a small immutable pixel glyph', () => {

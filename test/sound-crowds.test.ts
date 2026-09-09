@@ -4,7 +4,7 @@ import { createSoundState, soundFrame } from '../src/sound.ts'
 
 const residents = [1, 2].map(id => ({ id, walkKey: `walk:${id}`, walkElapsed: 0,
   bubbleKey: `note:${id}`, drawn: true, onCamera: true }))
-const frame = { enabled: true, trusted: true, paused: false, now: 0, residents,
+const frame = { enabled: true, trusted: true, now: 0, residents,
   activeFoundings: [1, 2].map(id => ({ key: `founding:${id}`, endsAt: 100, drawn: true, onCamera: true })) }
 
 test('simultaneous visible events share a pop, a step, and a founding chime', () => {

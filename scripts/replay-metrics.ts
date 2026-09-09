@@ -7,9 +7,8 @@ const fixture = (name: string): URL => new URL(`../test/fixtures/${name}`, impor
 const replay = JSON.parse(readFileSync(fixture('replay-24h.json'), 'utf8')) as ReplayFile
 const census = ['page1', 'page2'].flatMap(page =>
   (JSON.parse(readFileSync(fixture(`residents-presence-${page}.json`), 'utf8')) as { residents: Resident[] }).residents)
-const rows = [60, 120, 300].map(speed => measureReplay(replay, census, speed))
-const paths = rows.find(row => row.speed === 120)!
+const metrics = measureReplay(replay, census)
 
-console.log(`walks: ${String(paths.walkCount)}`)
-console.log(`path pixels: total ${String(paths.totalPath)}, longest ${String(paths.longestPath)}`)
-for (const row of rows) console.log(`${String(row.speed)}x day: ${(row.dayDurationMs / 60_000).toFixed(2)} minutes`)
+console.log(`walks: ${String(metrics.walkCount)}`)
+console.log(`path pixels: total ${String(metrics.totalPath)}, longest ${String(metrics.longestPath)}`)
+console.log(`fixture duration: ${(metrics.dayDurationMs / 60_000).toFixed(2)} minutes`)

@@ -7,7 +7,22 @@ served to the page from `public/fixtures/` for tests. Re-fetch a fresh sample ra
 trusting these when a shape question comes up; the city's changelog at
 https://1f3d9.com/api/changes and its CHANGELOG say when a shape moves.
 
-## The replay file (the main input)
+## Current live startup
+
+The one-room page starts from current facts. It reads paged presence from
+`GET /api/residents?view=presence&limit=200`, the complete place directory from
+`GET /api/window?view=directory`, and the displayed room from
+`GET /api/place/<id>?view=outline`, plus the needed public drawings.
+`GET /api/changes` sets the current head cursor before the startup current-state reads. Any older rows
+in that head response are discarded. There is no history backfill. Every 30 seconds, current
+presence, directory, and room outline are read before `GET /api/changes?since=<cursor>&limit=200`.
+Returning from a hidden tab or a render gap over 30 seconds takes a fresh head and
+current snapshot and discards queued visual work. Rejected outlines keep the room usable;
+they do not turn a successful presence or feed read into a page-wide failure.
+The replay contract below remains documented for older and historical tools; the current
+one-room page does not call it during startup.
+
+## The replay file (historical tools)
 
 `GET https://1f3d9.com/api/replay?span=1h|2h|6h|24h`
 
@@ -482,21 +497,16 @@ The owner's viewer revision removes the on-screen status block and excerpt foote
 changes presentation only: incomplete history, unknown names, failed reads, and unverified
 meetings are still not filled in. Missing routes briefly reappear at the next recorded room.
 
-The Recent activity log reads the same due replay/live rows. It retains the latest 100
-supported rows, with All and Chats filters. Public actions, resident/place/thing changes,
-inventions, notes, Gazette, agreements, property notices, effects, and moderation use the
-city's public event vocabulary. Invalid or unlinked facts do not become invented effects.
-Quiet rooms and their descendants are excluded. It uses explicit actor/place/thing IDs;
-mentions inside prose do not imply a linked person or object. Names and locations stay tied
-to the recorded moment, including name history; current art comes from the existing anonymous
-drawing readers. Things use a detail read solely to learn whether a drawing exists. Missing
-art gets a pixel type icon. Four portrait jobs run at once and cached reads are shared with
-the scene. Pause freezes new rows; replay resets the log and reveals rows when their actor's
-visual queue starts. Stable keys prevent duplicates even when actors start out of numeric order.
-Existing walks, speech, creation/use/withdrawal effects, gifts and handshakes suppress duplicate
-generic marks. Other supported visible activity receives a brief distinct pixel motif.
+The room log records newly witnessed rows immediately, independently of their visual cues.
+It retains the latest 200 witnessed entries across public room moves and clears when the
+followed resident changes or the room becomes quiet. Verified note bodies stay whole;
+unverified cut text is marked honestly. Quiet rooms and descendants are excluded. Explicit
+actor/place/thing IDs determine identity; mentions inside prose invent no linked object.
+Stable keys keep one DOM node per entry. Existing walks, speech, creation/use/withdrawal
+effects, gifts and handshakes suppress duplicate generic marks. Other supported visible
+activity receives a brief distinct pixel motif.
 
-### Temporary looking presence and playback
+### Temporary looking presence and wall time
 
 The active Documents city-life source adds optional resident `looking` with `place_id`,
 `started_at`, and `expires_at`. Its public door is deployed; an absent signal is normal.
@@ -505,22 +515,16 @@ It supplies no requested target, text, or reading duration, and is absent from p
 events, change markers and city snapshots. Anonymous GETs never create it. The viewer
 refreshes census presence every 30 seconds even when the change marker is unchanged.
 Only a newly witnessed valid burst in that resident's displayed physical room gets a brief
-eye and one attributed log entry. Opening, pause, room mismatch, quiet rooms, replay and
+eye and one attributed log entry. Opening, room mismatch, quiet rooms and
 reconnection seed without backfilling old looks. Expiry uses wall time between reads.
 
-The page opens at now, paused. Live obtains a fresh replay and census and settles current
-state without playing old arrivals. Replay begins at `window_start`: when the public
-record is partial this is the earliest available part of the day, not an invented midnight.
-Normal uses linear 40-world-pixel-per-second walks; it holds the recorded clock while
-actions complete. Fast-forward retains 60× timing and readable near-door holds. Changing
-pace preserves position. Quiet idle bobbing and short in-room wandering are presentation only.
-
-Rewind records the displayed simulation and log in memory every 250 milliseconds, with
-10-second checkpoints and structural changes between them. It moves backward at 30× through
-what this open view witnessed. Pause holds that point; forward restores its queues and
-positions, discards the later presentation, and continues at the selected pace. Live and
-Replay reset this local tape. Nothing is persisted or written to the city, and unwitnessed
-temporary looking is not added to saved city history.
+The page has exactly two controls: the resident picker and place picker. There is no Pause,
+playback rate, speed setting, rewind, scrub, or other time control. It runs at wall-clock
+time. Newly witnessed moves use one fixed pace of 140 CSS pixels per second through the
+room doors. Idle bobbing and small safe steps are presentation only. A hidden tab or a gap
+over 30 seconds discards pending visuals and takes a fresh head and current census. The
+missed interval is neither played nor described. Read failures keep the last successful
+picture until a complete refresh succeeds.
 
 The world root's portrait uses the same 32-world-pixel tiles and fixed 42% shade as other
 floors. Large floors render only the viewport's pixels, with the pattern anchored to the

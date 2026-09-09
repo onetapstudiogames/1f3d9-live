@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createSoundState, soundFrame, soundRecipe } from '../src/sound.ts'
 
-const input = (overrides: Record<string, unknown> = {}) => ({ enabled: true, trusted: true, paused: false, now: 0,
+const input = (overrides: Record<string, unknown> = {}) => ({ enabled: true, trusted: true, now: 0,
   residents: [], activeFoundings: [], ...overrides })
 
 test('old bubbles and founding completions are consumed while sound is off', () => {
@@ -36,8 +36,8 @@ test('new visible bubbles pop once and real founding completion chimes once', ()
   assert.deepEqual(soundFrame(frame.state, input({ now: 20 })).cues, [])
 })
 
-test('untrusted, paused, hidden and offscreen frames stay silent', () => {
-  for (const changes of [{ trusted: false }, { paused: true }, { residents: [{ id: 1, walkKey: null, walkElapsed: 0,
+test('untrusted, hidden and offscreen frames stay silent', () => {
+  for (const changes of [{ trusted: false }, { residents: [{ id: 1, walkKey: null, walkElapsed: 0,
     bubbleKey: 'n', drawn: false, onCamera: true }] }, { residents: [{ id: 1, walkKey: null, walkElapsed: 0,
     bubbleKey: 'n', drawn: true, onCamera: false }] }]) assert.deepEqual(soundFrame(createSoundState(), input(changes)).cues, [])
 })

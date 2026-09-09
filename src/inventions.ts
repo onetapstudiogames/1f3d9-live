@@ -1,6 +1,5 @@
 import type { ReplayEvent } from './city/types.ts'
 import type { Simulation } from './replay/simulation.ts'
-import { BASE_SPEED, holdScale } from './replay/index.ts'
 
 export type Invention = Readonly<{ changeId: string; actor: string; name: string; subject: 'kind' | 'trait'; subjectId: number }>
 export type InventionMoment = Readonly<{ changeId: string; residentId: number; name: string; subject: 'kind' | 'trait'; expiresAt: number }>
@@ -8,8 +7,7 @@ export type StartedInvention = Readonly<{ invention: Invention; residentId: numb
 export type InventionState = Readonly<{ moments: readonly InventionMoment[]; pending: boolean; issues: readonly string[] }>
 export type PixelRect = Readonly<{ x: number; y: number; width: number; height: number; color: number }>
 
-const DURATION_MS = 2_200
-const DURATION_FLOOR_MS = 1_100
+const DURATION_MS = 4_400
 const ISSUE = 'Some recorded inventions could not be shown because their inventor has no visible place in the map.'
 
 export function inventionFor(event: ReplayEvent): Invention | null {
@@ -22,8 +20,8 @@ export function inventionFor(event: ReplayEvent): Invention | null {
   return Object.freeze({ changeId: event.change_id, actor, name, subject, subjectId: id })
 }
 
-export function inventionDuration(speed: number = BASE_SPEED): number {
-  return Math.max(DURATION_FLOOR_MS, DURATION_MS * holdScale(speed))
+export function inventionDuration(): number {
+  return DURATION_MS
 }
 
 export function stepInventions(

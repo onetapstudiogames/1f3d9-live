@@ -1,6 +1,5 @@
 import type { ReplayEvent } from './city/types.ts'
 import type { NestedLayout, Point } from './ground/nested.ts'
-import { BASE_SPEED, holdScale } from './replay/index.ts'
 
 export type TransferMode = 'gift' | 'effect'
 export type Transfer = Readonly<{ thingId: number; actor: string; mode: TransferMode; partnerId: number; placeId: number }>
@@ -33,8 +32,7 @@ export const HEART_PIXELS: readonly Readonly<{ x: number; y: number }>[] = Objec
   HEART_CELLS.map(([x, y]) => Object.freeze({ x, y })),
 )
 
-const FLOAT_DURATION_MS = 1_200
-const FLOAT_FLOOR_MS = 400
+const FLOAT_DURATION_MS = 2_400
 
 // The city publishes only two transfer modes, and no sale marker at all: a thing sold on
 // the market arrives here as an ordinary transfer row, so nothing below may call one a sale.
@@ -75,13 +73,13 @@ export function carriedMove(action: ReplayEvent, notice: ReplayEvent): CarriedMo
   return { thingId: a.thing_id, actor, carrierId: n.resident_id, actionId: a.action_id, fromId: a.from_place_id, toId: a.to_place_id }
 }
 
-export function transferDuration(speed: number = BASE_SPEED): number {
-  return Math.max(FLOAT_FLOOR_MS, FLOAT_DURATION_MS * holdScale(speed))
+export function transferDuration(): number {
+  return FLOAT_DURATION_MS
 }
 
-export function floatFrame(from: Point, to: Point, startedAt: number, nowMs: number, speed: number = BASE_SPEED): FloatFrame | null {
+export function floatFrame(from: Point, to: Point, startedAt: number, nowMs: number): FloatFrame | null {
   if (![from.x, from.y, to.x, to.y, startedAt, nowMs].every(Number.isFinite) || nowMs < startedAt) return null
-  const duration = transferDuration(speed)
+  const duration = transferDuration()
   const elapsed = nowMs - startedAt
   if (elapsed >= duration) return null
   const progress = elapsed / duration

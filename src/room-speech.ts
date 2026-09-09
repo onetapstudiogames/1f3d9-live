@@ -1,7 +1,7 @@
 import type { SpeechBubble } from './speech.ts'
+import { noteWords } from './note-words.ts'
 import type { NestedLayout } from './ground/nested.ts'
 import { roomIsPublic } from './room-view.ts'
-import { noteExcerpt } from './note-excerpt.ts'
 
 export type RoomSpeechResident = Readonly<{
   id: number
@@ -27,15 +27,16 @@ export function hiddenRoomSpeech(
   selectedRoomId: number | null,
   hiddenRooms: ReadonlySet<number>,
   now: number,
+  sleepers: ReadonlySet<number> = new Set(),
 ): string | null {
   if (selectedRoomId === null || !layout || !roomIsPublic(layout, selectedRoomId)
     || hiddenRooms.has(selectedRoomId) || !Number.isFinite(now)) return null
   const candidates = Object.values(residents).filter(resident => {
     const bubble = resident.bubble
-    return resident.placeId === selectedRoomId && bubble?.placeId === selectedRoomId
+    return !sleepers.has(resident.id) && resident.placeId === selectedRoomId && bubble?.placeId === selectedRoomId
       && displayed[resident.id]?.visible !== true && resident.handle.trim().length > 0
       && bubble !== null && bubble.text.trim().length > 0 && bubble.startedAt <= now && now < bubble.expiresAt
   }).sort(speechOrder)
   const resident = candidates.at(-1)
-  return resident?.bubble ? `${resident.handle.trim()}: ${noteExcerpt(resident.bubble.text, resident.bubble.cut)}` : null
+  return resident?.bubble ? `${resident.handle.trim()}: ${noteWords(resident.bubble.text, resident.bubble.cut)}` : null
 }

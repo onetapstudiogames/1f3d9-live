@@ -146,7 +146,10 @@ export function createDrawingLoader(
   return (id: number) => {
     const cached = cache.get(id)
     if (cached) return cached
-    const pending = fetchDrawing(type, id, search)
+    const pending = fetchDrawing(type, id, search).catch(error => {
+      if (cache.get(id) === pending) cache.delete(id)
+      throw error
+    })
     cache.set(id, pending)
     return pending
   }
@@ -231,17 +234,10 @@ export function createNameHistoryLoader(
 }
 
 export function createPlaceOutlineLoader(search: string = browserSearch()): (id: number) => Promise<PlaceOutline | null> {
-  const cache = new Map<number, Promise<PlaceOutline | null>>()
-  return id => {
-    const cached = cache.get(id)
-    if (cached) return cached
-    const pending = fetchPlaceOutline(id, search)
-    cache.set(id, pending)
-    return pending
-  }
+  return id => fetchPlaceOutline(id, search)
 }
 
-async function fetchPlaceOutline(id: number, search: string): Promise<PlaceOutline | null> {
+export async function fetchPlaceOutline(id: number, search: string = browserSearch()): Promise<PlaceOutline | null> {
   if (!Number.isSafeInteger(id) || id < 1) throw new Error('invalid place outline request: expected a positive safe integer id')
   const root = searchValue(search, 'places') || (fixtureMode(search) ? '/fixtures/places' : null)
   const fixture = Boolean(root)
@@ -254,7 +250,11 @@ async function fetchPlaceOutline(id: number, search: string): Promise<PlaceOutli
   const envelope = value && typeof value === 'object' ? value as Record<string, unknown> : null
   const place = envelope?.['place'] as Record<string, unknown> | undefined
   const page = envelope?.['things_page'] as Record<string, unknown> | undefined
-  if (place?.['id'] !== id || typeof place['quiet'] !== 'boolean' || !Array.isArray(envelope?.['things']) || !page
+  if (place?.['id'] !== id || typeof place['name'] !== 'string' || !(place['name'] as string).trim()
+    || (place['parent_id'] !== null && (!Number.isSafeInteger(place['parent_id']) || (place['parent_id'] as number) < 1))
+    || (place['owner'] !== null && typeof place['owner'] !== 'string')
+    || (place['owner_id'] !== null && (!Number.isSafeInteger(place['owner_id']) || (place['owner_id'] as number) < 1))
+    || typeof place['quiet'] !== 'boolean' || !Array.isArray(envelope?.['things']) || !page
     || !Number.isSafeInteger(page['total_items']) || (page['total_items'] as number) < 0 || typeof page['has_more'] !== 'boolean') {
     throw new Error(`the city returned an invalid place outline ${id}`)
   }
@@ -265,6 +265,8 @@ async function fetchPlaceOutline(id: number, search: string): Promise<PlaceOutli
     return Number.isSafeInteger(row['id']) && (row['id'] as number) > 0 && row['place_id'] === id && name
       ? [{ id: row['id'] as number, name, placeId: id, hasDrawing: row['has_drawing'] === true }] : []
   })
-  return Object.freeze({ placeId: id, quiet: place['quiet'], things: Object.freeze(things), totalItems: page['total_items'] as number,
+  return Object.freeze({ placeId: id, name: (place['name'] as string).trim(), parentId: place['parent_id'] as number | null,
+    owner: place['owner'] as string | null, ownerId: place['owner_id'] as number | null,
+    quiet: place['quiet'], things: Object.freeze(things), totalItems: page['total_items'] as number,
     hasMore: page['has_more'] as boolean, lawNames: parseLawNames(place['laws']) })
 }

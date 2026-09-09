@@ -37,7 +37,7 @@ test('a newly witnessed burst emits once and expires by wall time between polls'
   }).active.length, 0)
 })
 
-test('pause, replay, room mismatch, and quiet rooms seed without delayed announcements', () => {
+test('nonlive reads, room mismatch, and quiet rooms seed without delayed announcements', () => {
   const look = { place_id: 3, started_at: '2026-09-07T12:00:04Z', expires_at: '2026-09-07T12:01:04Z' }
   for (const input of [
     { playingLive: false, recordedPlaceByResident: rooms },

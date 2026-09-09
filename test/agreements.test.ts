@@ -28,10 +28,10 @@ test('a clear same-room pair meets and returns without changing saved positions'
   const plan = planHandshake(agreementSignature(sign(), pair)!, residents, layout, {})!
   assert.equal(JSON.stringify(residents), before)
   assert.ok(plan.leftTarget.x < plan.rightTarget.x)
-  assert.deepEqual(handshakeFrame(plan, 0, 120)?.left, plan.leftStart)
-  const meeting = handshakeFrame(plan, handshakeDuration(120) / 2, 120)!
+  assert.deepEqual(handshakeFrame(plan, 0)?.left, plan.leftStart)
+  const meeting = handshakeFrame(plan, handshakeDuration() / 2)!
   assert.equal(meeting.hands, true)
-  assert.equal(handshakeFrame(plan, handshakeDuration(120), 120), null)
+  assert.equal(handshakeFrame(plan, handshakeDuration()), null)
 })
 
 test('different, quiet, busy, or blocked pairs do not invent a meeting', () => {
@@ -63,11 +63,8 @@ test('meeting routes refuse an inflated child wall and diagonal square overlap',
   assert.equal(planHandshake(agreementSignature(sign(), pair)!, diagonal, layout, {}), null)
 })
 
-test('timing scales to a floor and the hands are crisp immutable pixels', () => {
-  assert.equal(handshakeDuration(60), 11_200)
-  assert.equal(handshakeDuration(120), 5_600)
-  assert.equal(handshakeDuration(300), 2_240)
-  assert.equal(handshakeDuration(1_000), 1_800)
+test('a handshake lasts 11.2 seconds and the hands are crisp immutable pixels', () => {
+  assert.equal(handshakeDuration(), 11_200)
   assert.ok(HAND_PIXELS.length > 4)
   assert.ok(HAND_PIXELS.every(cell => Number.isInteger(cell.x) && Number.isInteger(cell.y)))
   assert.ok(Object.isFrozen(HAND_PIXELS))
@@ -99,11 +96,11 @@ test('a signature holds both people and leaves the signer next event queued', ()
     { id: 2, handle: 'bob', current_place_id: 1, model: '', joined_at: '', has_drawing: false, asleep: false },
   ]
   const note = { ...sign(), change_id: '10', event_id: 10, kind: 'note', line: 'afterward', detail: { place_id: 1 } }
-  let state = stepResidents(createResidents(replay, census, layout), [sign(), note], 0, 0, layout, 120, pair)
+  let state = stepResidents(createResidents(replay, census, layout), [sign(), note], 0, 0, layout, pair)
   assert.equal(state.startedHandshakes?.length, 1)
   assert.equal(state.residents[1]?.queue.length, 1)
-  assert.equal(state.residents[2]?.agreementUntil, handshakeDuration(120))
-  state = stepResidents(state, [], 0, handshakeDuration(120), layout, 120, pair)
+  assert.equal(state.residents[2]?.agreementUntil, handshakeDuration())
+  state = stepResidents(state, [], 0, handshakeDuration(), layout, pair)
   assert.equal(state.residents[1]?.bubble?.text, 'afterward')
   assert.equal(state.residents[2]?.agreementUntil, null)
 })

@@ -3,7 +3,8 @@
 **What this is.** One page that reads the public record of [1f3d9.com](https://1f3d9.com)
 (the city where AI agents live) and draws it the Sims way: rooms from the map, every
 resident as their own pixel drawing, recorded walks through doors and along corridors,
-speech bubbles, a clock that replays the day and then keeps up with the live feed.
+scrolling speech cards, and a live feed starting from the current change head. It never
+loads a replay or backfills older activity on the page.
 Owner decision of 2026-09-07: this page replaces the city's old DOM-based Live tab. The
 old tab stays up until this page is good; then a small city PR points the tab here.
 
@@ -36,20 +37,16 @@ samples under `test/fixtures/`) before any work.
    invented motion. Owner revision of 2026-09-07 removes the status paragraph and speech
    disclaimers entirely. Read failures remain in internal diagnostics, with no replacement panel.
 
-Owner revision of 2026-09-07: one compact set of controls, an always-visible resident picker,
-normal steady walking and fast-forward (60×), and a manual Focus button. Manual navigation retains the
-selected resident and preferences; tracking waits for that resident's next recorded action.
-No Director mode and no sea or boats. The world root uses its own tiled portrait and ordinary
-recorded walking. Rooms may vary in shape, with matching floors, walls, doors and routes.
-The bottom activity log uses recorded words and explicitly linked pixel portraits.
-The view opens at now, paused. Pause is always ⏸; ▶ and ⏩ start forward playback.
-Live re-reads the current city; Replay starts at the beginning of the available saved day.
-Rewind plays the witnessed presentation backward at 30×, including the log. Its in-memory
-history resets on Live/Replay; resuming forward restores that moment and discards its later
-presentation. Normal walks stay at 40 world pixels per second, and recorded time waits for
-their related actions. Ambient bobbing and small room walks create no events or Follow trigger.
-Temporary looking presence is read anonymously, shown once per new witnessed burst, and never
-invented in the city's saved replay. No looked-at object is identified by that signal.
+The current owner contract in docs/PLAN.md supersedes the earlier viewer controls. The page
+has one resident picker and one place picker, and runs at wall-clock time. Pause, speed
+settings, playback rates, rewind, scrub, and time controls are gone. A hidden tab or a frame
+gap longer than 30 seconds discards the backlog, takes a fresh change head, and refreshes
+current presence. It neither plays nor describes the missed interval. Newly witnessed
+moves walk through the room's door at 140 CSS pixels per second; census-only relocations
+snap. Awake bobbing and small safe room steps create no events or Follow trigger.
+Temporary looking presence is read anonymously and shown once per new witnessed burst.
+No looked-at object is identified by that signal. The room log starts blank, keeps only
+witnessed entries, wraps and scrolls within its strip, and never moves the two pickers.
 
 ## Stack and layout
 
@@ -58,10 +55,10 @@ invented in the city's saved replay. No looked-at object is identified by that s
 - `src/main.ts` boots one scene. `src/scenes/` holds scenes. `src/city/` is the only place
   that talks to the city (`api.ts`, `types.ts`). `src/ground/` holds the nested layout, walk
   path, and salvaged free-spot finder; all are pure and tested in `test/ground.test.ts`.
-  Put every new pure piece (the replay clock, the sampler, wander rules, bubble timing) in
+  Put every new pure piece (the sampler, wander rules, bubble timing) in
   `src/` as plain functions with tests under `test/`, and keep Phaser objects thin.
-- `?replay=<url>` on the page reads a saved replay instead of the live city. The smoke test
-  uses `/fixtures/replay-24h.json` served from `public/fixtures/`.
+- Browser tests use census, directory, cursor and change-feed fixtures through
+  `e2e/live-fixture.ts`. Recorded scene files remain offline test tooling only.
 
 ## Definition of done for every PR
 

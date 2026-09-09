@@ -79,16 +79,13 @@ test('rejects incomplete, unsafe, failed, and error-bearing carry pairs', () => 
 })
 
 test('times and rounds the floating gift arc, then expires exactly', () => {
-  assert.equal(transferDuration(), 1200)
-  assert.equal(transferDuration(1200), 400)
-  assert.equal(transferDuration(0), 1200)
+  assert.equal(transferDuration(), 2_400)
   assert.deepEqual(floatFrame({ x: 0, y: 20 }, { x: 101, y: 20 }, 1000, 1000), { x: 0, y: 20, heartX: 0, heartY: 8, alpha: 1 })
-  const middle = floatFrame({ x: 0, y: 20 }, { x: 101, y: 20 }, 1000, 1600)!
+  const middle = floatFrame({ x: 0, y: 20 }, { x: 101, y: 20 }, 1000, 2200)!
   assert.deepEqual({ x: middle.x, y: middle.y }, { x: 51, y: -12 })
   assert.ok(middle.alpha >= 0 && middle.alpha <= 1)
-  assert.equal(floatFrame({ x: 0, y: 0 }, { x: 1, y: 1 }, 1000, 2200), null)
-  assert.equal(floatFrame({ x: 0, y: 0 }, { x: 1, y: 1 }, 1000, 1400, 1200), null)
-  const fading = floatFrame({ x: 0, y: 0 }, { x: 100, y: 0 }, 1000, 2100)!
+  assert.equal(floatFrame({ x: 0, y: 0 }, { x: 1, y: 1 }, 1000, 3400), null)
+  const fading = floatFrame({ x: 0, y: 0 }, { x: 100, y: 0 }, 1000, 3200)!
   assert.ok(fading.alpha > 0 && fading.alpha < 1)
   assert.equal(floatFrame({ x: 0, y: 0 }, { x: 1, y: 1 }, 1000, 999), null)
   assert.equal(floatFrame({ x: 0, y: 0 }, { x: 1, y: 1 }, 1000, Infinity), null)

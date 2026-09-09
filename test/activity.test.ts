@@ -36,10 +36,17 @@ test('formats recorded chats, moves, and made things with only linked entities',
   assert.deepEqual(made.entities.at(-1), { type: 'thing', id: 22, name: 'small bell', hasDrawing: null })
 })
 
-test('activity uses a one-line note excerpt without changing the recorded event', () => {
+test('activity preserves the complete recorded note without changing the recorded event', () => {
   const note = { ...row(1, 'note', { note_id: 9, place_id: 2 }), line: 'first\nfull second line', line_cut: false }
-  assert.equal(activityEntry(note, context)?.text, 'vigil in the old square: first…')
+  assert.equal(activityEntry(note, context)?.text, 'vigil in the old square: first\nfull second line')
   assert.equal(note.line, 'first\nfull second line')
+})
+
+test('activity marks unread cut text and removes the marker after verification', () => {
+  const note = { ...row(1, 'note', { note_id: 9, place_id: 2 }), line: 'known beginning', line_cut: true }
+  assert.equal(activityEntry(note, context)?.text, 'vigil in the old square: known beginning (rest not read)')
+  assert.equal(activityEntry({ ...note, line: 'known beginning\nending', line_cut: false }, context)?.text,
+    'vigil in the old square: known beginning\nending')
 })
 
 test('builds linked resident and place facts without replacing the recorded room-name resolver', () => {

@@ -58,7 +58,18 @@ export type Drawing = Readonly<{
 export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean }>
 export type OutlineThing = Readonly<{ id: number; name: string; placeId: number; hasDrawing: boolean }>
 export type PlaceOutline = Readonly<{ placeId: number; quiet: boolean; things: readonly OutlineThing[]; totalItems: number;
-  hasMore: boolean; lawNames?: readonly string[] | null }>
+  hasMore: boolean; lawNames?: readonly string[] | null; name?: string; parentId?: number | null;
+  owner?: string | null; ownerId?: number | null }>
+
+export type CurrentPlace = Readonly<{
+  id: number
+  name: string
+  parent_id: number | null
+  owner: string | null
+  owner_id: number | null
+  quiet: boolean
+  has_drawing: boolean
+}>
 
 export type Resident = Readonly<{
   id: number

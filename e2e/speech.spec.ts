@@ -1,12 +1,13 @@
 import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { advanceToLivePoll, fixtureDirectory, json, liveFixtureUrl } from './live-fixture.ts'
 
-const fixtureUrl = '/?replay=/fixtures/replay-places.json&census=/fixtures/residents-presence-page1.json&drawings=/fixtures/drawings&places=/fixtures/places'
+const fixtureUrl = liveFixtureUrl
 const cardSelector = '.room-speech-card[data-note-id="13243"]'
 
 type SpeechSample = {
-  at: number; page: number; pageCount: number; revealed: string; visible: string
-  pageComplete: boolean; complete: boolean; side: string
+  at: number; revealed: string; visible: string; complete: boolean; side: string
+  cardScrollTop: number; cardScrollHeight: number; cardClientHeight: number
   cardTop: number; cardBottom: number; appTop: number; appBottom: number
   scrollHeight: number; innerHeight: number; footerTop: number; footerBottom: number
 }
@@ -28,17 +29,17 @@ async function startSampling(page: Page): Promise<void> {
       const box = card.getBoundingClientRect()
       const app = document.querySelector<HTMLElement>('#app')!.getBoundingClientRect()
       const footer = document.querySelector<HTMLElement>('#room-footer')!.getBoundingClientRect()
+      const words = card.querySelector<HTMLElement>('.room-speech-words')!
       const frame: SpeechSample = {
-        at: Number(document.body.dataset['liveElapsed']), page: Number(card.dataset['page']),
-        pageCount: Number(card.dataset['pageCount']), revealed: card.dataset['revealed'] ?? '',
-        visible: card.querySelector<HTMLElement>('.room-speech-words')!.textContent ?? '',
-        pageComplete: card.dataset['pageComplete'] === 'true', complete: card.dataset['complete'] === 'true',
+        at: Number(document.body.dataset['liveElapsed']), revealed: card.dataset['revealed'] ?? '',
+        visible: words.textContent ?? '', complete: card.dataset['complete'] === 'true', cardScrollTop: words.scrollTop,
+        cardScrollHeight: words.scrollHeight, cardClientHeight: words.clientHeight,
         side: card.dataset['side'] ?? '', cardTop: box.top, cardBottom: box.bottom, appTop: app.top, appBottom: app.bottom,
         scrollHeight: document.documentElement.scrollHeight, innerHeight: window.innerHeight,
         footerTop: footer.top, footerBottom: footer.bottom,
       }
       state.frames.push(frame)
-      if (frame.complete) { state.complete = true; window.clearInterval(timer) }
+      if (frame.complete && frame.revealed.length > 0) { state.complete = true; window.clearInterval(timer) }
     }, 100)
   }, cardSelector)
 }
@@ -46,10 +47,13 @@ async function startSampling(page: Page): Promise<void> {
 async function keepFixtureOffline(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
   const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
+  const directory = await fixtureDirectory('public/fixtures/replay-places.json')
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())
     if (url.origin !== fixtureOrigin) { external.push(url.href); await route.abort(); return }
+    if (url.pathname === '/fixtures/map-current-page1.json') { await json(route, directory); return }
+    if (url.pathname === '/fixtures/change-cursor.json') { await json(route, { change_marker: '100123' }); return }
     const drawing = /^\/fixtures\/drawings\/resident-(\d+)\.json$/.exec(url.pathname)
     if (!drawing) { await route.continue(); return }
     try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/drawings/resident-${drawing[1]}.json`, 'utf8') }) }
@@ -58,11 +62,11 @@ async function keepFixtureOffline(page: Page): Promise<{ external: string[]; err
   return { external, errors }
 }
 
-test('a recorded long note stays whole beside its speaker through layout and room changes', async ({ page }) => {
+test('a newly witnessed long note stays whole beside its speaker through layout and room changes', async ({ page }) => {
   // Software-rendered CI needs wall time to draw every controlled frame. This budget
   // is separate from the unchanged 15-second speech lifetime in simulated time.
   test.setTimeout(120_000)
-  // This fixture needs a room short enough to require pages, independently of project defaults.
+  // This fixture needs a room short enough to require card scrolling, independently of project defaults.
   await page.setViewportSize({ width: 1280, height: 640 })
   // Install and pause before the app creates timers, reads or speech. The one-minute jump
   // happens on the blank page, so it cannot consume a note or a pending read's timeout.
@@ -72,8 +76,6 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   const note = JSON.parse(await readFile('public/fixtures/notes/note-13243.json', 'utf8')) as {
     note: { id: number; body: string; place_id: number }
   }
-  const replay = JSON.parse(await readFile('public/fixtures/replay-places.json', 'utf8')) as { checkpoint: string }
-  expect(replay.checkpoint).toBe('100123')
   expect(note.note).toMatchObject({ id: 13243, place_id: 782 })
   expect(note.note.body).toHaveLength(1016)
 
@@ -95,10 +97,12 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   // between these tiny controlled steps, while the note response remains held.
   await expect.poll(async () => {
     await page.clock.runFor(16)
-    return changeRequested && await page.locator('body').getAttribute('data-live-ready') === 'true'
-  }, { timeout: 30_000 }).toBe(true)
+    return await page.locator('body').getAttribute('data-live-ready')
+  }, { timeout: 30_000 }).toBe('true')
   await page.locator('#place-picker').selectOption('782')
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '782')
+  await advanceToLivePoll(page)
+  await expect.poll(() => changeRequested).toBe(true)
   releaseChange()
   // This marker follows note enrichment and queueing. No animation time passes during the read.
   await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
@@ -113,20 +117,13 @@ test('a recorded long note stays whole beside its speaker through layout and roo
     if (samples.complete) break
   }
   expect(samples.complete, `last speech sample: ${JSON.stringify(samples.frames.at(-1))}`).toBe(true)
-  expect(samples.frames[0]?.page).toBe(0)
-  const pageCount = samples.frames.at(-1)!.pageCount
-  expect(pageCount).toBeGreaterThan(1)
-  const pages: string[] = []
-  for (let index = 0; index < pageCount; index += 1) {
-    const frames = samples.frames.filter(frame => frame.page === index)
-    const typing = frames.filter(frame => !frame.pageComplete && frame.revealed.length > 0)
-    expect(new Set(typing.map(frame => frame.revealed)).size, `page ${index} types progressively`).toBeGreaterThan(1)
-    const held = frames.filter(frame => frame.pageComplete)
-    expect(held.length, `page ${index} completes`).toBeGreaterThan(0)
-    if (index < pageCount - 1) expect(held.at(-1)!.at - held[0]!.at, `page ${index} holds`).toBeGreaterThanOrEqual(200)
-    pages.push(held[0]!.revealed)
-  }
-  expect(pages.join('')).toBe(note.note.body)
+  const progressive = samples.frames.filter(frame => !frame.complete && frame.revealed.length > 0)
+  expect(new Set(progressive.map(frame => frame.revealed)).size).toBeGreaterThan(2)
+  expect(samples.frames.at(-1)!.visible).toBe(note.note.body)
+  expect(samples.frames.some(frame => frame.cardScrollTop > 0)).toBe(true)
+  const finished = samples.frames.at(-1)!
+  expect(finished.cardScrollTop + finished.cardClientHeight).toBeGreaterThanOrEqual(finished.cardScrollHeight - 1)
+  expect(samples.frames.every(frame => frame.cardClientHeight === samples.frames[0]!.cardClientHeight)).toBe(true)
   for (const frame of samples.frames) {
     expect(frame.side).toMatch(/^(above|below)$/)
     expect(frame.visible.replaceAll('\n', '')).toBe(frame.revealed.replaceAll('\n', ''))
@@ -138,11 +135,14 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   }
 
   const card = page.locator(cardSelector)
-  // Sampling stopped at completion. Check the last page's hold without consuming real time.
+  // Sampling stopped at completion. The full typed note remains available for scrollback.
+  await card.locator('.room-speech-words').evaluate(element => { element.scrollTop = 0 })
+  await page.clock.runFor(100)
+  expect(await card.locator('.room-speech-words').evaluate(element => element.scrollTop)).toBe(0)
   await page.clock.runFor(200)
   await expect(card).toBeVisible()
   await expect(card).toHaveAttribute('data-complete', 'true')
-  await expect(card).toHaveAttribute('data-revealed', pages.at(-1)!)
+  await expect(card.locator('.room-speech-words')).toHaveText(note.note.body)
 
   const initial = await card.boundingBox(); expect(initial).not.toBeNull()
   await page.setViewportSize({ width: 560, height: 720 })
@@ -163,11 +163,10 @@ test('a recorded long note stays whole beside its speaker through layout and roo
   await expect(card).toHaveAttribute('data-note-id', '13243')
 
   const lineLayout = await card.evaluate(element => {
-    const style = getComputedStyle(element)
     const words = element.querySelector<HTMLElement>('.room-speech-words')!
-    return { cardOverflow: style.overflowY, lineHeight: Number.parseFloat(style.lineHeight), wordsHeight: words.getBoundingClientRect().height }
+    return { cardOverflow: getComputedStyle(words).overflowY, lineHeight: Number.parseFloat(getComputedStyle(element).lineHeight), wordsHeight: words.scrollHeight }
   })
-  expect(lineLayout.cardOverflow).not.toBe('auto')
+  expect(lineLayout.cardOverflow).toBe('auto')
   expect(lineLayout.wordsHeight / lineLayout.lineHeight).toBeCloseTo(Math.round(lineLayout.wordsHeight / lineLayout.lineHeight), 5)
   const app = await page.locator('#app').boundingBox(); const visibleCard = await card.boundingBox()
   expect(app).not.toBeNull(); expect(visibleCard).not.toBeNull()

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, validContinuation, wakeActiveSleepers, type LiveReadState } from '../src/live.ts'
+import { liveNoteReferences, liveReadFailed, liveReadSucceeded, newLiveEvents, validContinuation, type LiveReadState } from '../src/live.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
 import { settleAtNow } from '../src/live.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
@@ -42,18 +42,11 @@ test('poll success resets backoff and failure keeps the committed marker', () =>
   assert.equal(failedAgain.retryMs, 60_000)
   const recovered = liveReadSucceeded(failedAgain, '45', [row('45')], 9_000)
   assert.equal(recovered.failures, 0)
-  assert.equal(recovered.retryMs, 15_000)
+  assert.equal(recovered.retryMs, 30_000)
   assert.equal(recovered.lastReadAt, 9_000)
   assert.equal(validContinuation('45', '45', true), false)
   assert.equal(validContinuation('45', '45', false), true)
   assert.equal(validContinuation('45', '44', false), false)
-})
-
-test('a recorded live act wakes its named sleeper without changing other sleepers', () => {
-  const residents = { 1: { handle: 'awake-now' }, 2: { handle: 'still-asleep' } } as never
-  assert.deepEqual([...wakeActiveSleepers(new Set([1, 2]), residents, [
-    { ...row('11'), actor: 'awake-now', kind: 'note', detail: { note_id: 1, place_id: 1 } },
-  ])], [2])
 })
 
 test('opening now settles recorded things but census has the final word on resident rooms', () => {

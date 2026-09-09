@@ -2,8 +2,8 @@ import type { ReplayEvent } from './city/types.ts'
 import type { NestedLayout } from './ground/nested.ts'
 import { roomIsPublic } from './room-view.ts'
 
-// Census pages have no per-resident change marker. Only the replay/delivered change ID
-// proves a row is already covered; elapsed browser time can never prove that.
+// Only change IDs beyond the cursor belong to this open view;
+// browser time never substitutes for the server cursor.
 export function eventsAfterMarker(events: readonly ReplayEvent[], deliveredMarker: number): readonly ReplayEvent[] {
   const seen = new Set<string>()
   return Object.freeze(events.filter(event => {
@@ -31,13 +31,10 @@ export function roomPictureSettled(state: { ready: boolean; firstPollMerged: boo
 
 export function animationDelta(delta: number, state: {
   ready: boolean
-  paused: boolean
-  jumping: boolean
   readFailed: boolean
-  presenceLost: boolean
 }): number {
-  if (!Number.isFinite(delta) || !state.ready || state.paused || state.jumping) return 0
-  return Math.min(100, Math.max(0, delta))
+  if (!Number.isFinite(delta) || !state.ready || state.readFailed) return 0
+  return Math.max(0, delta)
 }
 
 export function roomStatus(state: { tooSmall: boolean; readFailed: boolean; quiet: boolean }): string {

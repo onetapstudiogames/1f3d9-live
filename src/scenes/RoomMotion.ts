@@ -66,7 +66,7 @@ export class RoomMotion {
   private selectedRoomId: number | null = null
   private following: number | null = null
   private hidden: ReadonlySet<number> = new Set()
-  private suppressedMoveIds: ReadonlySet<string> = new Set()
+  private sleepers: ReadonlySet<number> = new Set()
   private things: Readonly<Record<number, PresentedEntity>> = {}
   private rememberedThings = new Map<number, RoomMotionPose>()
   private unseated = new Set<string>()
@@ -86,13 +86,23 @@ export class RoomMotion {
     selectedRoomId: number | null,
     following: number | null,
     hidden: ReadonlySet<number>,
-    suppressedMoveIds: ReadonlySet<string>,
+    sleepers: ReadonlySet<number> = new Set(),
   ): void {
     const priorSelectedRoomId = this.selectedRoomId
+    const priorSleepers = this.sleepers
     const resized = viewport.width !== this.viewport.width || viewport.height !== this.viewport.height
     this.layout = layout; this.things = things; this.viewport = Object.freeze({ ...viewport })
     this.selectedRoomId = selectedRoomId; this.following = following
-    this.hidden = hidden; this.suppressedMoveIds = suppressedMoveIds
+    this.hidden = hidden; this.sleepers = sleepers
+    const changedSleepers = new Set([...priorSleepers, ...sleepers].filter(id => priorSleepers.has(id) !== sleepers.has(id)))
+    for (const id of changedSleepers) {
+      this.remembered.delete(id); this.idleWalks.delete(id); this.idleDue.delete(id)
+      this.summaries.delete(id); this.diagnosticFrames.delete(id)
+      if (sleepers.has(id)) {
+        const active = this.walks.get(id)
+        if (active) active.unshowable = true
+      }
+    }
     if (priorSelectedRoomId !== selectedRoomId) {
       this.cancelIdle()
       // An unseen arrival needs a fresh seating attempt when its room is opened.
@@ -137,7 +147,7 @@ export class RoomMotion {
   ): void {
     const active = new Set([...this.walks.keys(), ...this.idleWalks.keys()])
     for (const row of Object.values(residents)) {
-      if (active.has(row.id) || row.placeId === null) continue
+      if (active.has(row.id) || row.placeId === null || this.sleepers.has(row.id)) continue
       if (!row.visible) continue
       this.summaries.delete(row.id)
       this.remembered.set(row.id, Object.freeze({ x: row.x, y: row.y, placeId: row.placeId,
@@ -150,6 +160,21 @@ export class RoomMotion {
     }
   }
 
+  forgetResidents(ids: ReadonlySet<number>): void {
+    for (const id of ids) {
+      this.walks.delete(id)
+      this.remembered.delete(id)
+      this.idleWalks.delete(id)
+      this.idleDue.delete(id)
+      this.diagnosticFrames.delete(id)
+      this.summaries.delete(id)
+    }
+    this.unseated = new Set([...this.unseated].filter(key => {
+      const match = /^resident:\d+:(\d+)$/.exec(key)
+      return !match || !ids.has(Number(match[1]))
+    }))
+  }
+
   start(
     resident: ResidentState,
     event: ReplayEvent,
@@ -158,10 +183,7 @@ export class RoomMotion {
     this.lastResidents = all
     const move = recordedMove(event)
     if (!move || !this.layout?.rooms[move.fromId] || !this.layout.rooms[move.toId]) return undefined
-    if (this.suppressedMoveIds.has(event.change_id)) {
-      this.walks.delete(resident.id); this.remembered.delete(resident.id)
-      return resident
-    }
+    if (this.sleepers.has(resident.id)) return this.finishHidden(resident, event.change_id, move.toId)
     const relevant = this.selectedRoomId === move.fromId || this.selectedRoomId === move.toId || this.following === resident.id
     if (!relevant || this.hidden.has(move.fromId) || this.hidden.has(move.toId) ||
         !roomViewportUsable(this.viewport.width, this.viewport.height)) {
@@ -208,13 +230,13 @@ export class RoomMotion {
       x: arrivingOnly ? targetWorld.x : resident.x, y: arrivingOnly ? targetWorld.y : resident.y,
       walking: true, ambientWalking: false, walkEventId: event.change_id,
       destinationId: move.toId, destination: targetWorld, path: [], walkElapsed: 0,
-      walkDuration: plan.durationMs, walkSpeed: undefined, bubble: null })
+      walkDuration: plan.durationMs, bubble: null })
   }
 
   advance(resident: ResidentState, deltaMs: number): ResidentState | undefined {
     const active = this.walks.get(resident.id)
     if (!active) return undefined
-    if (!roomViewportUsable(this.viewport.width, this.viewport.height) || active.unshowable) {
+    if (!roomViewportUsable(this.viewport.width, this.viewport.height) || active.unshowable || this.sleepers.has(resident.id)) {
       return this.finishHidden(resident, resident.walkEventId ?? '', active.plan.toId, active.targetWorld)
     }
     active.elapsedMs = Math.min(active.plan.durationMs, active.elapsedMs + Math.max(0, Number.isFinite(deltaMs) ? deltaMs : 0))
@@ -238,16 +260,17 @@ export class RoomMotion {
     const routes: Array<Readonly<{ points: readonly Point[]; radius: number }>> = []
     const reservationHalf = ROOM_FIGURE_PITCH / 2
     for (const [id, value] of this.remembered) {
-      if (value.placeId !== roomId) continue
+      if (value.placeId !== roomId || this.sleepers.has(id)) continue
       poses.set(id, value)
       if (value.moving) reservations.push(Object.freeze({ x: value.x - reservationHalf, y: value.y - reservationHalf,
         width: ROOM_FIGURE_PITCH, height: ROOM_FIGURE_PITCH }))
     }
-    for (const active of this.walks.values()) {
+    for (const [id, active] of this.walks) {
+      if (this.sleepers.has(id)) continue
       if (active.plan.fromId === roomId) routes.push(Object.freeze({ points: active.plan.departure, radius: reservationHalf }))
       if (active.plan.toId === roomId) routes.push(Object.freeze({ points: active.plan.arrival, radius: reservationHalf }))
     }
-    for (const active of this.idleWalks.values()) if (active.roomId === roomId) routes.push(Object.freeze({
+    for (const [id, active] of this.idleWalks) if (!this.sleepers.has(id) && active.roomId === roomId) routes.push(Object.freeze({
       points: Object.freeze([active.plan.from, active.plan.to]), radius: reservationHalf }))
     return Object.freeze({ poses, reservations: Object.freeze(reservations), routes: Object.freeze(routes) })
   }
@@ -322,7 +345,7 @@ export class RoomMotion {
     if (!this.layout) return Object.freeze([])
     const source = this.layout.rooms[roomId]!
     const residentRects = Object.values(residents).flatMap(row => {
-      if (row.id === excludedId || row.placeId !== roomId || !row.visible) return []
+      if (row.id === excludedId || this.sleepers.has(row.id) || row.placeId !== roomId || !row.visible) return []
       if (this.unseated.has(`resident:${roomId}:${row.id}`)) return []
       const cached = this.remembered.get(row.id)
       const point = cached?.placeId === roomId ? cached : projectedResident(row, source, display)
@@ -346,8 +369,8 @@ export class RoomMotion {
     const hidden = new Set(Object.keys(this.layout.rooms).map(Number).filter(id => id !== roomId || this.hidden.has(id)))
     const motion = resized ? { poses: new Map(), reservations: [] } : this.presentation(roomId)
     const frame = presentRoom(residents, this.things, this.layout, target, hidden, {}, this.following, new Map(),
-      motion)
-    for (const row of Object.values(residents)) if (row.placeId === roomId) {
+      motion, this.sleepers)
+    for (const row of Object.values(residents)) if (row.placeId === roomId && !this.sleepers.has(row.id)) {
       this.unseated.add(`resident:${roomId}:${row.id}`)
     }
     for (const row of Object.values(frame.residents)) {
@@ -366,11 +389,11 @@ export class RoomMotion {
     if (roomId === null) return Object.freeze([])
     const result: MotionRect[] = []
     for (const [id, active] of this.walks) {
-      if (id === excludedId) continue
+      if (id === excludedId || this.sleepers.has(id)) continue
       if (active.plan.fromId === roomId) result.push(...sweptRects(active.plan.departure))
       if (active.plan.toId === roomId) result.push(...sweptRects(active.plan.arrival))
     }
-    for (const [id, active] of this.idleWalks) if (id !== excludedId && active.roomId === roomId) {
+    for (const [id, active] of this.idleWalks) if (id !== excludedId && !this.sleepers.has(id) && active.roomId === roomId) {
       result.push(...sweptRects([active.plan.from, active.plan.to]))
     }
     return Object.freeze(result)
@@ -437,7 +460,7 @@ function pose(sample: ReturnType<typeof sampleRoomWalk>, moving: boolean): RoomM
 function finishResident(resident: ResidentState, eventId: string | null, placeId: number,
   target: Point, keepVisible: boolean): ResidentState {
   return Object.freeze({ ...resident, placeId, x: target.x, y: target.y, visible: keepVisible,
-    walking: false, path: [], walkElapsed: 0, walkDuration: 0, walkSpeed: undefined,
+    walking: false, path: [], walkElapsed: 0, walkDuration: 0,
     destinationId: null, destination: null, walkEventId: null,
     lastActivityId: eventId ?? resident.lastActivityId })
 }
