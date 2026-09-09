@@ -54,7 +54,7 @@ test('changes reads omit credentials and fixture reads never fall back to the ci
   }
   t.after(() => { globalThis.fetch = original })
   await fetchChanges('100123', '')
-  await fetchChanges('100123', '?replay=/saved/day.json')
+  await fetchChanges('100123', '?census=/fixtures/residents-presence-page1.json')
   await fetchChanges('100123', '?census=/saved/census.json&changes=/saved/changes.json')
   assert.deepEqual(calls.map(call => call.url), [
     'https://1f3d9.com/api/changes?since=100123&limit=200', '/fixtures/changes-live.json', '/saved/changes.json',
@@ -66,7 +66,7 @@ test('changes reads omit credentials and fixture reads never fall back to the ci
   globalThis.fetch = async () => new Response('', { status: 503 })
   await assert.rejects(fetchChanges('0', ''), /503/)
   globalThis.fetch = async () => new Response('<html>missing</html>', { headers: { 'content-type': 'text/html' } })
-  await assert.rejects(fetchChanges('0', '?replay=/saved/day.json'))
+  await assert.rejects(fetchChanges('0', '?census=/fixtures/residents-presence-page1.json'))
 })
 
 test('a real single-note read yields its complete body including newlines', () => {
@@ -96,7 +96,7 @@ test('single-note reads are anonymous and cached including missing or failed ans
   assert.equal(pending, load(13243))
   await pending
   await load(13243)
-  await createNoteExcerptLoader('?replay=/saved/day.json')(13243)
+  await createNoteExcerptLoader('?census=/fixtures/residents-presence-page1.json')(13243)
   await createNoteExcerptLoader('?notes=/saved/notes/')(13243)
   assert.deepEqual(calls, ['https://1f3d9.com/api/note/13243', '/fixtures/notes/note-13243.json', '/saved/notes/note-13243.json'])
   globalThis.fetch = async () => new Response('', { status: 404 })

@@ -1,33 +1,11 @@
-import type { CensusPage, Drawing, PlaceOutline, ReplayFile, Resident, Thing } from './types.ts'
+import type { CensusPage, Drawing, PlaceOutline, Resident, Thing } from './types.ts'
 import { parseLawNames } from '../laws.ts'
-import { parseNameHistory, type NameSpan } from '../places.ts'
 
 export const CITY_ORIGIN = 'https://1f3d9.com'
 const READ_TIMEOUT_MS = 15_000
 
 function readOptions(): RequestInit {
   return { credentials: 'omit', headers: { accept: 'application/json' }, signal: AbortSignal.timeout(READ_TIMEOUT_MS) }
-}
-
-// ?replay=<url> lets tests and the smoke check read a saved fixture instead of the live city.
-export function replayUrl(search: string = window.location.search): string {
-  const override = new URLSearchParams(search).get('replay')
-  return override && override.length > 0 ? override : `${CITY_ORIGIN}/api/replay?span=24h`
-}
-
-export async function fetchReplay(url: string = replayUrl()): Promise<ReplayFile> {
-  const response = await fetch(url, readOptions())
-  if (!response.ok) throw new Error(`the city answered ${response.status} for the replay file`)
-  const value = await response.json() as unknown
-  if (!value || typeof value !== 'object') throw new Error('the city returned an invalid replay file: expected an object')
-  const replay = value as Record<string, unknown>
-  const map = replay['map'] as Record<string, unknown> | null
-  if (typeof replay['window_start'] !== 'string' || typeof replay['window_end'] !== 'string'
-    || !map || !Array.isArray(map['places']) || !replay['start'] || typeof replay['start'] !== 'object'
-    || Array.isArray(replay['start']) || !Array.isArray(replay['timeline'])) {
-    throw new Error('the city returned an invalid replay file: missing map, window, start, or timeline')
-  }
-  return value as ReplayFile
 }
 
 function searchValue(search: string, name: string): string | null {
@@ -40,7 +18,7 @@ function browserSearch(): string {
 
 function fixtureMode(search: string): boolean {
   const params = new URLSearchParams(search)
-  return params.has('replay') || params.has('census')
+  return params.has('census')
 }
 
 function requireResident(value: unknown, page: number): Resident {
@@ -104,8 +82,8 @@ export async function fetchCensus(search: string = browserSearch()): Promise<rea
   }
 }
 
-// Only ?drawings= sends art to saved files. A record override alone (?replay= or ?census=)
-// leaves every drawing with the live city, so a saved day never quietly loses its faces.
+// Only ?drawings= sends art to saved files. A census override alone leaves drawings
+// with the live city. Browser checks explicitly select their saved drawing root.
 function drawingUrl(type: Drawing['type'], id: number, search: string): string {
   const root = searchValue(search, 'drawings')
   return root
@@ -189,52 +167,6 @@ export function createThingLoader(search: string = browserSearch()): (id: number
     cache.set(id, pending)
     return pending
   }
-}
-
-function placeHistoryUrl(id: number, search: string): { url: string, fixture: boolean } {
-  const fixtureRoot = searchValue(search, 'places')
-  const root = fixtureRoot || (fixtureMode(search) ? '/fixtures/places' : null)
-  return root
-    ? { url: `${root.replace(/\/$/, '')}/place-${id}.json`, fixture: true }
-    : { url: `${CITY_ORIGIN}/api/map?view=outline&parent_id=${id}&limit=1`, fixture: false }
-}
-
-async function fetchNameHistory(id: number, search: string): Promise<readonly NameSpan[] | null> {
-  if (!Number.isSafeInteger(id) || id < 1) {
-    throw new Error('invalid place history request: expected a positive safe integer id')
-  }
-  const request = placeHistoryUrl(id, search)
-  const response = await fetch(request.url, readOptions())
-  if (response.status === 404) return null
-  if (!response.ok) throw new Error(`the city answered ${response.status} for place history ${id}`)
-  if (request.fixture && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
-  const value = await response.json() as unknown
-  const envelope = value && typeof value === 'object' ? value as Record<string, unknown> : null
-  const place = envelope?.['place']
-  if (!place || typeof place !== 'object') throw new Error(`the city returned an invalid name history for place ${id}`)
-  const record = place as Record<string, unknown>
-  const history = parseNameHistory(record['name_history'])
-  if (record['id'] !== id || history === null) {
-    throw new Error(`the city returned an invalid name history for place ${id}`)
-  }
-  return history
-}
-
-export function createNameHistoryLoader(
-  search: string = browserSearch(),
-): (id: number) => Promise<readonly NameSpan[] | null> {
-  const cache = new Map<number, Promise<readonly NameSpan[] | null>>()
-  return id => {
-    const cached = cache.get(id)
-    if (cached) return cached
-    const pending = fetchNameHistory(id, search)
-    cache.set(id, pending)
-    return pending
-  }
-}
-
-export function createPlaceOutlineLoader(search: string = browserSearch()): (id: number) => Promise<PlaceOutline | null> {
-  return id => fetchPlaceOutline(id, search)
 }
 
 export async function fetchPlaceOutline(id: number, search: string = browserSearch()): Promise<PlaceOutline | null> {

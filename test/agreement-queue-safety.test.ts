@@ -5,7 +5,7 @@ import type { AgreementPair } from '../src/city/agreements.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { createResidents, stepResidents } from '../src/replay/simulation.ts'
 import { handshakeDuration } from '../src/agreements.ts'
-import { settleAtNow } from '../src/live.ts'
+import { settleRecordedScene } from './helpers/recorded-scene.ts'
 
 const places = [1, 2, 3].map(id => ({ id, parent_id: id === 1 ? null : 1, name: `room ${id}`,
   owner: null, owner_id: null, quiet: false, has_drawing: false }))
@@ -86,7 +86,7 @@ test('two simultaneous signatures cannot send different pairs through each other
 })
 
 test('opening at now drains an older signature without leaving a meeting or queue behind', () => {
-  const settled = settleAtNow({ ...record, timeline: [signature] }, census, layout, pairs)
+  const settled = settleRecordedScene({ ...record, timeline: [signature] }, census, layout, pairs)
   assert.equal(settled.residents.pending, false)
   assert.equal(settled.residents.startedHandshakes?.length ?? 0, 0)
   assert.ok(Object.values(settled.residents.residents).every(resident => resident.agreementUntil == null && resident.queue.length === 0))

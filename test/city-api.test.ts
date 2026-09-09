@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createDrawingLoader, createNameHistoryLoader, createPlaceOutlineLoader, createThingLoader, fetchCensus, fetchDrawing, fetchReplay, fetchThing } from '../src/city/api.ts'
+import { createDrawingLoader, fetchPlaceOutline, createThingLoader, fetchCensus, fetchDrawing, fetchThing } from '../src/city/api.ts'
 
 const resident = (id: number) => ({ id, handle: `resident-${id}`, model: '', joined_at: '2026-01-01T00:00:00Z', has_drawing: true, current_place_id: 1, asleep: false })
 
@@ -47,7 +47,7 @@ test('place outline loader reads fresh direct things and keeps drawing flags str
     ], things_page: { total_items: 100, returned_items: 3, has_more: true } })
   }
   t.after(() => { globalThis.fetch = original })
-  const load = createPlaceOutlineLoader('?places=/fixtures/places')
+  const load = (id: number) => fetchPlaceOutline(id, '?places=/fixtures/places')
   const [first, second] = await Promise.all([load(3), load(3)])
   assert.notEqual(first, second)
   assert.deepEqual(first, { placeId: 3, name: 'the square', parentId: 2, owner: 'founder', ownerId: 1, quiet: false, things: [
@@ -70,18 +70,6 @@ test('fetchCensus advances named fixture pages without live calls', async (t) =>
 
   await fetchCensus('?census=/fixtures/residents-presence-page1.json')
   assert.deepEqual(urls, ['/fixtures/residents-presence-page1.json', '/fixtures/residents-presence-page2.json'])
-})
-
-test('fetchCensus uses the saved census when replay has no census override', async (t) => {
-  const original = globalThis.fetch
-  const urls: string[] = []
-  globalThis.fetch = async input => {
-    urls.push(String(input))
-    return Response.json({ residents: [], returned_items: 0, has_more: false, next_before_id: null })
-  }
-  t.after(() => { globalThis.fetch = original })
-  await fetchCensus('?replay=/fixtures/replay-24h.json')
-  assert.deepEqual(urls, ['/fixtures/residents-presence-page1.json'])
 })
 
 test('fetchCensus preserves optional looking presence for the live viewer', async (t) => {
@@ -108,13 +96,6 @@ test('fetchCensus stops repeated pagination cursors', async (t) => {
   globalThis.fetch = async () => Response.json({ residents: [], returned_items: 0, has_more: true, next_before_id: 7 })
   t.after(() => { globalThis.fetch = original })
   await assert.rejects(fetchCensus(''), /repeated next_before_id/)
-})
-
-test('fetchReplay reports missing required public fields', async (t) => {
-  const original = globalThis.fetch
-  globalThis.fetch = async () => Response.json({ window_start: '2026-01-01T00:00:00Z' })
-  t.after(() => { globalThis.fetch = original })
-  await assert.rejects(fetchReplay('/fixture.json'), /invalid replay file/)
 })
 
 test('drawing loader caches success and absence but retries after a transient failure', async (t) => {
@@ -273,10 +254,10 @@ test('a record override saves thing labels, and only ?drawings= saves art', asyn
   }
   t.after(() => { globalThis.fetch = original })
 
-  assert.deepEqual(await fetchThing(7, '?replay=/fixtures/replay-24h.json'), { id: 7, name: 'small lantern', has_drawing: true })
+  assert.deepEqual(await fetchThing(7, '?census=/fixtures/residents-presence-page1.json'), { id: 7, name: 'small lantern', has_drawing: true })
   assert.equal((await fetchDrawing('thing', 7, '?drawings=/fixtures/drawings'))?.type, 'thing')
   // A record override on its own leaves every drawing with the live city.
-  assert.equal((await fetchDrawing('resident', 7, '?replay=/fixtures/replay-24h.json'))?.id, 7)
+  assert.equal((await fetchDrawing('resident', 7, '?census=/fixtures/residents-presence-page1.json'))?.id, 7)
   assert.equal((await fetchDrawing('place', 7, '?census=/fixtures/residents-presence-page1.json'))?.id, 7)
   assert.deepEqual(urls, [
     '/fixtures/things/thing-7.json',
@@ -330,85 +311,6 @@ test('missing fixture HTML means no saved thing and never falls back live', asyn
     return new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })
   }
   t.after(() => { globalThis.fetch = original })
-  assert.equal(await fetchThing(8, '?replay=/fixtures/replay.json'), null)
+  assert.equal(await fetchThing(8, '?census=/fixtures/residents-presence-page1.json'), null)
   assert.deepEqual(urls, ['/fixtures/things/thing-8.json'])
-})
-
-test('name history loader reads one anonymous live outline and caches it', async (t) => {
-  const original = globalThis.fetch
-  const calls: Array<{ url: string, init?: RequestInit }> = []
-  globalThis.fetch = async (input, init) => {
-    calls.push({ url: String(input), init })
-    return Response.json({ place: { id: 264, name_history: [
-      { name: 'old room', started_at: '2026-01-01T00:00:00Z', ended_at: '2026-02-01T00:00:00Z' },
-      { name: 'new room', started_at: '2026-02-01T00:00:00Z', ended_at: null },
-    ] } })
-  }
-  t.after(() => { globalThis.fetch = original })
-
-  const load = createNameHistoryLoader('')
-  assert.equal((await load(264))?.[0]?.name, 'old room')
-  assert.equal((await load(264))?.[1]?.name, 'new room')
-  assert.equal(calls.length, 1)
-  assert.equal(calls[0]?.url, 'https://1f3d9.com/api/map?view=outline&parent_id=264&limit=1')
-  assert.deepEqual(calls[0]?.init?.headers, { accept: 'application/json' })
-  assert.ok(calls[0]?.init?.signal instanceof AbortSignal)
-})
-
-test('name history fixtures use their default or named root without a live fallback', async (t) => {
-  const original = globalThis.fetch
-  const urls: string[] = []
-  globalThis.fetch = async input => {
-    urls.push(String(input))
-    return new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })
-  }
-  t.after(() => { globalThis.fetch = original })
-
-  assert.equal(await createNameHistoryLoader('?replay=/fixtures/replay.json')(9), null)
-  assert.equal(await createNameHistoryLoader('?census=/fixtures/census.json&places=/saved/outlines')(10), null)
-  assert.deepEqual(urls, ['/fixtures/places/place-9.json', '/saved/outlines/place-10.json'])
-})
-
-test('name history loader caches missing places and failed promises', async (t) => {
-  const original = globalThis.fetch
-  const calls = new Map<string, number>()
-  globalThis.fetch = async input => {
-    const url = String(input)
-    calls.set(url, (calls.get(url) ?? 0) + 1)
-    if (url.includes('parent_id=1')) return new Response('', { status: 404 })
-    throw new Error('outline offline')
-  }
-  t.after(() => { globalThis.fetch = original })
-  const load = createNameHistoryLoader('')
-
-  assert.equal(await load(1), null)
-  assert.equal(await load(1), null)
-  await assert.rejects(load(2), /outline offline/)
-  await assert.rejects(load(2), /outline offline/)
-  assert.deepEqual([...calls.values()], [1, 1])
-})
-
-test('name history loader validates requests, envelope identity, and history', async (t) => {
-  const original = globalThis.fetch
-  const bodies = [
-    { place: { id: 8, name_history: [] } },
-    { place: { id: 7 } },
-    { place: { id: 7, name_history: [{ name: '', started_at: 'bad', ended_at: null }] } },
-  ]
-  let calls = 0
-  globalThis.fetch = async () => { calls += 1; return Response.json(bodies.shift()) }
-  t.after(() => { globalThis.fetch = original })
-
-  await assert.rejects(createNameHistoryLoader('')(0), /invalid place history request/)
-  assert.equal(calls, 0)
-  await assert.rejects(createNameHistoryLoader('')(7), /invalid name history for place 7/)
-  await assert.rejects(createNameHistoryLoader('')(7), /invalid name history for place 7/)
-  await assert.rejects(createNameHistoryLoader('')(7), /invalid name history for place 7/)
-})
-
-test('name history server errors stay in plain words', async (t) => {
-  const original = globalThis.fetch
-  globalThis.fetch = async () => new Response('', { status: 503 })
-  t.after(() => { globalThis.fetch = original })
-  await assert.rejects(createNameHistoryLoader('')(264), /the city answered 503 for place history 264/)
 })

@@ -1,14 +1,5 @@
-import type { ReplayPlace } from './city/types.ts'
 import type { NestedLayout, Room } from './ground/nested.ts'
 import { roomFloorRects } from './ground/room-shape.ts'
-
-export function placesWithDrawings(
-  places: readonly Pick<ReplayPlace, 'id' | 'has_drawing'>[], layout: NestedLayout,
-): readonly number[] {
-  const visible = new Set(roomsToDraw(layout).filter(room => !room.quiet).map(room => room.id))
-  return [...new Set(places.filter(place => place.has_drawing === true && Number.isSafeInteger(place.id)
-    && place.id > 0 && visible.has(place.id)).map(place => place.id))]
-}
 
 export type PlaceFloorArt = Readonly<{
   x: number; y: number; width: number; height: number

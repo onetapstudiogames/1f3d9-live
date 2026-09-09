@@ -59,7 +59,7 @@ async function fixedPageState(page: Page) {
   })
 }
 
-test('the global witnessed log scrolls inside a fixed strip and stays with room changes', async ({ page }) => {
+test('the room log scrolls inside a fixed strip and stays with public room changes', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-09-08T12:00:00.000Z') })
   for (const viewport of [{ width: 1280, height: 800, stripHeight: 60 }, { width: 375, height: 812, stripHeight: 40 }]) {
     await page.setViewportSize(viewport)

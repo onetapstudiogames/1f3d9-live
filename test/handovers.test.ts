@@ -6,7 +6,8 @@ import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import type { NestedLayout } from '../src/ground/nested.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { blocksLiveHandoverDelivery, createHandovers, stepHandovers } from '../src/handovers.ts'
-import { blocksLiveDelivery, createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
+import { blocksLiveDelivery, createResidents, stepResidents } from '../src/replay/simulation.ts'
+import { recordedRoomCapacity } from './helpers/recorded-scene.ts'
 import { createThings, stepThings } from '../src/things.ts'
 import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
 
@@ -307,7 +308,7 @@ test('saved public gift and carry rows draw only what their references support',
     ...(read('residents-presence-page1.json')['residents'] as readonly Resident[]),
     ...(read('residents-presence-page2.json')['residents'] as readonly Resident[]),
   ]
-  const map = nestedLayout(fixture.map.places, roomCapacity(fixture, census))
+  const map = nestedLayout(fixture.map.places, recordedRoomCapacity(fixture, census))
   const [gift, notice, action] = fixture.timeline as readonly ReplayEvent[]
   let state = createResidents(fixture, census, map)
   let handovers = createHandovers(fixture.timeline)

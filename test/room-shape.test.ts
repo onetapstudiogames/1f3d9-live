@@ -3,8 +3,6 @@ import test from 'node:test'
 import { nestedLayout, type Place, type Room } from '../src/ground/nested.ts'
 import { roomContains, roomFloorRects, roomOutline } from '../src/ground/room-shape.ts'
 import { curtainCells } from '../src/room-art.ts'
-import { wallBricks } from '../src/place-animation.ts'
-import { minimapPlan } from '../src/minimap.ts'
 import { readFileSync } from 'node:fs'
 
 test('stepped rooms are a bounded L with doors and standing floor outside the notch', () => {
@@ -65,7 +63,7 @@ test('real continents have visible spacing and their children stay on the shaped
   }
 })
 
-test('curtains, founding bricks and the minimap respect the same stepped outline', () => {
+test('curtains respect the stepped room outline', () => {
   const layout = nestedLayout([{ id: 1, parent_id: null }, { id: 2, parent_id: 1, quiet: true }])
   const room = layout.rooms[2]!
   assert.ok(room.notch)
@@ -73,10 +71,4 @@ test('curtains, founding bricks and the minimap respect the same stepped outline
   assert.equal(cells.reduce((sum, cell) => sum + cell.width * cell.height, 0),
     roomFloorRects(room, 4).reduce((sum, rect) => sum + rect.width * rect.height, 0))
   for (const cell of cells) assert.equal(roomContains(room, { x: cell.x + cell.width, y: cell.y + cell.height }, 4), true)
-  const bricks = wallBricks(room)
-  assert.ok(bricks.some(brick => Math.abs(brick.x - (room.x + room.width - room.notch!.width)) <= 3
-    && brick.y > room.y + room.height - room.notch!.height))
-  assert.ok(!bricks.some(brick => brick.x > room.x + room.width - room.notch!.width + 4
-    && brick.y > room.y + room.height - room.notch!.height + 4))
-  assert.equal(minimapPlan(layout).staticRooms.find(row => row.id === room.id)?.outline?.length, 6)
 })

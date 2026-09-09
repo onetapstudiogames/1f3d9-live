@@ -4,7 +4,8 @@ import test from 'node:test'
 
 import type { ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
-import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
+import { createResidents, stepResidents } from '../src/replay/simulation.ts'
+import { recordedRoomCapacity } from './helpers/recorded-scene.ts'
 import { createdThing, createThings, stepThings, usedThing } from '../src/things.ts'
 import { roomsToDraw } from '../src/room-art.ts'
 
@@ -44,7 +45,7 @@ test('saved thing metadata and drawings match the public fixture tree', () => {
 })
 
 test('saved replay places only recorded floor things and replays names and uses', () => {
-  const layout = nestedLayout(replay.map.places, roomCapacity(replay, census))
+  const layout = nestedLayout(replay.map.places, recordedRoomCapacity(replay, census))
   let things = createThings(replay, layout)
   assert.equal(Object.keys(things.things).length, 19)
 
@@ -71,7 +72,7 @@ test('saved replay places only recorded floor things and replays names and uses'
 })
 
 test('saved residents keep clear of fixed thing reservations through the replay', () => {
-  const layout = nestedLayout(replay.map.places, roomCapacity(replay, census))
+  const layout = nestedLayout(replay.map.places, recordedRoomCapacity(replay, census))
   let things = createThings(replay, layout)
   let residents = createResidents(replay, census, layout, things.reservations)
   const visibleRooms = new Set(roomsToDraw(layout).filter(room => !room.quiet).map(room => room.id))

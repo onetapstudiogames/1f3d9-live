@@ -1,9 +1,5 @@
-import type { ReplayEvent, ReplayFile, Resident } from './city/types.ts'
-import type { AgreementPair } from './city/agreements.ts'
+import type { ReplayEvent } from './city/types.ts'
 import type { NestedLayout } from './ground/nested.ts'
-import { createHandovers, stepHandovers, type HandoverState } from './handovers.ts'
-import { createThings, stepThings, type ThingSimulation } from './things.ts'
-import { createResidents, stepResidents, type Simulation } from './replay/simulation.ts'
 
 export type LiveReadState = Readonly<{
   marker: string
@@ -62,41 +58,3 @@ function numericId(value: string): number {
   return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER
 }
 
-export type SettledCity = Readonly<{ residents: Simulation; things: ThingSimulation; handovers: HandoverState; elapsed: number }>
-
-export function settleAtNow(
-  replay: ReplayFile, census: readonly Resident[], layout: NestedLayout,
-  agreementPairs: ReadonlyMap<string, AgreementPair> = new Map(),
-): SettledCity {
-  let things = createThings(replay, layout)
-  let residents = createResidents(replay, census, layout, things.reservations)
-  let handovers = createHandovers(replay.timeline)
-  let elapsed = 0
-  const settleStep = 1_000_000
-  for (const event of replay.timeline) {
-    let incoming: readonly ReplayEvent[] = [event]
-    for (let frame = 0; frame < 100_000; frame += 1) {
-      elapsed += settleStep
-      residents = stepResidents(residents, incoming, settleStep, elapsed, layout, agreementPairs)
-      const handover = stepHandovers(handovers, incoming, residents, layout, elapsed)
-      handovers = handover.state
-      things = stepThings(things, handover.floorEvents, elapsed)
-      incoming = []
-      if (!residents.pending && !things.pending && !handover.pending) break
-      if (frame === 99_999) throw new Error('A recorded moment did not settle into the current state.')
-    }
-  }
-  const current = currentCensusResidents(replay, census, layout, things.reservations, residents)
-  residents = Object.freeze({ ...current, issues: residents.issues, reservations: things.reservations })
-  return Object.freeze({ residents, things, handovers, elapsed })
-}
-
-function currentCensusResidents(
-  replay: ReplayFile, census: readonly Resident[], layout: NestedLayout, reservations: ThingSimulation['reservations'], settled: Simulation,
-): Simulation {
-  const starts = { ...replay.start }
-  for (const resident of Object.values(settled.residents)) starts[`resident:${resident.id}`] = { place_id: resident.placeId }
-  for (const resident of census) starts[`resident:${resident.id}`] = { place_id: resident.current_place_id }
-  const registrations = replay.timeline.filter(event => event.kind === 'register')
-  return createResidents({ ...replay, start: starts, timeline: registrations }, census, layout, reservations)
-}

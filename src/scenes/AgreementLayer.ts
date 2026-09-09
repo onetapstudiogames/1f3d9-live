@@ -12,8 +12,6 @@ export class AgreementLayer {
   private active: readonly StartedHandshake[] = []
   private readonly views = new Map<string, View>()
   add(started: readonly StartedHandshake[]): void { this.active = Object.freeze([...this.active, ...started]) }
-  snapshot(): readonly StartedHandshake[] { return this.active }
-  restore(active: readonly StartedHandshake[]): void { this.active = active; this.frames = [] }
 
   private frames: readonly { active: StartedHandshake; frame: NonNullable<ReturnType<typeof handshakeFrame>> }[] = []
   project(now: number): ReadonlyMap<number, Point> {
@@ -26,9 +24,9 @@ export class AgreementLayer {
     return positions
   }
   draw(scene: Phaser.Scene, figures: ReadonlyMap<number, ResidentView>, hiddenPlaces: ReadonlySet<number>): void {
-    const remaining: StartedHandshake[] = []; const keys = new Set<string>()
+    const keys = new Set<string>()
     for (const { active, frame } of this.frames) {
-      remaining.push(active); const key = active.plan.signature.changeId; keys.add(key)
+      const key = active.plan.signature.changeId; keys.add(key)
       let view = this.views.get(key)
       if (!view) {
         view = Object.freeze({ hands: scene.add.graphics().setDepth(206), label: scene.add.text(0, 0,

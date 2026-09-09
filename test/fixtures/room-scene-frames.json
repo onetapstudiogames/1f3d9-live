@@ -1,0 +1,629 @@
+[
+  {
+    "elapsed": 0,
+    "roomId": 3,
+    "delivered": 0,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 3,
+      "x": 367.42105263157896,
+      "y": 199.0612244897959,
+      "flipX": false,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 367.42105263157896,
+        "y": 199.0612244897959,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 100,
+    "roomId": 3,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 3,
+      "x": 367.42105263157896,
+      "y": 199.0612244897959,
+      "flipX": false,
+      "walking": true,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 3688.9662286252405,
+      "destinationId": 2,
+      "destination": {
+        "x": 3520,
+        "y": 1685
+      },
+      "walkEventId": "98231",
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {}
+  },
+  {
+    "elapsed": 500,
+    "roomId": 3,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 3,
+      "x": 410.4288852781041,
+      "y": 234.9266163188069,
+      "flipX": false,
+      "walking": true,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 400,
+      "walkDuration": 3688.9662286252405,
+      "destinationId": 2,
+      "destination": {
+        "x": 3520,
+        "y": 1685
+      },
+      "walkEventId": "98231",
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {}
+  },
+  {
+    "elapsed": 1000,
+    "roomId": 3,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 3,
+      "x": 465.45402654345423,
+      "y": 276.265306122449,
+      "flipX": false,
+      "walking": true,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 900,
+      "walkDuration": 3688.9662286252405,
+      "destinationId": 2,
+      "destination": {
+        "x": 3520,
+        "y": 1685
+      },
+      "walkEventId": "98231",
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {}
+  },
+  {
+    "elapsed": 1500,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 532.5459734565458,
+      "y": 336.75363489499193,
+      "flipX": true,
+      "walking": true,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 1400,
+      "walkDuration": 3688.9662286252405,
+      "destinationId": 2,
+      "destination": {
+        "x": 3520,
+        "y": 1685
+      },
+      "walkEventId": "98231",
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {}
+  },
+  {
+    "elapsed": 2000,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 462.54597345654577,
+      "y": 336.75363489499193,
+      "flipX": true,
+      "walking": true,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 1900,
+      "walkDuration": 3688.9662286252405,
+      "destinationId": 2,
+      "destination": {
+        "x": 3520,
+        "y": 1685
+      },
+      "walkEventId": "98231",
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {}
+  },
+  {
+    "elapsed": 2500,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 402.86077344851196,
+      "y": 300.9045834985777,
+      "flipX": true,
+      "walking": true,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 2400,
+      "walkDuration": 3688.9662286252405,
+      "destinationId": 2,
+      "destination": {
+        "x": 3520,
+        "y": 1685
+      },
+      "walkEventId": "98231",
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {}
+  },
+  {
+    "elapsed": 3000,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 343.56489352016536,
+      "y": 263.70245152306984,
+      "flipX": true,
+      "walking": true,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 2900,
+      "walkDuration": 3688.9662286252405,
+      "destinationId": 2,
+      "destination": {
+        "x": 3520,
+        "y": 1685
+      },
+      "walkEventId": "98231",
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {}
+  },
+  {
+    "elapsed": 3500,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 284.2690135918188,
+      "y": 226.50031954756196,
+      "flipX": true,
+      "walking": true,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 3400,
+      "walkDuration": 3688.9662286252405,
+      "destinationId": 2,
+      "destination": {
+        "x": 3520,
+        "y": 1685
+      },
+      "walkEventId": "98231",
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {}
+  },
+  {
+    "elapsed": 4000,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 4500,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 5000,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 5500,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 6000,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 6500,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 7000,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 7500,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  },
+  {
+    "elapsed": 8000,
+    "roomId": 2,
+    "delivered": 1,
+    "resident": {
+      "id": 87,
+      "handle": "buffy",
+      "joinedAt": "2026-08-13T23:04:36.035Z",
+      "sparkle": null,
+      "placeId": 2,
+      "x": 250,
+      "y": 205,
+      "flipX": true,
+      "walking": false,
+      "visible": true,
+      "bubble": null,
+      "queue": [],
+      "path": [],
+      "walkElapsed": 0,
+      "walkDuration": 0,
+      "destinationId": null,
+      "destination": null,
+      "walkEventId": null,
+      "transferUntil": null,
+      "lastActivityId": "98231"
+    },
+    "placements": {
+      "resident:87": {
+        "id": "resident:87",
+        "kind": "resident",
+        "x": 250,
+        "y": 205,
+        "visible": true,
+        "offsetX": 0,
+        "offsetY": 0
+      }
+    }
+  }
+]

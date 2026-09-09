@@ -85,31 +85,15 @@ export function createThings(replay: ReplayFile, layout: NestedLayout): ThingSim
   return freezeThings(things, plan.reservations, plan.issues, [])
 }
 
-export function recordThingIds(replay: ReplayFile): ReadonlySet<number> {
-  const ids = new Set<number>()
-  for (const key of Object.keys(replay.start)) {
-    const match = /^thing:(\d+)$/.exec(key)
-    if (match && validId(Number(match[1]))) ids.add(Number(match[1]))
-  }
-  for (const event of replay.timeline) {
-    for (const value of [event.detail.thing_id, event.detail.source_thing_id]) if (validId(value)) ids.add(value)
-    if ((event.detail.asset_type === 'thing' || event.detail.type === 'thing') && validId(event.detail.asset_id ?? event.detail.id)) {
-      ids.add((event.detail.asset_id ?? event.detail.id) as number)
-    }
-  }
-  return ids
-}
-
 export function addPresentThings(
   state: ThingSimulation,
   outline: PlaceOutline,
   layout: NestedLayout,
-  recordKnown: ReadonlySet<number>,
   blockers: readonly StageStandingSpot[],
 ): ThingSimulation {
   const room = layout.rooms[outline.placeId]
   if (!room || outline.quiet || !placeVisible(layout, outline.placeId)) return state
-  const additions = outline.things.filter(thing => !recordKnown.has(thing.id) && !state.things[thing.id]).sort((a, b) => a.id - b.id)
+  const additions = outline.things.filter(thing => !state.things[thing.id]).sort((a, b) => a.id - b.id)
   const oldSpots = state.reservations[outline.placeId] ?? []
   const entries: StageStandingEntry[] = additions.map(thing => ({ key: `thing:${thing.id}`, kind: 'thing' as const }))
   const placed = stageFindFreeSpots(entries, room.standing, {}, [], [...oldSpots, ...blockers])

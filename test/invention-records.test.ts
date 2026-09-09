@@ -5,8 +5,9 @@ import { parseChangesPage } from '../src/city/changes.ts'
 import type { ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { inventionFor, stepInventions } from '../src/inventions.ts'
-import { settleAtNow } from '../src/live.ts'
-import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
+import { settleRecordedScene } from './helpers/recorded-scene.ts'
+import { createResidents, stepResidents } from '../src/replay/simulation.ts'
+import { recordedRoomCapacity } from './helpers/recorded-scene.ts'
 
 const saved = <T>(name: string): T => JSON.parse(readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8')) as T
 const names = ['kind-invented', 'kind-revised', 'trait-coined', 'trait-coined-page2']
@@ -35,7 +36,7 @@ test('real notices light their already placed actor without moving it, and openi
     // where an older invention happened. The saved notice itself stays unchanged.
     const replay: ReplayFile = { ...day, window_start: row.at, window_end: row.at,
       checkpoint: row.change_id, start: { [`resident:${person.id}`]: { place_id: person.current_place_id } }, timeline: [row] }
-    const layout = nestedLayout(replay.map.places, roomCapacity(replay, [person]))
+    const layout = nestedLayout(replay.map.places, recordedRoomCapacity(replay, [person]))
     const initial = createResidents(replay, [person], layout)
     const before = initial.residents[person.id]!
     const shown = stepResidents(initial, [row], 0, 100, layout)
@@ -46,7 +47,7 @@ test('real notices light their already placed actor without moving it, and openi
     assert.equal(bulbs.moments[0]!.name, row.detail.name)
     assert.equal(bulbs.moments[0]!.residentId, person.id)
     assert.equal(shown.pending, true)
-    const now = settleAtNow(replay, [person], layout)
+    const now = settleRecordedScene(replay, [person], layout)
     assert.equal(now.residents.pending, false)
     assert.equal(now.residents.residents[person.id]!.inventionUntil ?? null, null)
     assert.equal(now.residents.startedInventions?.length ?? 0, 0)

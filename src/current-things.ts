@@ -42,7 +42,7 @@ export function refreshPresentThings(
   const currentOutline: PlaceOutline = Object.freeze({ ...outline,
     things: Object.freeze(outline.things.map(thing => Object.freeze({ ...thing, placeId: outline.placeId }))),
   })
-  return addPresentThings(cleaned, currentOutline, layout, new Set(), blockers)
+  return addPresentThings(cleaned, currentOutline, layout, blockers)
 }
 
 function removeThingReservations(reservations: ThingReservations, ids: ReadonlySet<number>): ThingReservations {

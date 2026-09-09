@@ -1,17 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { refreshTextResolution } from '../src/resident-overlays.ts'
+import { roomCanvasSizing } from '../src/room-canvas.ts'
+import { roomTextResolution } from '../src/room-appearance.ts'
 
-test('room name text refreshes once when device density changes', () => {
-  const calls: number[] = []
-  const text = {
-    style: { resolution: 1 },
-    setResolution(value: number) { calls.push(value); this.style.resolution = value },
-  }
-
-  refreshTextResolution(text, 2.5)
-  refreshTextResolution(text, 2.5)
-
-  assert.equal(text.style.resolution, 2.5)
-  assert.deepEqual(calls, [2.5])
+test('room rendering and readable labels use device density without changing CSS size', () => {
+  const normal = roomCanvasSizing(375, 600, 1)
+  const dense = roomCanvasSizing(375, 600, 2.5)
+  assert.equal(roomTextResolution(2.5), 2.5)
+  assert.equal(dense.width, normal.width)
+  assert.equal(dense.height, normal.height)
+  assert.equal(dense.backingWidth, Math.round(normal.width * 2.5))
+  assert.equal(dense.backingHeight, normal.height * 2.5)
 })

@@ -1,11 +1,14 @@
-import { cameraFrame, type ViewerCamera } from './viewer.ts'
 export type FloorRect = Readonly<{ x: number; y: number; width: number; height: number }>
+type FloorCanvas = Readonly<{ scrollX: number; scrollY: number; width: number; height: number; zoom: number }>
 
-export function floorViewport(floor: FloorRect, camera: ViewerCamera, tileSize = 32, origin = { x: floor.x - 4, y: floor.y - 4 }) {
+export function floorViewport(floor: FloorRect, camera: FloorCanvas, tileSize = 32, origin = { x: floor.x - 4, y: floor.y - 4 }) {
   if (![floor.x, floor.y, floor.width, floor.height, camera.scrollX, camera.scrollY, camera.width, camera.height, camera.zoom, tileSize, origin.x, origin.y].every(Number.isFinite)
     || tileSize <= 0
     || camera.zoom <= 0 || camera.width <= 0 || camera.height <= 0 || floor.width <= 0 || floor.height <= 0) return null
-  const view = cameraFrame(camera)
+  const widthInRoom = camera.width / camera.zoom
+  const heightInRoom = camera.height / camera.zoom
+  const view = { x: camera.scrollX + (camera.width - widthInRoom) / 2,
+    y: camera.scrollY + (camera.height - heightInRoom) / 2, width: widthInRoom, height: heightInRoom }
   if (floor.x >= view.x + view.width || floor.y >= view.y + view.height
     || floor.x + floor.width <= view.x || floor.y + floor.height <= view.y) return null
   const pixelWidth = Math.ceil(Math.min(camera.width, floor.width * camera.zoom))

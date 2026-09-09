@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { activityEntry, activityReduce, activityVisible, createActivityContext, emptyActivity, type ActivityContext, type ActivityPlace } from '../src/activity.ts'
+import { activityEntry, activityReduce, createActivityContext, emptyActivity, type ActivityContext, type ActivityPlace } from '../src/activity.ts'
 
 const places = new Map<number, ActivityPlace>([
   [1, { id: 1, name: 'the world', parentId: null, quiet: false, hasDrawing: true }],
@@ -79,15 +79,6 @@ test('reduces only due rows in change order, deduplicates, caps history, and res
   assert.equal(retry.entries.length, 100)
   const reset = activityReduce(emptyActivity(), [notes[0]!], 2_000, context)
   assert.deepEqual(reset.entries.map(entry => entry.changeId), [1])
-})
-
-test('the Chats filter keeps the bounded conversation rows without changing history', () => {
-  const state = activityReduce(emptyActivity(), [
-    row(1, 'action', { action: 'move', status: 'applied', from_place_id: 1, to_place_id: 2 }),
-    { ...row(2, 'note', { note_id: 2, place_id: 2 }), line: 'hi' },
-  ], 3_000, context)
-  assert.deepEqual(activityVisible(state.entries, 'chats').map(entry => entry.kind), ['chat'])
-  assert.equal(activityVisible(state.entries, 'all').length, 2)
 })
 
 test('describes every public event family with a pure cue and only proven anchors', () => {

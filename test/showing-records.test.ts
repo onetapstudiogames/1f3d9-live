@@ -6,7 +6,7 @@ import { bubbleFor } from '../src/speech.ts'
 import { showingFor, showingFrame } from '../src/showing.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { createResidents, stepResidents } from '../src/replay/simulation.ts'
-import { settleAtNow } from '../src/live.ts'
+import { settleRecordedScene } from './helpers/recorded-scene.ts'
 
 const read = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'))
 const places = read('replay-24h.json').map.places as ReplayPlace[]
@@ -89,11 +89,12 @@ test('farlight reaches the recorded room before the vote effect, and opening now
   let state = stepResidents(createResidents(record, [census], layout), record.timeline, 0, 0, layout)
   assert.equal(state.residents[census.id]!.walking, true)
   assert.equal(showingFor(state.residents[census.id]!.bubble, true, places, census.handle), null)
-  state = stepResidents(state, [], 10_000, 10_000, layout)
+  const arrivalAt = state.residents[census.id]!.walkDuration
+  state = stepResidents(state, [], arrivalAt, arrivalAt, layout)
   const resident = state.residents[census.id]!
   assert.equal(resident.placeId, 438)
   assert.equal(showingFor(resident.bubble, resident.visible, places, resident.handle)?.ballot, true)
-  const settled = settleAtNow(record, [census], layout)
+  const settled = settleRecordedScene(record, [census], layout)
   assert.equal(settled.residents.pending, false)
   assert.equal(showingFor(settled.residents.residents[census.id]!.bubble, true, places, census.handle), null)
 
@@ -101,15 +102,16 @@ test('farlight reaches the recorded room before the vote effect, and opening now
   // recorded author and room, or invent a VOTE from a previous successful read.
   const referenceOnly = { ...record, timeline: [{ ...move, event_id: move.id }, { ...notice, event_id: notice.id }] }
   let unread = stepResidents(createResidents(referenceOnly, [census], layout), referenceOnly.timeline, 0, 0, layout)
-  unread = stepResidents(unread, [], 10_000, 10_000, layout)
+  const unreadArrivalAt = unread.residents[census.id]!.walkDuration
+  unread = stepResidents(unread, [], unreadArrivalAt, unreadArrivalAt, layout)
   const unreadResident = unread.residents[census.id]!
   assert.equal(unreadResident.bubble, null)
   assert.ok(unreadResident.showingNotice)
   assert.equal(unreadResident.showingNotice.ballot, false)
   assert.equal(unreadResident.showingNotice.confetti, false)
-  assert.ok(showingFrame(unreadResident.showingNotice, 11_000))
+  assert.ok(showingFrame(unreadResident.showingNotice, unreadArrivalAt + 1_000))
   assert.equal(unread.pending, true)
-  const settledUnread = settleAtNow(referenceOnly, [census], layout)
+  const settledUnread = settleRecordedScene(referenceOnly, [census], layout)
   assert.equal(settledUnread.residents.pending, false)
   assert.equal(settledUnread.residents.residents[census.id]!.showingNotice ?? null, null)
 })

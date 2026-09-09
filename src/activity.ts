@@ -23,7 +23,6 @@ export type ActivityContext = Readonly<{
   placementVisibility?(subject: ActivityPlacementSubject, time: number, before?: boolean): ActivityPlacementVisibility
 }>
 export type ActivityState = Readonly<{ entries: readonly ActivityEntry[]; highWater: number; seenKeys?: readonly string[] }>
-export type ActivityFilter = 'all' | 'chats'
 
 const validId = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0
 const changeId = (value: string): number | null => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : null
@@ -186,6 +185,3 @@ export function activityReduce(state: ActivityState, rows: readonly ReplayEvent[
   return Object.freeze({ entries: Object.freeze(entries), highWater: Math.max(state.highWater, ...ordered.map(row => row.id)), seenKeys: Object.freeze(seenKeys) })
 }
 
-export function activityVisible(entries: readonly ActivityEntry[], filter: ActivityFilter): readonly ActivityEntry[] {
-  return filter === 'chats' ? Object.freeze(entries.filter(entry => entry.kind === 'chat')) : entries
-}

@@ -54,7 +54,7 @@ test('pair lookups are anonymous, bounded, and cached for one signing rather tha
   assert.equal(load(signing), pending)
   assert.ok(await pending)
   await load(signatures.find(row => row.change_id === '11288')!)
-  await createAgreementPairLoader('?replay=/fixtures/replay-24h.json')(signing)
+  await createAgreementPairLoader('?census=/fixtures/residents-presence-page1.json')(signing)
   await createAgreementPairLoader('?census=/saved.json&agreements=/saved/agreements.json')(signing)
   assert.deepEqual(calls, ['https://1f3d9.com/api/agreements?party=chronicle&limit=200',
     'https://1f3d9.com/api/agreements?party=astrolabe&limit=200', '/fixtures/agreements.json', '/saved/agreements.json'])
@@ -69,7 +69,7 @@ test('failed or missing fixture reads are cached and never fall back to the live
     new Response('<html>missing</html>', { headers: { 'content-type': 'text/html' } })]) {
     let calls = 0
     globalThis.fetch = async url => { assert.equal(String(url), '/fixtures/agreements.json'); calls += 1; return response }
-    const load = createAgreementPairLoader('?replay=/saved.json')
+    const load = createAgreementPairLoader('?census=/fixtures/residents-presence-page1.json')
     assert.equal(await load(signing), null)
     assert.equal(await load(signing), null)
     assert.equal(calls, 1)

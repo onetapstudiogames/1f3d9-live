@@ -1,6 +1,5 @@
 import { CITY_ORIGIN } from './api.ts'
 import type { CurrentPlace } from './types.ts'
-export type { CurrentPlace } from './types.ts'
 
 const READ_TIMEOUT_MS = 15_000
 

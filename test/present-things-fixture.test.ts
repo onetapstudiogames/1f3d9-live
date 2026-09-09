@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import type { PlaceOutline, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
-import { createResidents, roomCapacity, stepResidents } from '../src/replay/simulation.ts'
-import { addPresentThings, createThings, recordThingIds } from '../src/things.ts'
+import { createResidents, stepResidents } from '../src/replay/simulation.ts'
+import { recordedRoomCapacity } from './helpers/recorded-scene.ts'
+import { addPresentThings, createThings } from '../src/things.ts'
 import { residentReservationFootprint } from '../src/resident-footprint.ts'
 
 test('saved-day arrivals keep clear of the square census without moving existing thing spots', () => {
@@ -19,12 +20,12 @@ test('saved-day arrivals keep clear of the square census without moving existing
     placeId: 3, quiet: raw.place.quiet, totalItems: raw.things_page.total_items, hasMore: raw.things_page.has_more,
     things: raw.things.map(row => ({ id: row.id, name: row.name, placeId: row.place_id, hasDrawing: row.has_drawing === true })),
   }
-  const layout = nestedLayout(replay.map.places, roomCapacity(replay, census))
+  const layout = nestedLayout(replay.map.places, recordedRoomCapacity(replay, census))
   const initial = createThings(replay, layout)
   let state = createResidents(replay, census, layout, initial.reservations)
   const blockers = Object.values(state.residents).filter(resident => resident.visible && resident.placeId === 3)
     .map(resident => residentReservationFootprint(`resident:${resident.id}`, resident))
-  const things = addPresentThings(initial, outline, layout, recordThingIds(replay), blockers)
+  const things = addPresentThings(initial, outline, layout, blockers)
   const added = Object.values(things.things).filter(thing => !initial.things[thing.id])
   assert.ok(added.length > 0)
   for (const [id, spots] of Object.entries(initial.reservations)) {

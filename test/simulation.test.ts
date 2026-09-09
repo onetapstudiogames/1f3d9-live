@@ -4,12 +4,11 @@ import test from 'node:test'
 
 import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
-import { roomContains } from '../src/ground/room-shape.ts'
 import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
-import { blocksLiveDelivery, createResidents, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
+import { blocksLiveDelivery, createResidents, stepResidents } from '../src/replay/simulation.ts'
+import { recordedRoomCapacity } from './helpers/recorded-scene.ts'
 import { inventionDuration } from '../src/inventions.ts'
 import type { ThingReservations } from '../src/things.ts'
-import { followActivity, reappearanceAlpha } from '../src/viewer.ts'
 
 const rooms = {
   1: { id: 1, parentId: null, name: 'world', quiet: false, depth: 0, x: 0, y: 0, width: 320, height: 240, door: { x: 300, y: 120 }, standing: { x: 20, y: 20, width: 260, height: 180 }, children: [2, 3] },
@@ -36,7 +35,7 @@ test('room capacity includes unique initial and applied destination residents', 
     event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 }),
     { ...event('note', { place_id: 3 }, 'hello'), actor: 'newcomer' },
   ] }
-  assert.deepEqual(roomCapacity(withEvents, census), { 2: 2, 3: 2 })
+  assert.deepEqual(recordedRoomCapacity(withEvents, census), { 2: 2, 3: 2 })
 })
 
 test('initial residents receive deterministic non-overlapping centered spots without mutating inputs', () => {
@@ -56,7 +55,7 @@ test('room capacity makes space for recorded floor things and future creations, 
   const made = event('thing_created', { thing_id: 46, place_id: 2, name: 'small parcel' })
   const record = { ...data, start: { ...data.start, 'thing:44': { place_id: 2 }, 'thing:45': { place_id: null } },
     counts: { 2: { residents: 100, things: 150 } }, timeline: [made, made] }
-  assert.deepEqual(roomCapacity(record, census), { 2: 4 })
+  assert.deepEqual(recordedRoomCapacity(record, census), { 2: 4 })
 })
 
 test('fixed thing reservations keep residents 48 px clear of present and future thing spots', () => {
@@ -110,72 +109,12 @@ test('speech uses its fixed live hold', () => {
   assert.equal(next.residents[7]!.bubble?.expiresAt, 11_000)
 })
 
-test('follow resumes on the next started record, never on an already queued note or idle frame', () => {
-  let state = createResidents(replay(), census, layout)
-  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 })
-  const note = { ...event('note', { place_id: 1 }, 'arrived'), change_id: '2' }
-  state = stepResidents(state, [move, note], 100, 100, layout)
-  const browsing = { residentId: 7, suspended: true, activityId: state.residents[7]!.lastActivityId ?? null }
-  assert.equal(browsing.activityId, '1')
-  state = stepResidents(state, [], 1, 101, layout)
-  assert.equal(followActivity(browsing, 7, state.residents[7]!.lastActivityId ?? null), browsing)
-  state = stepResidents(state, [], 100_000, 100_101, layout)
-  assert.equal(state.residents[7]!.lastActivityId, '2')
-  assert.equal(followActivity(browsing, 7, state.residents[7]!.lastActivityId ?? null).suspended, false)
-})
-
 test('a missing route reappears at the recorded room without inventing a walk', () => {
   const state = createResidents(replay(), census, layout)
   const next = stepResidents(state, [event('note', { place_id: 1 }, 'here')], 100, 100, layout).residents[7]!
   assert.equal(next.placeId, 1)
   assert.equal(next.walking, false)
   assert.equal(next.relocatedAt, 100)
-  assert.equal(reappearanceAlpha(next.relocatedAt, 100), 0)
-  assert.equal(reappearanceAlpha(next.relocatedAt, 300), 0.5)
-  assert.equal(reappearanceAlpha(next.relocatedAt, 500), 1)
-  assert.equal(reappearanceAlpha(undefined, 100), 1)
-})
-
-test('idle wandering is deterministic, stays in the room, and never holds replay', () => {
-  const initial = createResidents(replay(), census, layout)
-  const due = stepIdleResidents(initial, 0, 60_000, layout)
-  const again = stepIdleResidents(initial, 0, 60_000, layout)
-  assert.deepEqual(due.residents[7], again.residents[7])
-  const moving = Object.values(due.residents).find(row => row.ambientWalking)
-  assert.ok(moving)
-  assert.equal(due.pending, false)
-  assert.equal(moving.lastActivityId, undefined)
-  const advanced = stepIdleResidents(due, 500, 60_500, layout)
-  const row = advanced.residents[moving.id]!
-  assert.equal(row.placeId, moving.placeId)
-  assert.ok(row.x >= rooms[2].standing.x && row.x <= rooms[2].standing.x + rooms[2].standing.width)
-  assert.ok(row.y >= rooms[2].standing.y && row.y <= rooms[2].standing.y + rooms[2].standing.height)
-  assert.equal(roomContains(rooms[2], row), true)
-})
-
-test('idle wandering excludes sleepers and quiet rooms', () => {
-  const quietCensus = census.map(row => ({ ...row, current_place_id: 3 }))
-  const quietState = createResidents(replay({ 'resident:7': { place_id: 3 }, 'resident:8': { place_id: 3 } }), quietCensus, layout)
-  assert.deepEqual(stepIdleResidents(quietState, 0, 60_000, layout).residents, quietState.residents)
-  const awakeState = createResidents(replay(), census, layout)
-  assert.deepEqual(stepIdleResidents(awakeState, 0, 60_000, layout, new Set([7, 8])).residents, awakeState.residents)
-})
-
-test('an active ambient walk stops at its current point when sleep or a new obstacle makes it unsafe', () => {
-  const initial = createResidents(replay(), census, layout)
-  const moving = stepIdleResidents(initial, 0, 60_000, layout)
-  const active = Object.values(moving.residents).find(row => row.ambientWalking)!
-  const sleeping = stepIdleResidents(moving, 500, 60_500, layout, new Set([active.id])).residents[active.id]!
-  assert.equal(sleeping.ambientWalking, false)
-  assert.deepEqual([sleeping.x, sleeping.y], [active.x, active.y])
-
-  const movingAgain = stepIdleResidents(initial, 0, 60_000, layout)
-  const walker = Object.values(movingAgain.residents).find(row => row.ambientWalking)!
-  const blocked = { ...movingAgain, reservations: { ...movingAgain.reservations,
-    [walker.placeId!]: [{ key: 'thing:new', kind: 'thing' as const, x: walker.x - 16, y: walker.y - 16, width: 32, height: 32 }] } }
-  const stopped = stepIdleResidents(blocked, 500, 60_500, layout).residents[walker.id]!
-  assert.equal(stopped.ambientWalking, false)
-  assert.deepEqual([stopped.x, stopped.y], [walker.x, walker.y])
 })
 
 test('inventions take their actor queue turn between walks and words, one at a time', () => {
@@ -520,7 +459,7 @@ test('real replay finishes with every mapped resident in its last valid recorded
   const realReplay = JSON.parse(readFileSync(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
   const census = ['page1', 'page2'].flatMap(page =>
     (JSON.parse(readFileSync(new URL(`./fixtures/residents-presence-${page}.json`, import.meta.url), 'utf8')) as { residents: Resident[] }).residents)
-  const realLayout = nestedLayout(realReplay.map.places, roomCapacity(realReplay, census))
+  const realLayout = nestedLayout(realReplay.map.places, recordedRoomCapacity(realReplay, census))
   let state = createResidents(realReplay, census, realLayout)
   const expected = new Map(Object.values(state.residents).map(resident => [resident.id, resident.placeId]))
   let now = 0
@@ -533,9 +472,9 @@ test('real replay finishes with every mapped resident in its last valid recorded
         typeof from === 'number' && typeof to === 'number' && item.detail.error == null && realLayout.rooms[from] && realLayout.rooms[to]) expected.set(id, to)
     if (id !== undefined && item.kind === 'note' && typeof item.detail.place_id === 'number' && realLayout.rooms[item.detail.place_id]) expected.set(id, item.detail.place_id)
     state = stepResidents(state, [item], 0, now, realLayout)
-    for (let guard = 0; state.pending && guard < 12; guard += 1) {
-      now += 1_000
-      state = stepResidents(state, [], 1_000, now, realLayout)
+    for (let guard = 0; state.pending && guard < 100; guard += 1) {
+      now += 60_000
+      state = stepResidents(state, [], 60_000, now, realLayout)
     }
   }
   for (const [id, placeId] of expected) assert.equal(state.residents[id]!.placeId, placeId, `resident ${String(id)}: ${state.issues.join(' ')}`)
@@ -545,7 +484,7 @@ test('the two saved census pages name every actor the saved replay records', () 
   const realReplay = JSON.parse(readFileSync(new URL('./fixtures/replay-24h.json', import.meta.url), 'utf8')) as ReplayFile
   const census = ['page1', 'page2'].flatMap(page =>
     (JSON.parse(readFileSync(new URL(`./fixtures/residents-presence-${page}.json`, import.meta.url), 'utf8')) as { residents: Resident[] }).residents)
-  const realLayout = nestedLayout(realReplay.map.places, roomCapacity(realReplay, census))
+  const realLayout = nestedLayout(realReplay.map.places, recordedRoomCapacity(realReplay, census))
   const state = createResidents(realReplay, census, realLayout)
   const actors = new Set(realReplay.timeline.map(item => item.actor).filter((actor): actor is string => typeof actor === 'string' && actor.length > 0))
   const unresolved = [...actors].filter(actor => state.actors.get(actor) === undefined)

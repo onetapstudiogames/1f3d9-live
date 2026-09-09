@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { activityEntry, createActivityContext } from '../src/activity.ts'
-import { currentPlacePlan, refreshPresentResidents, witnessedEvents } from '../src/current-state.ts'
+import { refreshPresentResidents, witnessedEvents } from '../src/current-state.ts'
 import type { ReplayEvent, ReplayPlace, Resident } from '../src/city/types.ts'
 import { nestedLayout } from '../src/ground/nested.ts'
-import { recordedRoomName } from '../src/places.ts'
 import { createPresentResidents, prepareLiveResidents, stepResidents } from '../src/replay/simulation.ts'
 import { presentRoom } from '../src/room-presentation.ts'
 import { singleRoomLayout } from '../src/room-view.ts'
@@ -99,15 +98,6 @@ test('refresh updates retained identity metadata and re-seats a resident who wak
   assert.equal(refreshed.state.actors.get('current-name'), 1)
   assert.equal(refreshed.state.residents[1]!.visible, true)
   assert.notEqual(refreshed.state.residents[1]!.x, 0)
-})
-
-test('current place plans expose only current map names', () => {
-  const plan = currentPlacePlan(places)
-  assert.equal(recordedRoomName(plan, places[1]!, Date.parse('1900-01-01T00:00:00Z')), 'square')
-  assert.deepEqual([...plan.names.keys()], [1, 2, 3, 4])
-  assert.equal(plan.foundings.size, 0)
-  assert.equal(plan.renamings.size, 0)
-  assert.deepEqual(plan.historyPlaceIds, [])
 })
 
 test('witnessed events require a proven public-room connection', () => {

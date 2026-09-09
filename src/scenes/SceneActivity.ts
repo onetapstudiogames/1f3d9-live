@@ -7,70 +7,45 @@ import { stepLookingPresence, type LookingState } from '../looking.ts'
 import type { ResidentState } from '../replay/simulation.ts'
 import type { ThingState } from '../things.ts'
 import { ActivityLayer } from './ActivityLayer.ts'
-import type { ActivityLog } from './ActivityLog.ts'
-import { activityEntriesFromRows, activityObservationWatermark, type RoomActivityLine } from './RoomActivityLine.ts'
-import { visibleLookingIds, type ActivitySnapshot } from '../activity-snapshot.ts'
+import { activityEntriesFromRows, type RoomActivityLine } from './RoomActivityLine.ts'
 import { projectCueAnchors } from '../room-anchors.ts'
-
-export type { ActivitySnapshot } from '../activity-snapshot.ts'
-export type HistoricalAnchor = Readonly<{ x: number; y: number; roomId: number }>
-export type ActivityAnchorResolver = (entry: ActivityEntry) => HistoricalAnchor | null
-type SceneActivityLog = Pick<ActivityLog, 'append' | 'appendEntries' | 'reset' | 'snapshot' | 'restore'>
-  & Partial<Pick<RoomActivityLine, 'witness'>>
 
 export class SceneActivity {
   private readonly layer: ActivityLayer
-  private readonly log: SceneActivityLog
+  private readonly log: RoomActivityLine
   private readonly context: ActivityContext
   private cues = emptyCueState()
   private looking: LookingState | undefined
   private activeLooks: readonly Readonly<{ residentId: number; key: string; expiresAt: number }>[] = []
-  private readonly recent = new Map<number, Readonly<{ key: string; startedAt: number }>>()
-  private activeResidents: readonly number[] = []
 
   constructor(scene: Phaser.Scene,
-    log: SceneActivityLog,
+    log: RoomActivityLine,
     context: ActivityContext) {
     this.layer = new ActivityLayer(scene)
     this.log = log
     this.context = context
   }
 
-  reset(rows: readonly ReplayEvent[] = [], recordedNow = Number.NEGATIVE_INFINITY): void {
-    this.log.reset(rows, recordedNow); this.cues = emptyCueState(); this.looking = undefined; this.activeLooks = []; this.recent.clear(); this.activeResidents = []
-  }
-
-  consume(rows: readonly ReplayEvent[], recordedNow: number, presentationNow: number,
-    representedKeys: ReadonlySet<string> = new Set(), anchor: ActivityAnchorResolver = () => null): readonly ActivityEntry[] {
-    const added = this.log.append(rows, recordedNow)
-    this.animate(rows, recordedNow, presentationNow, representedKeys, anchor)
-    return added
+  reset(): void {
+    this.log.clearHistory(); this.cues = emptyCueState(); this.looking = undefined; this.activeLooks = []
   }
 
   animate(rows: readonly ReplayEvent[], recordedNow: number, presentationNow: number,
-    representedKeys: ReadonlySet<string> = new Set(), anchor: ActivityAnchorResolver = () => null): readonly ActivityEntry[] {
+    representedKeys: ReadonlySet<string> = new Set()): readonly ActivityEntry[] {
     const derived = activityEntriesFromRows(rows, recordedNow, this.context)
-    const entries = derived.map(entry => this.toCue(entry, presentationNow, anchor(entry)))
-    const previouslySeen = new Set(this.cues.seenKeys)
+    const entries = derived.map(entry => this.toCue(entry, presentationNow))
     this.cues = stepActivityCues(this.cues, entries, presentationNow, representedKeys)
-    for (const entry of entries) if (!previouslySeen.has(entry.key) && entry.residentId) {
-      this.recent.set(entry.residentId, { key: entry.key, startedAt: presentationNow })
-    }
     return derived
   }
 
   witness(rows: readonly ReplayEvent[], observedAt: number, context: ActivityContext = this.context): readonly ActivityEntry[] {
-    if (this.log.witness) return this.log.witness(rows, observedAt, context)
-    const entries = activityEntriesFromRows(rows, activityObservationWatermark(rows, observedAt), context)
-    return this.log.appendEntries(entries)
+    return this.log.witness(rows, observedAt, context)
   }
 
   resetPresentation(): void {
     this.cues = emptyCueState()
     this.looking = undefined
     this.activeLooks = []
-    this.recent.clear()
-    this.activeResidents = []
   }
 
   observeLooking(census: readonly Resident[], wallNow: number, playingLive: boolean,
@@ -89,10 +64,9 @@ export class SceneActivity {
     })
     const added = this.log.appendEntries(entries)
     const cueEntries = stepped.moments.map(moment => this.toCue({ key: moment.key, changeId: 0, time: wallNow, kind: 'event',
-      text: '', entities: [], cue: 'looking', roomId: moment.roomId, actorResidentId: moment.residentId }, presentationNow, null,
+      text: '', entities: [], cue: 'looking', roomId: moment.roomId, actorResidentId: moment.residentId }, presentationNow,
     presentationNow + Math.min(3_000, moment.expiresAt - wallNow)))
     this.cues = stepActivityCues(this.cues, cueEntries, presentationNow)
-    for (const entry of added) if (entry.actorResidentId) this.recent.set(entry.actorResidentId, { key: entry.key, startedAt: presentationNow })
     return added
   }
 
@@ -108,31 +82,14 @@ export class SceneActivity {
     this.cues = stepActivityCues(this.cues, [], now)
     const rawFrames = cueFrame(this.cues, now)
     const frames = anchorRooms ? projectCueAnchors(rawFrames, anchorRooms.source, anchorRooms.target) : rawFrames
-    this.activeResidents = Object.freeze([...new Set(frames.flatMap(frame => frame.residentId === null ? [] : [frame.residentId]))])
     this.layer.update(frames, Object.values(residents), Object.values(things), layout, hidden, zoom)
   }
 
-  activeLookingIds(wallNow: number): ReadonlySet<number> {
-    return visibleLookingIds(this.activeLooks, wallNow)
-  }
-  latestActivity(residentId: number): Readonly<{ key: string; startedAt: number }> | null { return this.recent.get(residentId) ?? null }
-  focusCandidates(): readonly number[] { return this.activeResidents }
-  snapshot(): ActivitySnapshot {
-    return Object.freeze({ log: this.log.snapshot(), cues: this.cues, looking: this.looking,
-      activeLooks: Object.freeze([...this.activeLooks]), recent: Object.freeze([...this.recent.entries()]),
-      activeResidents: Object.freeze([...this.activeResidents]) })
-  }
-  restore(snapshot: ActivitySnapshot): void {
-    this.log.restore(snapshot.log); this.cues = snapshot.cues; this.looking = snapshot.looking
-    this.activeLooks = snapshot.activeLooks ?? []; this.recent.clear()
-    for (const [residentId, recent] of snapshot.recent ?? []) this.recent.set(residentId, recent)
-    this.activeResidents = snapshot.activeResidents ?? []
-  }
   destroy(): void { this.layer.destroy() }
 
-  private toCue(entry: ActivityEntry, startedAt: number, anchor: HistoricalAnchor | null, expiresAt?: number): CueEntry {
+  private toCue(entry: ActivityEntry, startedAt: number, expiresAt?: number): CueEntry {
     return Object.freeze({ key: entry.key, cue: entry.cue ?? 'action', startedAt, expiresAt,
       residentId: entry.actorResidentId ?? null, thingId: entry.thingId ?? null,
-      roomId: anchor?.roomId ?? entry.anchorRoomId ?? entry.roomId ?? null, x: anchor?.x, y: anchor?.y })
+      roomId: entry.anchorRoomId ?? entry.roomId ?? null })
   }
 }

@@ -24,8 +24,8 @@ test('stores only events witnessed in the displayed room and never reveals misse
   log.selectRoom(2); log.appendEntries([entry('1', 2), entry('2', 3)]); assert.equal(line.textContent, 'event 1')
   log.selectRoom(3); assert.equal(line.textContent, 'event 1'); log.appendEntries([entry('3', 3)]); assert.equal(line.textContent, 'event 1\nevent 3') })
 
-test('starts empty and reset never seeds replay history', () => { const line = { textContent: 'stale' } as HTMLElement; const log = new RoomActivityLine(line, context)
-  log.selectRoom(2); log.reset([row(1, 2)], 10); assert.equal(line.textContent, ''); assert.deepEqual(log.snapshot().entries, []) })
+test('starts empty and clearHistory never seeds replay history', () => { const line = { textContent: 'stale' } as HTMLElement; const log = new RoomActivityLine(line, context)
+  log.selectRoom(2); log.clearHistory(); assert.equal(line.textContent, '') })
 
 test('witnesses a future-dated event immediately once with a finite observation watermark', () => {
   const line = { textContent: '' } as HTMLElement
@@ -38,12 +38,12 @@ test('witnesses a future-dated event immediately once with a finite observation 
   assert.equal(line.textContent, 'author in room 2: note 1')
 })
 
-test('keeps latest 200 witnessed entries globally across public room moves', () => { const log = new RoomActivityLine({ textContent: '' } as HTMLElement, context); log.selectRoom(2)
+test('keeps latest 200 witnessed entries globally across public room moves', () => { const line = new FakeElement(); const log = new RoomActivityLine(line as unknown as HTMLElement, context); log.selectRoom(2)
   log.appendEntries(Array.from({ length: 150 }, (_, i) => entry(String(i + 1), 2))); log.selectRoom(3)
-  log.appendEntries(Array.from({ length: 100 }, (_, i) => entry(String(i + 151), 3))); assert.equal(log.snapshot().entries.length, 200); assert.equal(log.snapshot().entries[0]?.key, '51') })
+  log.appendEntries(Array.from({ length: 100 }, (_, i) => entry(String(i + 151), 3))); assert.equal(line.children.length, 200); assert.equal(line.children[0]?.dataset.activityKey, '51') })
 
 test('quiet room clears history and public room cannot reveal it again', () => { const line = { textContent: '' } as HTMLElement; const log = new RoomActivityLine(line, context)
-  log.selectRoom(2); log.appendEntries([entry('1', 2)]); log.selectRoom(9); assert.deepEqual(log.snapshot().entries, []); log.selectRoom(2); assert.equal(line.textContent, '') })
+  log.selectRoom(2); log.appendEntries([entry('1', 2)]); log.selectRoom(9); assert.equal(line.textContent, ''); log.selectRoom(2); assert.equal(line.textContent, '') })
 
 test('refreshing the same room clears history when it becomes quiet', () => {
   let quiet = false
@@ -60,26 +60,23 @@ test('refreshing the same room clears history when it becomes quiet', () => {
   log.selectRoom(2)
 
   assert.equal(line.textContent, '')
-  assert.deepEqual(log.snapshot().entries, [])
 })
 
 test('inserts older and newer witnessed events in order without exceeding 200', () => {
-  const log = new RoomActivityLine({ textContent: '' } as HTMLElement, context)
+  const line = { textContent: '' } as HTMLElement
+  const log = new RoomActivityLine(line, context)
   log.selectRoom(2)
   log.appendEntries([entry('new', 2, 300), entry('old', 2, 100), entry('middle', 2, 200)])
   log.appendEntries(Array.from({ length: 198 }, (_, index) => entry(`later-${index}`, 2, 400 + index)))
 
-  const history = log.snapshot().entries
-  assert.equal(history.length, 200)
-  assert.equal(history[0]?.key, 'middle')
-  assert.equal(history[1]?.key, 'new')
+  const lines = line.textContent?.split('\n') ?? []
+  assert.equal(lines.length, 200)
+  assert.equal(lines[0], 'event middle')
+  assert.equal(lines[1], 'event new')
 })
 
 test('clearHistory resets followed-resident history', () => { const line = { textContent: '' } as HTMLElement; const log = new RoomActivityLine(line, context)
-  log.selectRoom(2); log.appendEntries([entry('1', 2)]); log.clearHistory(); assert.equal(line.textContent, ''); assert.deepEqual(log.snapshot().entries, []) })
-
-test('snapshot restore retains witnessed history', () => { const line = { textContent: '' } as HTMLElement; const log = new RoomActivityLine(line, context)
-  log.selectRoom(2); log.appendEntries([entry('1', 2)]); const saved = log.snapshot(); log.clearHistory(); log.restore(saved); assert.equal(line.textContent, 'event 1') })
+  log.selectRoom(2); log.appendEntries([entry('1', 2)]); log.clearHistory(); assert.equal(line.textContent, '') })
 
 test('keeps keyed DOM nodes while appending and trimming', () => { const line = new FakeElement(); const log = new RoomActivityLine(line as unknown as HTMLElement, context)
   log.selectRoom(2); log.appendEntries([entry('1', 2), entry('2', 2)]); const second = line.children[1]

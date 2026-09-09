@@ -47,7 +47,7 @@ export function presentRoom<R extends Figure, T extends Entity>(residents: Reado
     // A previously unseated speaker can claim a seat ahead of idle figures.
     if (!pose.visible && row.bubble) return { ...projected, visible: true }
     return Object.freeze({ ...row, x: pose.x, y: pose.y, visible: pose.visible,
-      ambientWalking: !row.walking && pose.moving, ...(pose.flipX === undefined ? {} : { flipX: pose.flipX }) })
+      walking: Boolean(row.walking || pose.moving), ...(pose.flipX === undefined ? {} : { flipX: pose.flipX }) })
   })
   const objects = Object.values(things).map(row => project(row))
   const entries: readonly RoomCrowdingEntry[] = [
