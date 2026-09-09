@@ -707,7 +707,7 @@ export class CityScene extends Phaser.Scene {
     this.lastFollowChoices = choices
     const picker = document.querySelector<HTMLSelectElement>('#follow-picker')!
     const prompt = new Option('Follow a resident…', ''); prompt.disabled = true
-    picker.replaceChildren(prompt, ...residents.map(row => new Option(row.name, String(row.id))))
+    picker.replaceChildren(prompt, ...residents.map(row => new Option(`${row.name} · resident #${row.id}`, String(row.id))))
   }
   private displayHiddenRooms(): ReadonlySet<number> {
     return new Set(Object.keys(this.layout?.rooms ?? {}).map(Number)
@@ -750,7 +750,7 @@ export class CityScene extends Phaser.Scene {
       picker.dataset['choices'] = signature
       const prompt = new Option('Stay in a place…', ''); prompt.disabled = true
       picker.replaceChildren(prompt, ...[...places].sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id)
-        .map(place => new Option(place.name, String(place.id))))
+        .map(place => new Option(`${place.name} · place #${place.id}`, String(place.id))))
     }
     picker.value = this.following === null && this.viewPlaceId !== null ? String(this.viewPlaceId) : ''
     picker.disabled = !ready

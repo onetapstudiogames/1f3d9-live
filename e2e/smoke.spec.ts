@@ -37,6 +37,16 @@ test('opens live in the busiest room with only the one-room controls', async ({ 
   await expect(page.locator('button, input')).toHaveCount(0)
   await expect(page.locator('#follow-picker')).toHaveAttribute('aria-label', 'Choose resident')
   await expect(page.locator('#place-picker')).toHaveAttribute('aria-label', 'Choose place')
+  // Every choice names its resident or place and its number, as the owner asked (2026-09-09).
+  const labels = await page.locator('#follow-picker option:not([value=""]), #place-picker option:not([value=""])')
+    .evaluateAll(options => options.map(option => ({
+      value: (option as HTMLOptionElement).value, text: option.textContent ?? '', pickerId: (option as HTMLOptionElement).closest('select')!.id })))
+  expect(labels.length).toBeGreaterThan(1)
+  for (const { value, text, pickerId } of labels) {
+    const kind = pickerId === 'follow-picker' ? 'resident' : 'place'
+    expect(text.endsWith(` · ${kind} #${value}`), `${pickerId} option ${text}`).toBe(true)
+    expect(text.length).toBeGreaterThan(` · ${kind} #${value}`.length)
+  }
   await expect(page.locator(removedControlIds.map(id => `#${id}`).join(','))).toHaveCount(0)
   await mkdir('docs/screenshots', { recursive: true })
   await page.screenshot({ path: 'docs/screenshots/latest.png' })
