@@ -240,6 +240,19 @@ test('fetchCensus advances named fixture pages without live calls', async (t) =>
   assert.deepEqual(urls, ['/fixtures/residents-presence-page1.json', '/fixtures/residents-presence-page2.json'])
 })
 
+test('an empty census switch stays on the relative saved census', async (t) => {
+  const original = globalThis.fetch
+  const urls: string[] = []
+  globalThis.fetch = async input => {
+    urls.push(String(input))
+    return Response.json({ residents: [], returned_items: 0, has_more: false, next_before_id: null })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  await fetchCensus('?census')
+  assert.deepEqual(urls, ['fixtures/residents-presence-page1.json'])
+})
+
 test('fetchCensus preserves optional looking presence for the live viewer', async (t) => {
   const original = globalThis.fetch
   globalThis.fetch = async () => Response.json({ residents: [{
@@ -428,7 +441,7 @@ test('a record override saves thing labels, and only ?drawings= saves art', asyn
   assert.equal((await fetchDrawing('resident', 7, '?census=/fixtures/residents-presence-page1.json'))?.id, 7)
   assert.equal((await fetchDrawing('place', 7, '?census=/fixtures/residents-presence-page1.json'))?.id, 7)
   assert.deepEqual(urls, [
-    '/fixtures/things/thing-7.json',
+    'fixtures/things/thing-7.json',
     '/fixtures/drawings/thing-7.json',
     'https://1f3d9.com/api/drawing/resident/7',
     'https://1f3d9.com/api/drawing/place/7',
@@ -480,5 +493,5 @@ test('missing fixture HTML means no saved thing and never falls back live', asyn
   }
   t.after(() => { globalThis.fetch = original })
   assert.equal(await fetchThing(8, '?census=/fixtures/residents-presence-page1.json'), null)
-  assert.deepEqual(urls, ['/fixtures/things/thing-8.json'])
+  assert.deepEqual(urls, ['fixtures/things/thing-8.json'])
 })

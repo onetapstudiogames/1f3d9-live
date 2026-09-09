@@ -61,7 +61,7 @@ function nextFixturePage(url: string, pageNumber: number): string {
 
 export async function fetchCensus(search: string = browserSearch()): Promise<readonly Resident[]> {
   const fixture = searchValue(search, 'census')
-    ?? (fixtureMode(search) ? '/fixtures/residents-presence-page1.json' : null)
+    || (fixtureMode(search) ? 'fixtures/residents-presence-page1.json' : null)
   let url = fixture || `${CITY_ORIGIN}/api/residents?view=presence&limit=200`
   const residents: Resident[] = []
   const cursors = new Set<number>()
@@ -137,7 +137,7 @@ export function createDrawingLoader(
 
 function thingUrl(id: number, search: string): string {
   const fixtureRoot = searchValue(search, 'things')
-  const root = fixtureRoot || (fixtureMode(search) ? '/fixtures/things' : null)
+  const root = fixtureRoot || (fixtureMode(search) ? 'fixtures/things' : null)
   return root ? `${root.replace(/\/$/, '')}/thing-${id}.json` : `${CITY_ORIGIN}/api/thing/${id}`
 }
 
@@ -173,7 +173,7 @@ export function createThingLoader(search: string = browserSearch()): (id: number
 
 export async function fetchPlaceOutline(id: number, search: string = browserSearch()): Promise<PlaceOutline | null> {
   if (!Number.isSafeInteger(id) || id < 1) throw new Error('invalid place outline request: expected a positive safe integer id')
-  const root = searchValue(search, 'places') || (fixtureMode(search) ? '/fixtures/places' : null)
+  const root = searchValue(search, 'places') || (fixtureMode(search) ? 'fixtures/places' : null)
   const fixture = Boolean(root)
   const base = root ? `${root.replace(/\/$/, '')}/place-${id}` : `${CITY_ORIGIN}/api/place/${id}`
   let url = fixture ? `${base}.json` : `${base}?view=outline`

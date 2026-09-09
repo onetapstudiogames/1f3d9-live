@@ -98,3 +98,13 @@ test('chooses room status by size, read failure, then quiet priority', () => {
   assert.equal(roomStatus({ tooSmall: true, readFailed: true, quiet: true }),
     'This window is too small to draw the room.')
 })
+
+test('a link fallback remains explained alongside an outline issue or a required read failure', () => {
+  const openingNotice = 'That room is unavailable. Showing the usual opening room.'
+  const base = { tooSmall: false, readFailed: false, quiet: false, openingNotice }
+  assert.equal(roomStatus(base), openingNotice)
+  assert.equal(roomStatus({ ...base, readIssue: 'The room outline could not be read.' }),
+    `${openingNotice} The room outline could not be read.`)
+  assert.equal(roomStatus({ ...base, readFailed: true }),
+    `${openingNotice} The public record could not be read. Keeping the last picture and retrying.`)
+})

@@ -58,7 +58,7 @@ function readOptions(): RequestInit {
 export async function fetchChanges(since: string, search: string = browserSearch()): Promise<ChangesPage> {
   if (!marker(since)) throw new Error('The changes marker must be a non-negative safe integer.')
   const params = new URLSearchParams(search)
-  const url = params.get('changes') || (fixture(params) ? '/fixtures/changes-live.json'
+  const url = params.get('changes') || (fixture(params) ? 'fixtures/changes-live.json'
     : `${CITY_ORIGIN}/api/changes?since=${since}&limit=200`)
   const response = await fetch(url, readOptions())
   if (!response.ok) throw new Error(`The city answered ${response.status} for changes.`)
@@ -77,7 +77,7 @@ export function parseNoteExcerpt(value: unknown, id: number): NoteExcerpt {
 
 export function createNoteExcerptLoader(search: string = browserSearch()): (id: number) => Promise<NoteExcerpt | null> {
   const params = new URLSearchParams(search)
-  const root = params.get('notes') || (fixture(params) ? '/fixtures/notes' : null)
+  const root = params.get('notes') || (fixture(params) ? 'fixtures/notes' : null)
   const cache = new Map<number, Promise<NoteExcerpt | null>>()
   const read = async (id: number): Promise<NoteExcerpt | null> => {
     if (!Number.isSafeInteger(id) || id < 1) throw new Error('The note request needs a positive safe integer ID.')

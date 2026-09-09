@@ -37,9 +37,10 @@ export function animationDelta(delta: number, state: {
   return Math.max(0, delta)
 }
 
-export function roomStatus(state: { tooSmall: boolean; readFailed: boolean; quiet: boolean }): string {
-  if (state.tooSmall) return 'This window is too small to draw the room.'
-  if (state.readFailed) return 'The public record could not be read. Keeping the last picture and retrying.'
-  if (state.quiet) return 'This is a quiet place; its occupants are not shown.'
-  return ''
+export function roomStatus(state: { tooSmall: boolean; readFailed: boolean; quiet: boolean;
+  openingNotice?: string | null; readIssue?: string }): string {
+  const status = state.tooSmall ? 'This window is too small to draw the room.'
+    : state.readFailed ? 'The public record could not be read. Keeping the last picture and retrying.'
+    : state.quiet ? 'This is a quiet place; its occupants are not shown.' : state.readIssue ?? ''
+  return [state.openingNotice, status].filter(Boolean).join(' ')
 }

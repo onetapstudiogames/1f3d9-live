@@ -37,8 +37,9 @@ import { filterCurrentVisualEvents, returnToCurrentResidents } from '../current-
 import { refreshPresentThings } from '../current-things.ts'
 import { placesAfterOutline } from '../current-room.ts'
 import { awakeRoomChoices, followRoomState } from '../room-follow.ts'
+import { parseRoomLink, resolveRoomLink, replaceRoomLink, type RoomLinkSelection } from '../room-links.ts'
 
-import { busiestRoom, singleRoomLayout, roomViewportUsable, roomIsPublic } from '../room-view.ts'
+import { singleRoomLayout, roomViewportUsable, roomIsPublic } from '../room-view.ts'
 import { RoomActivityLine } from './RoomActivityLine.ts'
 import { animationDelta, eventsAfterMarker, roomPictureSettled, roomPictureAccess, roomStatus, type OutlineResolution } from '../live-presentation.ts'
 import { presentRoom, roomFigurePriority } from '../room-presentation.ts'
@@ -117,6 +118,8 @@ export class CityScene extends Phaser.Scene {
   private lastFollowChoices = ''
   private elapsed = 0
   private following: number | null = null
+  private readonly openingLink = parseRoomLink(window.location.search)
+  private openingNotice: string | null = null
   private viewPlaceId: number | null = null
   private readIssues: readonly string[] = []
   private lastFigures = ''
@@ -181,11 +184,16 @@ export class CityScene extends Phaser.Scene {
     }
   }
   private readSnapshot(opening: boolean, issues: string[]) {
-    return readCurrentSnapshot(this.readOutline, (places, census) =>
-      (opening || this.returnReason) && this.following !== null
+    return readCurrentSnapshot(this.readOutline, (places, census) => {
+      if (opening) {
+        const selection = resolveRoomLink(this.openingLink, places, census)
+        this.following = selection.following; this.openingNotice = selection.message
+        return selection.roomId
+      }
+      return this.returnReason && this.following !== null
         ? census.find(row => row.id === this.following)?.current_place_id ?? this.viewPlaceId
-        : opening ? busiestRoom(places, census) : this.viewPlaceId,
-    message => issues.push(message), opening ? undefined : this.roomCapacities)
+        : this.viewPlaceId
+    }, message => issues.push(message), opening ? undefined : this.roomCapacities)
   }
   private commitIssues(issues: readonly string[]): void {
     this.issueCycle += 1
@@ -668,18 +676,30 @@ export class CityScene extends Phaser.Scene {
   private connectControls(): void {
     const resident = document.querySelector<HTMLSelectElement>('#follow-picker')!
     const place = document.querySelector<HTMLSelectElement>('#place-picker')!
+    const link = (selection: RoomLinkSelection): void => {
+      this.openingNotice = null
+      replaceRoomLink(window.history, window.location.href, selection)
+    }
+    const clear = (): void => {
+      if (this.following !== null) this.activity?.reset()
+      this.following = null; link({ kind: 'none' }); this.updateHud()
+    }
     const follow = (): void => {
+      if (!resident.value) { clear(); return }
       const id = Number(resident.value)
-      if (!resident.value || !Number.isSafeInteger(id) || !this.residents?.residents[id] || this.sleepers.has(id)) return
+      if (!Number.isSafeInteger(id) || !this.residents?.residents[id] || this.sleepers.has(id)) return
       if (this.following !== id) this.activity?.reset()
       this.following = id
+      link({ kind: 'resident', handle: this.residents.residents[id].handle })
       this.updateFollowRoom()
       this.updateHud()
     }
     const stay = (): void => {
+      if (!place.value) { clear(); return }
       const id = Number(place.value)
-      if (!place.value || !Number.isSafeInteger(id) || !this.layout?.rooms[id]) return
+      if (!Number.isSafeInteger(id) || !this.layout?.rooms[id]) return
       this.following = null
+      link({ kind: 'place', id })
       this.showRoom(id)
       this.updateHud()
     }
@@ -719,7 +739,7 @@ export class CityScene extends Phaser.Scene {
     if (choices === this.lastFollowChoices) return
     this.lastFollowChoices = choices
     const picker = document.querySelector<HTMLSelectElement>('#follow-picker')!
-    const prompt = new Option('Follow a resident…', ''); prompt.disabled = true
+    const prompt = new Option('Follow a resident…', '')
     picker.replaceChildren(prompt, ...residents.map(row => new Option(`${row.name} · resident #${row.id}`, String(row.id))))
   }
   private displayHiddenRooms(): ReadonlySet<number> {
@@ -755,14 +775,14 @@ export class CityScene extends Phaser.Scene {
     document.getElementById('room-name')!.textContent = name ?? (failed ? 'City unavailable' : 'Opening the city…')
     document.getElementById('live-status')!.textContent = roomStatus({
       tooSmall: !roomViewportUsable(this.viewport.width, this.viewport.height), readFailed: failed,
-      quiet,
-    }) || this.readIssues[0] || ''
+      quiet, openingNotice: this.openingNotice, readIssue: this.readIssues[0],
+    })
     const picker = document.querySelector<HTMLSelectElement>('#place-picker')!
     const places = this.places
     const signature = JSON.stringify(places.map(place => [place.id, place.name]))
     if (picker.dataset['choices'] !== signature) {
       picker.dataset['choices'] = signature
-      const prompt = new Option('Stay in a place…', ''); prompt.disabled = true
+      const prompt = new Option('Stay in a place…', '')
       picker.replaceChildren(prompt, ...[...places].sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id)
         .map(place => new Option(`${place.name} · place #${place.id}`, String(place.id))))
     }

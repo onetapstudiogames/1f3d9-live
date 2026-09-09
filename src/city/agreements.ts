@@ -37,7 +37,7 @@ function browserSearch(): string { return typeof window === 'undefined' ? '' : w
 
 export function createAgreementPairLoader(search = browserSearch()): (event: ReplayEvent) => Promise<AgreementPair | null> {
   const params = new URLSearchParams(search)
-  const fixture = params.get('agreements') || (params.has('census') ? '/fixtures/agreements.json' : null)
+  const fixture = params.get('agreements') || (params.has('census') ? 'fixtures/agreements.json' : null)
   const cache = new Map<string, Promise<AgreementPair | null>>()
   const read = async (event: ReplayEvent): Promise<AgreementPair | null> => {
     const ref = signatureRef(event)
