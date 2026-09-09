@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RESIDENT_BULB_RECTS, RESIDENT_HAND_RECTS, RESIDENT_LOCK_RECTS,
   THING_HEART_RECTS, activityCueRects, residentBulbAnchor,
-  residentGlyphDistance, thingOverlayAnchor, residentOverlayDistance, residentOverlayRects } from '../src/resident-overlays.ts'
+  followMarkRects, residentGlyphDistance, thingOverlayAnchor, residentOverlayDistance, residentOverlayRects } from '../src/resident-overlays.ts'
 import { cueFrame, emptyCueState, stepActivityCues } from '../src/activity-cues.ts'
 import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
 
@@ -94,4 +94,15 @@ test('resident overlay scaling can describe another rendered figure size without
   ], 40), [
     { x: 10, y: 10, width: 22.5, height: 16.25, color: 1, alpha: 1 },
   ])
+})
+
+test('the follow mark is a quiet cream chevron above only a visible followed resident', () => {
+  const mark = followMarkRects(true, true)
+  assert.deepEqual(mark, [
+    { x: -7, y: -38.5, width: 7, height: 3.5, color: 0xfff1c7, alpha: 0.82 },
+    { x: 0, y: -38.5, width: 7, height: 3.5, color: 0xfff1c7, alpha: 0.82 },
+    { x: -3.5, y: -35, width: 7, height: 3.5, color: 0xfff1c7, alpha: 0.82 },
+  ])
+  assert.deepEqual(followMarkRects(false, true), [])
+  assert.deepEqual(followMarkRects(true, false), [])
 })

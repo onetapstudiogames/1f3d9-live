@@ -9,6 +9,9 @@ import type { ThingState } from '../things.ts'
 import { ActivityLayer } from './ActivityLayer.ts'
 import { activityEntriesFromRows, type RoomActivityLine } from './RoomActivityLine.ts'
 import { projectCueAnchors } from '../room-anchors.ts'
+import { actionCaption, actionCaptionLaneHeight, activeActionCaptions, type ActionCaption } from '../action-captions.ts'
+import { CaptionLayer } from './CaptionLayer.ts'
+import { visibleSpeechCardRects } from './BubbleView.ts'
 
 export class SceneActivity {
   private readonly layer: ActivityLayer
@@ -17,6 +20,8 @@ export class SceneActivity {
   private cues = emptyCueState()
   private looking: LookingState | undefined
   private activeLooks: readonly Readonly<{ residentId: number; key: string; expiresAt: number }>[] = []
+  private captions: readonly ActionCaption[] = []
+  private readonly captionLayer = new CaptionLayer()
 
   constructor(scene: Phaser.Scene,
     log: RoomActivityLine,
@@ -27,7 +32,7 @@ export class SceneActivity {
   }
 
   reset(): void {
-    this.log.clearHistory(); this.cues = emptyCueState(); this.looking = undefined; this.activeLooks = []
+    this.log.clearHistory(); this.cues = emptyCueState(); this.looking = undefined; this.activeLooks = []; this.captions = []; this.captionLayer.clear()
   }
 
   animate(rows: readonly ReplayEvent[], recordedNow: number, presentationNow: number,
@@ -38,14 +43,20 @@ export class SceneActivity {
     return derived
   }
 
-  witness(rows: readonly ReplayEvent[], observedAt: number, context: ActivityContext = this.context): readonly ActivityEntry[] {
-    return this.log.witness(rows, observedAt, context)
+  witness(rows: readonly ReplayEvent[], observedAt: number, context: ActivityContext = this.context,
+    presentationNow = observedAt): readonly ActivityEntry[] {
+    const added = this.log.witness(rows, observedAt, context)
+    const captions = added.flatMap(entry => actionCaption(entry, presentationNow) ?? [])
+    if (captions.length) this.captions = Object.freeze([...this.captions, ...captions])
+    return added
   }
 
   resetPresentation(): void {
     this.cues = emptyCueState()
     this.looking = undefined
     this.activeLooks = []
+    this.captions = []
+    this.captionLayer.clear()
   }
 
   observeLooking(census: readonly Resident[], wallNow: number, playingLive: boolean,
@@ -59,15 +70,25 @@ export class SceneActivity {
       if (!resident || !place) return []
       const placeEntity = Object.freeze({ type: 'place' as const, id: place.id, name: place.name, hasDrawing: place.hasDrawing })
       return [Object.freeze({ key: moment.key, changeId: 0, time: wallNow, kind: 'event' as const,
-        text: `${moment.name} is looking around.`, entities: Object.freeze([resident, placeEntity]), cue: 'looking' as const,
+        text: `${moment.name} looked around.`, entities: Object.freeze([resident, placeEntity]), cue: 'looking' as const,
         roomId: moment.roomId, anchorRoomId: moment.roomId, actorResidentId: moment.residentId })]
     })
     const added = this.log.appendEntries(entries)
+    const witnessed = new Set(added.map(entry => entry.key))
+    const captions = entries.filter(entry => witnessed.has(entry.key)).flatMap(entry => actionCaption(entry, presentationNow) ?? [])
+    if (captions.length) this.captions = Object.freeze([...this.captions, ...captions])
     const cueEntries = stepped.moments.map(moment => this.toCue({ key: moment.key, changeId: 0, time: wallNow, kind: 'event',
       text: '', entities: [], cue: 'looking', roomId: moment.roomId, actorResidentId: moment.residentId }, presentationNow,
     presentationNow + Math.min(3_000, moment.expiresAt - wallNow)))
     this.cues = stepActivityCues(this.cues, cueEntries, presentationNow)
     return added
+  }
+
+  updateCaptions(residents: Readonly<Record<number, ResidentState>>, viewport: Readonly<{ width: number; height: number }>, now: number): void {
+    this.captions = activeActionCaptions(this.captions, now)
+    const captionResidents = new Set(this.captions.map(caption => caption.residentId))
+    const laneHeight = actionCaptionLaneHeight(this.captions, viewport.height)
+    this.captionLayer.update(this.captions, residents, viewport, now, visibleSpeechCardRects(captionResidents, viewport.height, laneHeight))
   }
 
   update(residents: Readonly<Record<number, ResidentState>>, things: Readonly<Record<number, ThingState>>, layout: NestedLayout,
@@ -85,7 +106,7 @@ export class SceneActivity {
     this.layer.update(frames, Object.values(residents), Object.values(things), layout, hidden, zoom)
   }
 
-  destroy(): void { this.layer.destroy() }
+  destroy(): void { this.layer.destroy(); this.captionLayer.destroy() }
 
   private toCue(entry: ActivityEntry, startedAt: number, expiresAt?: number): CueEntry {
     return Object.freeze({ key: entry.key, cue: entry.cue ?? 'action', startedAt, expiresAt,

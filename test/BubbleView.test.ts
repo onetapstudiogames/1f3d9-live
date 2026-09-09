@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { BubbleView, positionSpeechLayer } from '../src/scenes/BubbleView.ts'
+import { BubbleView, positionSpeechLayer, visibleSpeechCardRects } from '../src/scenes/BubbleView.ts'
+import { actionCaption, actionCaptionLaneHeight, layoutActionCaptions } from '../src/action-captions.ts'
 import { bubbleFor } from '../src/speech.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
 
@@ -39,6 +40,7 @@ class StubElement {
     return Reflect.set(target, key, value)
   } })
   append(child: StubElement): void { this.children.push(child) }
+  querySelector(selector: string): StubElement | null { return selector === '.room-speech-words' ? this.children[0] ?? null : null }
   remove(): void { this.removed = true }
   getBoundingClientRect(): DOMRect {
     this.rectReads += 1
@@ -60,7 +62,7 @@ test('BubbleView reuses safe DOM text and keeps scrolling speech in the room', t
       ? { getContext: () => ({ font: '', measureText: (text: string) => ({ width: [...text].length * 8 }) }) }
       : new StubElement(),
     querySelector: (selector: string) => elements.get(selector) ?? null,
-    querySelectorAll: () => layer.children.filter(child => child.className === 'room-speech-card'),
+    querySelectorAll: (selector: string) => layer.children.filter(child => selector.includes(`.${child.className}`)),
   } as unknown as Document
   Object.defineProperty(globalThis, 'document', { configurable: true, value: fakeDocument })
   t.after(() => Object.defineProperty(globalThis, 'document', { configurable: true, value: previous }))
@@ -103,6 +105,22 @@ test('BubbleView reuses safe DOM text and keeps scrolling speech in the room', t
   layer.style.left = 'unchanged'
   assert.equal(positionSpeechLayer(), false)
   assert.equal(layer.style.left, 'unchanged')
+  const caption = new StubElement(); caption.className = 'room-action-caption'; layer.append(caption)
+  assert.equal(positionSpeechLayer(), true)
+  assert.equal(layer.style.left, '12px')
+  card.style.display = ''; card.style.top = '8px'; card.style.left = '8px'; card.style.width = '184px'; card.style.height = '280px'; card.intrinsicHeight = 0
+  card.children[0]!.scrollTop = 540
+  const activity = actionCaption({ key: 'action', changeId: 2, time: 0, kind: 'event', text: 'ada used a brass bell.', cue: 'use',
+    actorResidentId: 4, entities: [{ type: 'resident', id: 4, name: 'ada', hasDrawing: true }] }, 0)!
+  const lane = actionCaptionLaneHeight([activity], 300)
+  const speechRects = visibleSpeechCardRects(new Set([4]), 300, lane)
+  assert.equal(card.children[0]!.scrollTop, 540)
+  const captions = layoutActionCaptions([activity], { 4: { id: 4, x: 100, y: 150, visible: true } }, { width: 200, height: 300 }, speechRects)
+  assert.equal(captions.length, 1)
+  assert.ok(speechRects[0]!.y + speechRects[0]!.height <= captions[0]!.y || captions[0]!.y + captions[0]!.height <= speechRects[0]!.y)
+  card.style.height = '280px'; card.children[0]!.scrollTop = 100
+  visibleSpeechCardRects(new Set([4]), 300, lane)
+  assert.equal(card.children[0]!.scrollTop, 100)
   view.destroy()
   assert.equal(card.removed, true)
 })

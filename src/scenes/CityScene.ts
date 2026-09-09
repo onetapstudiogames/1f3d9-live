@@ -49,6 +49,7 @@ import { hiddenRoomSpeech } from '../room-speech.ts'
 import { positionSpeechLayer } from './BubbleView.ts'
 import { RoomCanvas } from './RoomCanvas.ts'
 import { RoomMotion } from './RoomMotion.ts'
+import { actionFloorEvents, type HeldActionThingEvent } from '../action-delivery.ts'
 
 export class CityScene extends Phaser.Scene {
   private places: readonly ReplayPlace[] = []
@@ -96,6 +97,7 @@ export class CityScene extends Phaser.Scene {
   private displayLayout?: NestedLayout
   private roomCrowding?: RoomCrowdingState
   private roomMotion = new RoomMotion()
+  private heldActionThings: readonly HeldActionThingEvent[] = []
   private canvas?: RoomCanvas
   private get viewport(): Readonly<{ width: number; height: number }> { return this.canvas?.frame ?? { width: 0, height: 0 } }
   private layoutRevision = 0
@@ -331,12 +333,12 @@ export class CityScene extends Phaser.Scene {
         return rows
       }, () => generation !== this.pollGeneration)
       if (generation !== this.pollGeneration) return
-      this.activity?.witness(enriched, Date.now(), context)
+      this.activity?.witness(enriched, Date.now(), context, this.elapsed)
       this.commitIssues(issues)
       this.liveState = nextState; this.liveReadError = false
       const visual = filterCurrentVisualEvents(this.residents, this.liveQueue, enriched)
       // A refresh can report a destination before its witnessed walk has played.
-      const protectedIds = new Set(Object.values(this.residents.residents).filter(row => row.walking || row.queue.some(item => item.event.kind !== 'note')).map(row => row.id))
+      const protectedIds = new Set(Object.values(this.residents.residents).filter(row => row.walking || row.actionUntil != null || row.queue.some(item => item.event.kind !== 'note')).map(row => row.id))
       for (const event of [...this.liveQueue, ...visual]) if (event.kind === 'action' && event.detail.status === 'applied'
         && ['move', 'go_home'].includes(String(event.detail.action)) && event.actor) {
         const id = this.residents.actors.get(event.actor); if (id !== undefined) protectedIds.add(id)
@@ -381,7 +383,7 @@ export class CityScene extends Phaser.Scene {
     this.residents = returnToCurrentResidents(this.residents!, census, this.layout!, {})
     if (this.things) this.things = { ...this.things, queue: [], pending: false,
       things: Object.fromEntries(Object.entries(this.things.things).map(([id, row]) => [id, { ...row, effect: null }])) }
-    this.roomMotion = new RoomMotion(); this.roomCrowding = undefined
+    this.roomMotion = new RoomMotion(); this.roomCrowding = undefined; this.heldActionThings = []
     this.outlineGeneration += 1; this.outlinePending.clear()
     this.handovers = createHandovers([]); this.handoverFrame = undefined; this.handoverLayer.clear()
     this.inventions = { moments: [], pending: false, issues: [] }; this.inventionLayer?.clear(); this.agreementLayer.clear()
@@ -415,6 +417,9 @@ export class CityScene extends Phaser.Scene {
     this.residents = stepResidents(this.residents, events, elapsed, this.elapsed, this.layout, this.agreementPairs, row => this.isResidentDrawn(row), {
       startMove: (resident, event, all) => this.roomMotion.start(resident, event, all),
       advanceMove: (resident, delta) => this.roomMotion.advance(resident, delta),
+      startAction: (resident, event, all, now) => this.things?.things[Number(event.detail.source_thing_id)]?.effect
+        ? null : this.roomMotion.startAction(resident, event, all, now),
+      advanceAction: (resident, delta, now) => this.roomMotion.advanceAction(resident, delta, now),
       sleepers: this.sleepers,
     })
     this.agreementLayer.add(this.residents.startedHandshakes ?? [])
@@ -422,12 +427,15 @@ export class CityScene extends Phaser.Scene {
       this.contentsHidden, this.elapsed)
     this.handoverFrame = stepHandovers(this.handovers, events, this.residents, this.layout, this.elapsed)
     this.handovers = this.handoverFrame.state
-    this.things = stepThings(this.things, this.handoverFrame.floorEvents, this.elapsed)
+    const floor = actionFloorEvents(this.heldActionThings, this.handoverFrame.floorEvents, this.residents.residents)
+    this.heldActionThings = floor.held
+    this.things = stepThings(this.things, floor.events, this.elapsed)
     const started = this.residents.startedEvents ?? []
     const represented = new Set(started.filter(event => {
       const id = event.actor ? this.residents!.actors.get(event.actor.trim()) : undefined
       const actor = id === undefined ? undefined : this.residents!.residents[id]
       return actor?.walkEventId === event.change_id && actor.walking
+        || actor?.actionEvent?.change_id === event.change_id
         || event.kind === 'note' && (actor?.bubble?.noteId === event.detail.note_id || Boolean(actor?.showingNotice))
         || actor?.lastActivityId === event.change_id && Boolean(actor?.sparkle || actor?.inventionUntil || actor?.agreementUntil || actor?.transferUntil || actor?.blockedAttempt)
         || Boolean(this.things!.things[Number(event.detail.thing_id ?? event.detail.source_thing_id)]?.effect)
@@ -469,7 +477,10 @@ export class CityScene extends Phaser.Scene {
         if (this.textures.exists(`thing-${thing.id}`)) view.sprite.setTexture(`thing-${thing.id}`)
         this.thingViews.set(thing.id, view)
       }
-      view.update(thing, thing.name ?? this.thingNames.get(thing.id) ?? null, zoom, this.elapsed, this.handoverFrame?.carryThingIds.includes(thing.id) ?? false)
+      const shake = this.roomMotion.actionFrames().find(frame => frame.thingId === thing.id)?.offsetX ?? 0
+      // The thing rattles against the resident, not with it: opposite phase.
+      view.update(shake ? { ...thing, x: thing.x - shake } : thing,
+        thing.name ?? this.thingNames.get(thing.id) ?? null, zoom, this.elapsed, this.handoverFrame?.carryThingIds.includes(thing.id) ?? false)
     }
     document.body.dataset['liveThingsCount'] = String([...this.thingViews.values()].filter(view => view.sprite.visible).length)
     if (document.body.dataset['liveReady'] === 'true') void this.loadThingDetails()
@@ -478,6 +489,7 @@ export class CityScene extends Phaser.Scene {
         id: thing.id, name: thing.name ?? this.thingNames.get(thing.id) ?? null,
         x: this.thingViews.get(thing.id)!.sprite.x, y: this.thingViews.get(thing.id)!.sprite.y,
         texture: this.thingViews.get(thing.id)!.sprite.texture.key,
+        effect: thing.effect?.kind ?? null,
         width: this.thingViews.get(thing.id)!.sprite.displayWidth, height: this.thingViews.get(thing.id)!.sprite.displayHeight,
       })))
       document.body.dataset['liveOutlineThing'] = String(Boolean(state[2627]?.visible))
@@ -523,7 +535,7 @@ export class CityScene extends Phaser.Scene {
   private roomHasMotion(placeId: number): boolean {
     return this.liveQueue.some(event => [event.detail.place_id, event.detail.from_place_id, event.detail.to_place_id].includes(placeId))
       || Object.values(this.residents?.residents ?? {}).some(resident =>
-        (resident.walking || resident.queue.some(row => row.event.kind !== 'note') || resident.agreementUntil != null)
+        (resident.walking || resident.actionUntil != null || resident.queue.some(row => row.event.kind !== 'note') || resident.agreementUntil != null)
         && (resident.placeId === placeId || resident.destinationId === placeId))
       || Boolean(this.things?.pending) || Boolean(this.handoverFrame?.pending)
   }
@@ -613,9 +625,14 @@ export class CityScene extends Phaser.Scene {
       }
       const hidden = !usable || !this.isResidentDrawn(resident) || resident.placeId !== this.viewPlaceId
       const speech = figure.update(hidden ? { ...resident, visible: false } : resident, this.elapsed,
-        this.places, this.viewport)
+        this.places, this.viewport, this.following === resident.id,
+        this.roomMotion.actionFrames().find(frame => frame.residentId === resident.id)?.offsetX ?? 0)
       if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
+    const actionOffsets = new Map(this.roomMotion.actionFrames().map(frame => [frame.residentId, frame.offsetX]))
+    const captionResidents = Object.fromEntries(Object.values(this.roomResidents).map(row => [row.id,
+      { ...row, x: row.x + (actionOffsets.get(row.id) ?? 0) }]))
+    this.activity?.updateCaptions(captionResidents, this.viewport, this.elapsed)
     positionSpeechLayer()
     const obstacles = [...this.figures].flatMap(([id, figure]) => figure.sprite.visible
       ? [{ ...figure.sprite.getBounds(), id: String(id) }] : [])
@@ -673,7 +690,7 @@ export class CityScene extends Phaser.Scene {
   }
   private showRoom(id: number | null): void {
     if (id === null || !this.layout?.rooms[id]) return
-    if (this.viewPlaceId !== id) this.outlineReads.delete(id)
+    if (this.viewPlaceId !== id) { this.outlineReads.delete(id); this.activity?.resetPresentation() }
     this.viewPlaceId = id
     this.activityLog?.selectRoom(id)
     if (!roomViewportUsable(this.viewport.width, this.viewport.height)) { this.updateHud(); return }
@@ -721,6 +738,7 @@ export class CityScene extends Phaser.Scene {
       document.body.dataset['liveElapsed'] = String(this.elapsed)
       document.body.dataset['liveDeliveryCounts'] = JSON.stringify(this.liveDeliveryCounts)
       document.body.dataset['liveMotion'] = JSON.stringify(this.roomMotion.diagnostics())
+      document.body.dataset['liveActionMotion'] = JSON.stringify(this.roomMotion.actionFrames())
     }
     const room = this.viewPlaceId === null ? undefined : this.layout?.rooms[this.viewPlaceId]
     document.body.dataset['liveLayoutRevision'] = String(this.layoutRevision)

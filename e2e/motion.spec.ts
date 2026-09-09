@@ -16,6 +16,11 @@ type Motion = {
   door?: { x: number; y: number }; path?: readonly { x: number; y: number }[]
 }
 type Figure = { id: number; x: number; y: number }
+type Thing = { id: number; x: number; y: number; effect?: string | null; glowing?: boolean }
+type ActionMotion = {
+  residentId: number; thingId: number; phase: 'approach' | 'shake'; x: number; y: number
+  thingX: number; thingY: number; offsetX: number; speed: number
+}
 
 async function fixture(page: Page, event: Record<string, unknown>, note?: string): Promise<{
   release: () => void; requested: Promise<void>; diagnostics: { external: string[]; errors: string[] }
@@ -47,6 +52,16 @@ async function fixture(page: Page, event: Record<string, unknown>, note?: string
   await page.route('**/motion-notes/note-501.json', route => note
     ? json(route, { note: { id: 501, author: 'walker', body: note, place_id: 2 } })
     : json(route, {}, 404))
+  await page.route('**/motion-places/place-2.json', route => json(route, {
+    view: 'outline', place: { ...places[1], laws: [] },
+    things: [{ id: 701, name: 'brass bell', place_id: 2, owner: 'walker', owner_id: 101,
+      current_owner: 'walker', current_owner_id: 101, made_by: 'walker', maker_id: 101,
+      kind: null, kind_id: null, birth_revision: null, current_revision: null, body_text_bytes: 0,
+      open_to_use: true, has_drawing: false, created_at: '2026-09-01T00:00:00.000Z' }],
+    things_page: { total_items: 1, returned_items: 1, has_more: false, next_before_thing_id: null },
+  }))
+  await page.route('**/motion-drawings/thing-701.json', route => json(route, {}, 404))
+  await page.route('**/motion-drawings/resident-101.json', route => json(route, {}, 404))
   return { release, requested, diagnostics: { external, errors } }
 }
 
@@ -55,7 +70,8 @@ async function readyAndFollow(page: Page, release: () => void, requested: Promis
     .replace('census=/fixtures/residents-presence-page1.json', 'census=/motion-census-page1.json')
     .replace('map=/fixtures/map-current-page1.json&', '').replace('cursor=/fixtures/change-cursor.json&', '')
     .replace('changes=/fixtures/changes-live.json', 'changes=/motion-changes.json')
-    .concat('&notes=/motion-notes')
+    .replace('places=/fixtures/places', 'places=/motion-places')
+    .concat('&notes=/motion-notes&drawings=/motion-drawings')
   await page.goto(params)
   await expect.poll(async () => {
     await page.clock.runFor(16)
@@ -80,6 +96,20 @@ async function figure(page: Page): Promise<Figure | null> {
   return page.evaluate(() => {
     const rows = JSON.parse(document.body.dataset['liveFigures'] ?? '[]') as Figure[]
     return rows.find(row => row.id === 101) ?? null
+  })
+}
+
+async function thing(page: Page): Promise<Thing | null> {
+  return page.evaluate(() => {
+    const rows = JSON.parse(document.body.dataset['liveThings'] ?? '[]') as Thing[]
+    return rows.find(row => row.id === 701) ?? null
+  })
+}
+
+async function actionMotion(page: Page): Promise<ActionMotion | null> {
+  return page.evaluate(() => {
+    const rows = JSON.parse(document.body.dataset['liveActionMotion'] ?? '[]') as ActionMotion[]
+    return rows.find(row => row.residentId === 101 && row.thingId === 701) ?? null
   })
 }
 
@@ -155,5 +185,71 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
   expect(settled).toMatchObject(entered?.path?.at(-1) ?? {})
   expect(Math.hypot(settled!.x - entered!.door!.x, settled!.y - entered!.door!.y)).toBeGreaterThan(20)
   expect(settled?.walking).toBe(false)
+  expect(setup.diagnostics).toEqual({ external: [], errors: [] })
+})
+
+test('a witnessed use walks to the visible thing, shakes both sprites under its caption, and settles beside it', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.clock.install({ time: new Date(now) })
+  await page.clock.pauseAt(new Date(wallNow))
+  const setup = await fixture(page, { change_id: '11', kind: 'action', actor: 'walker', created_at: wallNow,
+    detail: { action: 'use', action_id: 12, status: 'applied', source_thing_id: 701, place_id: 2 } })
+  await readyAndFollow(page, setup.release, setup.requested)
+
+  await expect.poll(async () => { await page.clock.runFor(16); return (await actionMotion(page))?.phase }).toBe('approach')
+  const approach: Array<{ elapsed: number; action: ActionMotion; figure: Figure }> = []
+  for (let elapsed = 0; elapsed < 4_000; elapsed += 100) {
+    const action = await actionMotion(page); const drawn = await figure(page)
+    if (action?.phase !== 'approach') break
+    expect(drawn).not.toBeNull()
+    approach.push({ elapsed, action, figure: drawn! })
+    await page.clock.runFor(100)
+  }
+  expect(approach.length).toBeGreaterThanOrEqual(3)
+  for (const sample of approach) {
+    expect(sample.action.speed).toBe(140)
+    expect(sample.action.offsetX).toBe(0)
+    expect(sample.figure.x).toBeCloseTo(sample.action.x, 0)
+    expect(Math.abs(sample.figure.y - sample.action.y)).toBeLessThanOrEqual(2.01)
+  }
+  const approachPaces = approach.slice(1).map((sample, index) => {
+    const previous = approach[index]!
+    return Math.hypot(sample.action.x - previous.action.x, sample.action.y - previous.action.y)
+      / ((sample.elapsed - previous.elapsed) / 1_000)
+  })
+  expect(approachPaces.filter(pace => Math.abs(pace - 140) <= 8).length).toBeGreaterThanOrEqual(2)
+
+  await expect.poll(async () => { await page.clock.runFor(16); return (await actionMotion(page))?.phase }).toBe('shake')
+  const caption = page.locator('.room-action-caption[data-resident-id="101"]')
+  await expect(caption).toHaveText('used a brass bell')
+  await expect(caption).toHaveCSS('background-color', 'rgb(255, 243, 214)')
+  await page.screenshot({ path: test.info().outputPath('witnessed-use.png') })
+  const shakeSamples: Array<{ action: ActionMotion; figure: Figure; thing: Thing; captionX: number }> = []
+  for (let elapsed = 0; elapsed < 1_000; elapsed += 100) {
+    await page.clock.runFor(100)
+    const action = await actionMotion(page); const drawn = await figure(page); const shownThing = await thing(page)
+    if (action?.phase === 'shake' && drawn && shownThing) shakeSamples.push({ action, figure: drawn, thing: shownThing,
+      captionX: (await caption.boundingBox())?.x ?? Number.NaN })
+  }
+  expect(shakeSamples.length).toBeGreaterThanOrEqual(5)
+  expect(new Set(shakeSamples.map(sample => Math.sign(sample.action.offsetX))).size).toBeGreaterThan(1)
+  for (const sample of shakeSamples) {
+    expect(sample.action.speed).toBe(0)
+    expect(sample.figure.x - sample.action.x).toBeCloseTo(sample.action.offsetX, 0)
+    // The thing rattles against the resident: opposite phase.
+    expect(sample.thing.x - sample.action.thingX).toBeCloseTo(-sample.action.offsetX, 0)
+  }
+  expect(Math.max(...shakeSamples.map(sample => sample.captionX)) - Math.min(...shakeSamples.map(sample => sample.captionX))).toBeGreaterThan(1)
+
+  await expect.poll(async () => { await page.clock.runFor(25); return actionMotion(page) }).toBeNull()
+  const settledFigure = await figure(page); const settledThing = await thing(page)
+  expect(settledFigure).not.toBeNull(); expect(settledThing).not.toBeNull()
+  expect(Math.hypot(settledFigure!.x - settledThing!.x, settledFigure!.y - settledThing!.y)).toBeLessThanOrEqual(64)
+  // The final 100ms sample can include the first idle step, plus the existing 2px bob.
+  expect(Math.hypot(settledFigure!.x - shakeSamples.at(-1)!.action.x,
+    settledFigure!.y - shakeSamples.at(-1)!.action.y)).toBeLessThanOrEqual(3.1)
+  expect(settledThing!.x).toBeCloseTo(shakeSamples.at(-1)!.action.thingX, 0)
+  expect(settledThing?.effect).toBe('glow')
   expect(setup.diagnostics).toEqual({ external: [], errors: [] })
 })

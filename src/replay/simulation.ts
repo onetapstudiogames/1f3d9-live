@@ -51,6 +51,8 @@ export type ResidentState = Readonly<{
   agreementUntil?: number | null
   showingNotice?: ShowingMoment | null
   blockedAttempt?: BlockMoment | null
+  actionUntil?: number | null
+  actionEvent?: ReplayEvent | null
 }>
 
 export type Simulation = Readonly<{
@@ -68,6 +70,8 @@ export type Simulation = Readonly<{
 export type StepResidentsOptions = Readonly<{
   startMove?: (resident: ResidentState, event: ReplayEvent, all: Readonly<Record<number, ResidentState>>) => ResidentState | null | undefined
   advanceMove?: (resident: ResidentState, deltaMs: number) => ResidentState | undefined
+  startAction?: (resident: ResidentState, event: ReplayEvent, all: Readonly<Record<number, ResidentState>>, nowMs: number) => ResidentState | null | undefined
+  advanceAction?: (resident: ResidentState, deltaMs: number, nowMs: number) => ResidentState | undefined
   sleepers?: ReadonlySet<number>
 }>
 
@@ -211,9 +215,13 @@ export function stepResidents(
     if (resident.blockedAttempt && nowMs >= resident.blockedAttempt.expiresAt) resident = { ...resident, blockedAttempt: null }
     if (resident.bubble && nowMs >= resident.bubble.expiresAt) resident = { ...resident, bubble: null }
     if (resident.sparkle && nowMs >= resident.sparkle.expiresAt) resident = { ...resident, sparkle: null }
-    if (resident.walking) resident = options.advanceMove?.(resident, elapsed) ?? advanceWalk(resident, elapsed, layout)
+    const action = resident.actionEvent
+    if (resident.actionUntil != null) {
+      resident = options.advanceAction?.(resident, elapsed, nowMs) ?? resident
+    } else if (resident.walking) resident = options.advanceMove?.(resident, elapsed) ?? advanceWalk(resident, elapsed, layout)
     if (!resident.walking && !resident.bubble && !resident.sparkle && !resident.showingNotice && !resident.blockedAttempt
       && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null
+      && resident.actionUntil == null && !action
       ) {
       resident = startNext(resident, residents, nowMs, layout, issues, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs, startedEvents, options)
     }
@@ -276,6 +284,13 @@ function startNext(
     next = { ...next, lastActivityId: event.change_id }
     startedEvents.push(event)
     const detail = event.detail
+    if (!sleeping && options.startAction && event.kind === 'action' && ['use', 'consume'].includes(String(detail.action))
+      && (detail.status === 'applied' || detail.action === 'use' && detail.status === 'noop') && detail.error == null) {
+      const consumed = { ...next, queue }
+      const custom = options.startAction(consumed, event, { ...all, [next.id]: consumed }, nowMs)
+      if (custom === null) { startedEvents.pop(); return beforeEvent }
+      if (custom) return custom
+    }
     const blocked = blockedAttemptFor(event)
     if (blocked) {
       next = { ...next, queue }
@@ -518,7 +533,7 @@ function baseResident(id: number, handle: string, placeId: number | null): Resid
 
 function isPending(resident: ResidentState): boolean {
   return resident.walking || resident.bubble !== null || resident.sparkle !== null || resident.showingNotice != null
-    || resident.blockedAttempt != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.queue.length > 0
+    || resident.blockedAttempt != null || resident.transferUntil !== null || resident.inventionUntil != null || resident.agreementUntil != null || resident.actionUntil != null || resident.queue.length > 0
 }
 
 // Cards and queued notes never hold live delivery, regardless of whose card
@@ -526,13 +541,13 @@ function isPending(resident: ResidentState): boolean {
 export function blocksLiveDelivery(state: Simulation): boolean {
   return Object.values(state.residents).some(resident => resident.queue.some(queued => queued.event.kind !== 'note') || resident.walking || resident.sparkle !== null
     || resident.showingNotice != null || resident.blockedAttempt != null || resident.transferUntil !== null
-    || resident.inventionUntil != null || resident.agreementUntil != null)
+    || resident.inventionUntil != null || resident.agreementUntil != null || resident.actionUntil != null)
 }
 
 function handshakeResident(row: ResidentState, drawn: boolean): HandshakeResident {
   return Object.freeze({ id: row.id, handle: row.handle, placeId: row.placeId, x: row.x, y: row.y, visible: row.visible && drawn,
     destinationId: row.destinationId, walking: row.walking,
-    busy: Boolean(row.bubble || row.showingNotice || row.blockedAttempt || row.sparkle || row.transferUntil || row.inventionUntil || row.agreementUntil) })
+    busy: Boolean(row.bubble || row.showingNotice || row.blockedAttempt || row.sparkle || row.transferUntil || row.inventionUntil || row.agreementUntil || row.actionUntil != null) })
 }
 
 function freezeSimulation(residents: Record<number, ResidentState>, actors: ReadonlyMap<string, number>, issues: readonly string[], pending: boolean, reservations: ThingReservations, startedTransfers: readonly StartedTransfer[]): Simulation {

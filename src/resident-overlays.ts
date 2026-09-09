@@ -42,6 +42,16 @@ export function residentOverlayRects(cells: readonly ResidentOverlayRect[], resi
   return scaledRects(cells, distance => residentOverlayDistance(distance, residentSize))
 }
 
+const FOLLOW_MARK_RECTS = residentOverlayRects([
+  { x: -4, y: -22, width: 4, height: 2, color: 0xfff1c7, alpha: 0.82 },
+  { x: 0, y: -22, width: 4, height: 2, color: 0xfff1c7, alpha: 0.82 },
+  { x: -2, y: -20, width: 4, height: 2, color: 0xfff1c7, alpha: 0.82 },
+])
+
+export function followMarkRects(visible: boolean, followed: boolean): readonly ResidentOverlayRect[] {
+  return visible && followed ? FOLLOW_MARK_RECTS : Object.freeze([])
+}
+
 function scaledRects(cells: readonly ResidentOverlayRect[], scale: (distance: number) => number): readonly ResidentOverlayRect[] {
   return Object.freeze(cells.map(cell => Object.freeze({ ...cell,
     x: scale(cell.x), y: scale(cell.y), width: scale(cell.width), height: scale(cell.height),

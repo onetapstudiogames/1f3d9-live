@@ -29,7 +29,7 @@ const changeId = (value: string): number | null => /^\d+$/.test(value) && Number
 const safe = (value: unknown): string => typeof value === 'string' ? value.trim() : ''
 const eventKinds: Readonly<Record<string, readonly [string, ActivityCue]>> = {
   register: ['moved into the city', 'arrival'], rotate: ['rotated their key', 'change'], resident_edited: ['changed their drawing', 'change'],
-  home_set: ['set their home', 'home'], place_created: ['founded', 'make'], place_edited: ['changed', 'change'], place_renamed: ['renamed', 'change'],
+  home_set: ['set home here', 'home'], place_created: ['founded', 'make'], place_edited: ['changed', 'change'], place_renamed: ['renamed', 'change'],
   place_retired: ['retired', 'change'], place_restored: ['restored', 'change'], kind_invented: ['invented', 'make'], kind_revised: ['revised', 'change'],
   trait_coined: ['coined', 'make'], thing_created: ['created', 'make'], thing_crafted: ['crafted', 'make'], thing_edited: ['changed', 'change'],
   thing_moved: ['moved', 'action'], thing_upgraded: ['upgraded', 'change'], thing_withdrawn: ['withdrew', 'change'], laws_changed: ['changed the local laws', 'rules'],
@@ -114,7 +114,7 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
     if (!place) return null
     const thing: ActivityEntity = Object.freeze({ type: 'thing', id: detail.thing_id, name, hasDrawing: null })
     return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'thing-made', cue: 'make', roomId: place.id, anchorRoomId: place.id,
-      actorResidentId: actor?.id ?? null, thingId: detail.thing_id, text: `${actorName} made ${name} in ${place.name}.`, entities: Object.freeze(actor ? [actor, place, thing] : [place, thing]) })
+      actorResidentId: actor?.id ?? null, thingId: detail.thing_id, text: `${actorName} made ${name}.`, entities: Object.freeze(actor ? [actor, place, thing] : [place, thing]) })
   }
   if (event.kind === 'thing_created') return null
   const status = safe(detail.status); const action = safe(detail.action)
@@ -142,16 +142,28 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
     if (!['talk', 'move', 'use', 'give', 'consume', 'make', 'go_home'].includes(action) || !['applied', 'noop', 'blocked', 'failed', 'refused'].includes(status)) return null
     const thingName = knownThing?.entity.name ?? (thingId ? `thing #${thingId}` : '')
     if (['blocked', 'failed', 'refused'].includes(status)) {
+      const object = thingName ? /^(?:a|an|the|some|this|that)\b/i.test(thingName) ? thingName : `a ${thingName}` : ''
       const error = safe(detail.error); return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'event', cue: 'failed', roomId: null, anchorRoomId,
         actorResidentId: actor?.id ?? null, targetResidentId: target?.id ?? null, thingId, entities: Object.freeze(entities),
-        text: `${actorName} tried to ${action === 'go_home' ? 'go home' : action}${thingName ? ` ${thingName}` : ''}; ${status}${error ? `: ${error}` : ''}.` })
+        text: `${actorName} tried to ${action === 'go_home' ? 'go home' : action}${object ? ` ${object}` : ''}; ${status}${error ? `: ${error}` : ''}.` })
     }
-    if (detail.error != null || ['move', 'go_home'].includes(action)) return null
+    if (detail.error != null) return null
+    if (['move', 'go_home'].includes(action)) {
+      const fromId = validId(detail.from_place_id) ? Number(detail.from_place_id) : null
+      const toId = validId(detail.to_place_id) ? Number(detail.to_place_id) : null
+      if (status !== 'applied' || fromId === null || toId === null || fromId !== toId) return null
+      const samePlace = placeEntity(toId, time, context)
+      if (!samePlace) return null
+      return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'event', cue: 'move', roomId: samePlace.id,
+        anchorRoomId: samePlace.id, actorResidentId: actor?.id ?? null, entities: Object.freeze([...entities, samePlace]),
+        text: `${actorName} moved within ${samePlace.name}.` })
+    }
     if (action === 'talk' && validId(detail.action_id) && peers.some(row => row.kind === 'note' && row.actor === event.actor && row.detail.action_id === detail.action_id)) return null
-    const verbs: Record<string, string> = { talk: 'talked', use: 'used', give: 'gave', consume: 'consumed', make: 'made' }
+    const verbs: Record<string, string> = { talk: 'talked', use: 'used', give: 'gave', consume: 'ate', make: 'made' }
+    const object = thingName ? /^(?:a|an|the|some|this|that)\b/i.test(thingName) ? thingName : `a ${thingName}` : ''
     return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'event', cue: status === 'noop' ? 'action' : action as ActivityCue, roomId: place?.id ?? null,
       anchorRoomId, actorResidentId: actor?.id ?? null, targetResidentId: target?.id ?? null, thingId, entities: Object.freeze(entities),
-      text: `${actorName} ${verbs[action]}${thingName ? ` ${thingName}` : ''}${status === 'noop' ? '; no change' : ''}.` })
+      text: `${actorName} ${verbs[action]}${object ? ` ${object}` : ''}${action === 'give' && target ? ` to ${target.name}` : ''}${status === 'noop' ? '; no change' : ''}.` })
   }
   const descriptor = eventKinds[event.kind]; if (!descriptor || (event.kind !== 'effect_resolved' && detail.error != null)) return null
   const required = requiredId[event.kind]; if (required && !validId(detail[required])) return null
@@ -160,11 +172,16 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
   let [words, cue] = descriptor; const thingName = knownThing?.entity.name || name || (thingId ? `thing #${thingId}` : '')
   if (event.kind.startsWith('thing_')) { if (!thingId || !thingName) return null; words += ` ${thingName}` }
   else if (event.kind.startsWith('place_')) words += ` ${name || place?.name || `place #${detail.place_id}`}`
+  else if (event.kind === 'kind_invented') words += ` a kind: ${name || `kind #${detail.kind_id}`}`
   else if (event.kind.startsWith('kind_')) words += ` ${name || `kind #${detail.kind_id}`}`
   else if (event.kind === 'trait_coined') words += ` ${name || `trait #${detail.trait_id}`}`
-  else if (event.kind === 'transfer') words = `${detail.mode === 'gift' ? 'gave' : 'transferred'} ${thingName || 'property'}${target ? ` to ${target.name}` : ''}`
+  else if (event.kind === 'transfer') {
+    const object = thingName ? /^(?:a|an|the|some|this|that)\b/i.test(thingName) ? thingName : `a ${thingName}` : 'property'
+    words = `${detail.mode === 'gift' ? 'gave' : 'transferred'} ${object}${target ? ` to ${target.name}` : ''}`
+  }
   else if (event.kind === 'effect_resolved') { if (!['applied', 'skipped', 'failed'].includes(status)) return null; words = `had a scheduled effect ${status === 'applied' ? 'take effect' : status === 'skipped' ? 'be skipped' : 'fail'}`; cue = status === 'applied' ? 'effect' : 'failed' }
   else if (event.kind === 'gazette_printed' && validId(detail.issue_number)) words += ` issue ${detail.issue_number}`
+  else if (event.kind === 'agreement_sign') words = `signed agreement #${detail.agreement_id}`
   return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'event', cue, roomId: place?.id ?? null, anchorRoomId, actorResidentId: actor?.id ?? null,
     targetResidentId: target?.id ?? null, thingId, entities: Object.freeze(entities), text: `${actorName} ${words}.` })
 }
