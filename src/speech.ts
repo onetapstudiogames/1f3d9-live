@@ -3,33 +3,28 @@ export type SpeechBubble = Readonly<{ text: string; cut: boolean; placeId: numbe
 export type BubbleShape = 'plain' | 'asking' | 'telling'
 export type SpeechCardPlan = Readonly<{ lines: readonly string[]; lineWidth: number; start: number; revealEnd: number; end: number; effectiveCharInterval: number }>
 export type SpeechCardFrame = Readonly<{ text: string; revealed: string; lines: readonly string[]; complete: boolean; cut: boolean; width: number; height: number; contentHeight: number; scrollTop: number; fontSize: 14; lineHeight: 20; effectiveCharInterval: number }>
-const TYPE_INTERVAL_MS = 34
-const TYPE_INTERVAL_FLOOR_MS = 18
-const BASE_HOLD_MS = 5_000
-const HOLD_FLOOR_MS = 1_500
+const TYPE_INTERVAL_MS = 68
+const MIN_CARD_LIFETIME_MS = 10_000
+const READING_ALLOWANCE_MS = 5_000
 const READ_AFTER_TYPE_MS = 2_500
 const MAX_TOTAL_MS = 15_000
-const BASE_SPEED = 120
 const MAX_WIDTH = 320
 const HORIZONTAL_PADDING = 12
 const VERTICAL_PADDING = 10
 const LINE_HEIGHT = 20
-const holdScale = (speed: number): number => Number.isFinite(speed) && speed > 0 ? BASE_SPEED / speed : 1
-export function typingInterval(speed = BASE_SPEED): number {
-  return Math.max(TYPE_INTERVAL_FLOOR_MS, TYPE_INTERVAL_MS * holdScale(speed))
+export function typingInterval(): number {
+  return TYPE_INTERVAL_MS
 }
-export function bubbleDuration(speed = BASE_SPEED, characters = 0): number {
+export function bubbleDuration(characters = 0): number {
   const length = Number.isFinite(characters) ? Math.max(0, Math.floor(characters)) : 0
-  const scaledBase = Math.max(HOLD_FLOOR_MS, BASE_HOLD_MS * holdScale(speed))
-  const readAfter = Math.max(HOLD_FLOOR_MS, READ_AFTER_TYPE_MS * holdScale(speed))
-  return Math.min(MAX_TOTAL_MS, Math.max(scaledBase, length * typingInterval(speed) + readAfter))
+  return Math.min(MAX_TOTAL_MS, Math.max(MIN_CARD_LIFETIME_MS, length * typingInterval() + READING_ALLOWANCE_MS))
 }
-export function bubbleFor(event: ReplayEvent, shownAt: number, speed = BASE_SPEED): SpeechBubble | null {
+export function bubbleFor(event: ReplayEvent, shownAt: number): SpeechBubble | null {
   if (event.kind !== 'note' || typeof event.line !== 'string' || event.line.length === 0 || !Number.isFinite(shownAt)) return null
   const placeId = typeof event.detail.place_id === 'number' && Number.isSafeInteger(event.detail.place_id) && event.detail.place_id > 0 ? event.detail.place_id : null
   const noteId = typeof event.detail.note_id === 'number' && Number.isSafeInteger(event.detail.note_id) && event.detail.note_id > 0 ? event.detail.note_id : undefined
   return Object.freeze({ text: event.line, cut: event.line_cut === true, placeId, ...(noteId === undefined ? {} : { noteId }), startedAt: shownAt,
-    charInterval: typingInterval(speed), expiresAt: shownAt + bubbleDuration(speed, splitGraphemes(event.line).length) })
+    charInterval: typingInterval(), expiresAt: shownAt + bubbleDuration(splitGraphemes(event.line).length) })
 }
 export function speechCardPlan(bubble: SpeechBubble, availableWidth = MAX_WIDTH,
   measure: (text: string) => number = readableTextWidth, measuredTextWidth?: number): SpeechCardPlan {

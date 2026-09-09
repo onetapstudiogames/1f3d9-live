@@ -20,7 +20,7 @@ function noteBubble(note: typeof notes[number]) {
   assert.equal(notice.actor, note.author)
   assert.equal(notice.detail.place_id, note.place_id)
   const line = note.body.split('\n')[0]!.slice(0, 200)
-  return bubbleFor({ ...notice, event_id: notice.id, line, line_cut: line.length < note.body.length }, 0, 120)!
+  return bubbleFor({ ...notice, event_id: notice.id, line, line_cut: line.length < note.body.length }, 0)!
 }
 
 test('the saved showing-room posts distinguish authored VOTE notes from corrections and ordinary prose', () => {

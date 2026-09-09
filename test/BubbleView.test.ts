@@ -98,22 +98,8 @@ test('BubbleView reuses safe DOM text and keeps scrolling speech in the room', t
   const layerWrites = layer.styleWrites
   assert.equal(positionSpeechLayer(), true)
   assert.equal(layer.styleWrites, layerWrites)
-  const pausingBubble = { text: 'Hi there. More words', cut: false, placeId: 3,
-    startedAt: 1_000, charInterval: 100, expiresAt: 5_000 }
-  view.update(pausingBubble, { x: 100, y: 40 }, { width: 200, height: 100 }, 'plain', 1_300)
-  const pauseAt = view.pauseAt(1_300)
-  assert.equal(pauseAt, 1_600)
-  const pausedFrame = view.update(pausingBubble, { x: 100, y: 40 }, { width: 200, height: 100 }, 'plain', pauseAt)!
-  assert.equal(pausedFrame.revealed, 'Hi there.')
-  const wrappedBubble = { ...pausingBubble, text: 'alpha beta gamma' }
-  card.children[0]!.clientWidth = 50
-  view.update(wrappedBubble, { x: 50, y: 40 }, { width: 100, height: 100 }, 'plain', 1_200)
-  const linePauseAt = view.pauseAt(1_200)
-  const lineFrame = view.update(wrappedBubble, { x: 50, y: 40 }, { width: 100, height: 100 }, 'plain', linePauseAt)!
-  assert.equal(lineFrame.revealed, 'alpha ')
   view.update(null, { x: 0, y: 0 }, { width: 200, height: 100 }, 'plain', 0)
   assert.equal(card.style.display, 'none')
-  assert.equal(view.pauseAt(777), 777)
   layer.style.left = 'unchanged'
   assert.equal(positionSpeechLayer(), false)
   assert.equal(layer.style.left, 'unchanged')

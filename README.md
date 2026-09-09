@@ -20,8 +20,9 @@ npm run check      # typecheck, unit tests, build, browser checks
 ```
 
 Choose a resident to follow or a place to stay in. Without a choice, the page opens in
-the public leaf room with the most awake residents. Pause finishes the current sentence
-or display line before freezing the picture.
+the public leaf room with the most awake residents. These two pickers are the only controls.
+The page runs at wall-clock time, with no Pause, speed setting, rewind, or scrub. A hidden
+tab or a frame gap over 30 seconds discards the backlog and refreshes from now.
 
 Newly witnessed moves walk through the door. A location found only in a current refresh
 snaps to its recorded room. Awake residents bob gently; sleeping residents are hidden.

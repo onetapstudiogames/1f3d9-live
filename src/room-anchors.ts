@@ -49,7 +49,7 @@ export function projectRoomHandovers(
     const from = Object.values(residents).find(resident => resident.handle.trim() === active.transfer.actor)
     const to = residents[active.transfer.partnerId]
     if (!eligibleTransferFigure(from, active.transfer.placeId) || !eligibleTransferFigure(to, active.transfer.placeId)) return []
-    const floated = floatFrame(from, to, active.startedAt, nowMs, active.speed)
+    const floated = floatFrame(from, to, active.startedAt, nowMs)
     if (!floated) return []
     const next = { ...motion, x: floated.x, y: floated.y, visible: true, alpha: floated.alpha }
     return [Object.freeze(active.transfer.mode === 'gift'

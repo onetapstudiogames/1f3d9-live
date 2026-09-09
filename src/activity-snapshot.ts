@@ -12,15 +12,8 @@ export type ActivitySnapshot = Readonly<{
   activeLooks?: readonly ActiveLookSnapshot[]
   recent?: readonly (readonly [number, RecentActivitySnapshot])[]
   activeResidents?: readonly number[]
-  capturedWallNow?: number
 }>
 
 export function visibleLookingIds(active: readonly ActiveLookSnapshot[], wallNow: number): ReadonlySet<number> {
   return new Set(active.filter(row => row.expiresAt > wallNow).map(row => row.residentId))
-}
-
-export function rebaseActiveLooks(active: readonly ActiveLookSnapshot[], capturedWallNow: number,
-  resumeWallNow: number): readonly ActiveLookSnapshot[] {
-  const shift = resumeWallNow - capturedWallNow
-  return Object.freeze(active.map(row => Object.freeze({ ...row, expiresAt: row.expiresAt + shift })))
 }

@@ -65,13 +65,13 @@ test('returns to the preferred projection as soon as the blocking crowd leaves',
     { x: 48, y: 48, offsetX: 0, offsetY: 0 })
 })
 
-test('unchanged paused input reuses the frame state and does no allocation work', () => {
+test('unchanged unchanged input reuses the frame state and does no allocation work', () => {
   const entries = Object.freeze([entry('a', 48, 48), entry('b', 48, 48)])
   const band = Object.freeze({ x: 0, y: 0, width: 160, height: 96 })
   const first = allocateRoomCrowdingFrame(entries, band)
-  const paused = allocateRoomCrowdingFrame(entries, band, first)
-  assert.equal(paused, first)
-  assert.equal(paused.placements, first.placements)
+  const unchanged = allocateRoomCrowdingFrame(entries, band, first)
+  assert.equal(unchanged, first)
+  assert.equal(unchanged.placements, first.placements)
   assert.equal(first.metrics.gridBuilds, 1)
   assert.ok(first.metrics.candidateChecks > 0)
 })

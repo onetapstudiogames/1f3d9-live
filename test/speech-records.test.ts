@@ -39,7 +39,7 @@ test('every saved note excerpt survives scrolling typing with its exact words an
   assert.ok(notes.length > 0)
   assert.ok(notes.some(row => row.detail.place_id === 249))
   for (const note of notes) {
-    const bubble = bubbleFor(note, 1_000, 120)
+    const bubble = bubbleFor(note, 1_000)
     assert.ok(bubble)
     assert.equal(bubble.text, note.line)
     assert.equal(bubble.cut, note.line_cut === true)

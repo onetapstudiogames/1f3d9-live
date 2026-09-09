@@ -1,6 +1,6 @@
 import type { NestedLayout, Room } from './ground/nested.ts'
 import { roomOutline } from './ground/room-shape.ts'
-import { advanceClock, BASE_SPEED, holdScale, type Clock } from './replay/index.ts'
+import { advanceClock, type Clock } from './replay/index.ts'
 
 export type Brick = Readonly<{ x: number; y: number; width: number; height: number; color: number }>
 export type PlaceAnimation = Readonly<{
@@ -60,11 +60,9 @@ export function wallBricks(room: Room): readonly Brick[] {
 }
 
 export function placeAnimation(
-  kind: PlaceAnimation['kind'], placeId: number, changeId: string, now: number, speed = BASE_SPEED,
+  kind: PlaceAnimation['kind'], placeId: number, changeId: string, now: number,
 ): PlaceAnimation {
-  const base = kind === 'founding' ? 1_600 : 350
-  const floor = kind === 'founding' ? 600 : 200
-  const duration = Math.max(floor, base * holdScale(speed))
+  const duration = kind === 'founding' ? 3_200 : 700
   return { placeId, kind, changeId, startedAt: Number.isFinite(now) ? now : 0, duration }
 }
 

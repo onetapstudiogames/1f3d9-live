@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createTape, playbackCursor, recordFrame, seekFrame, truncateTape } from '../src/presentation-history.ts'
+import { createTape, recordFrame, seekFrame, truncateTape } from '../src/presentation-history.ts'
 
 type Frame = {
   residents: Record<number, { x: number, y: number, traits: string[] }>
@@ -26,18 +26,6 @@ test('samples frames and seeks to the last fact at or before the requested time'
   assert.equal(seekFrame(tape, 1_249)?.frame.clockTime, 1_000)
   assert.equal(seekFrame(tape, 1_999)?.frame.clockTime, 1_250)
   assert.equal(seekFrame(tape, 999), null)
-})
-
-test('rewinds at 30x and clamps every playback mode to recorded history', () => {
-  let tape = createTape<Frame>()
-  tape = recordFrame(tape, 10_000, frame(10_000))
-  tape = recordFrame(tape, 70_000, frame(70_000))
-
-  assert.deepEqual(playbackCursor(tape, 50_000, 1_000, 'rewind'), { time: 20_000, atHead: false, atStart: false })
-  assert.deepEqual(playbackCursor(tape, 20_000, 1_000, 'rewind'), { time: 10_000, atHead: false, atStart: true })
-  assert.deepEqual(playbackCursor(tape, 50_000, 1_000, 'normal'), { time: 51_000, atHead: false, atStart: false })
-  assert.deepEqual(playbackCursor(tape, 50_000, 1_000, 'fast'), { time: 70_000, atHead: true, atStart: false })
-  assert.deepEqual(playbackCursor(tape, 50_000, 1_000, 'pause'), { time: 50_000, atHead: false, atStart: false })
 })
 
 test('captures nested arrays, maps, and sets without retaining caller mutations', () => {
@@ -66,7 +54,6 @@ test('rejects invalid or regressing times and leaves the old tape unchanged', ()
   assert.equal(empty.frameCount, 0)
   assert.throws(() => recordFrame(recorded, 999, frame(999)), /must not regress/)
   assert.throws(() => recordFrame(recorded, Number.NaN, frame(2_000)), /finite/)
-  assert.throws(() => playbackCursor(recorded, 1_000, -1, 'normal'), /non-negative/)
 })
 
 test('can force an exact head capture and discard the future before resuming', () => {

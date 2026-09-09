@@ -31,14 +31,10 @@ test('a scripted checkbox activation cannot unlock sound through its browser-gen
   assert.equal(h.voices.length, 1)
 })
 
-test('pause, sound off, reset, and destruction immediately stop active voices', t => {
+test('sound off, reset, and destruction immediately stop active voices', t => {
   const h = setup(); t.after(h.restore)
   h.documentEvents.emit('pointerdown', true)
   h.update(1, 100)
-  h.update(2, 200, true)
-  assert.equal(h.voices[0]!.immediateStops, 1)
-  h.update(2, 300)
-  assert.equal(h.voices.length, 1, 'a paused note never pops on resume')
   h.update(3, 400)
   h.control.checked = false; h.controlEvents.emit('change', true)
   assert.equal(h.voices[1]!.immediateStops, 1)
@@ -130,10 +126,10 @@ function setup() {
   const camera = { width: 800, height: 600, zoom: 1, scrollX: 0, scrollY: 0 }
   const figures = new Map([[1, { sprite: { visible: true } }]])
   return { sound, control, status, context, voices, documentEvents, controlEvents, windowEvents, doc,
-    update(noteId: number, now: number, paused = false) {
+    update(noteId: number, now: number) {
       const residents = { residents: { 1: { id: 1, x: 100, y: 100, walking: false, walkEventId: null,
         walkElapsed: 0, bubble: { noteId, startedAt: now } } } }
-      sound.update(now, paused, residents as never, figures as never, [], layout, camera as never)
+      sound.update(now, residents as never, figures as never, [], layout, camera as never)
     },
     restore() {
       sound.destroy()

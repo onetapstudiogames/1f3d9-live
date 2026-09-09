@@ -27,9 +27,6 @@ export function focusTarget(candidates: readonly FocusTarget[]): FocusTarget | n
     .sort((a, b) => b.rank - a.rank || b.startedAt - a.startedAt || a.key.localeCompare(b.key))[0] ?? null
 }
 
-// A real-time clock must not stretch the existing readable animations into minutes.
-export function motionSpeed(clockSpeed: number): number { return Math.max(60, clockSpeed) }
-
 export function reappearanceAlpha(relocatedAt: number | undefined, now: number): number {
   return relocatedAt === undefined ? 1 : Math.min(1, Math.max(0, (now - relocatedAt) / 400))
 }

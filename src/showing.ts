@@ -19,14 +19,14 @@ export function showingFor(bubble: SpeechBubble | null, visible: boolean, places
   return Object.freeze({ ballot, confetti, startedAt: bubble.startedAt, expiresAt: bubble.expiresAt })
 }
 
-export function showingNoticeFor(event: ReplayEvent, startedAt: number, speed: number,
+export function showingNoticeFor(event: ReplayEvent, startedAt: number,
   places: readonly Pick<ReplayPlace, 'id' | 'name' | 'quiet'>[]): ShowingMoment | null {
   const actor = typeof event.actor === 'string' ? event.actor.trim() : ''
   const noteId = event.detail.note_id; const placeId = event.detail.place_id
   const room = places.find(place => place.id === placeId)
   if (event.kind !== 'note' || !actor || !Number.isSafeInteger(noteId) || Number(noteId) < 1
     || !Number.isFinite(startedAt) || !room || room.id !== ROOM_ID || room.name !== ROOM_NAME || room.quiet) return null
-  return Object.freeze({ ballot: false, confetti: false, startedAt, expiresAt: startedAt + bubbleDuration(speed, 0) })
+  return Object.freeze({ ballot: false, confetti: false, startedAt, expiresAt: startedAt + bubbleDuration(0) })
 }
 
 export function showingFrame(moment: ShowingMoment, now: number): ShowingFrame | null {

@@ -33,16 +33,14 @@ test('quiet rooms have complete walls without a door opening', () => {
   assert.ok(bricks.some(brick => brick.y <= 20 && brick.y + brick.height > 20 && brick.x < 70 && brick.x + brick.width > 70))
 })
 
-test('place animation timing is bounded and malformed values stay finite', () => {
-  const founding = placeAnimation('founding', 2, 'c1', 100, 120)
-  assert.equal(founding.duration, 1600)
-  assert.equal(placeAnimation('founding', 2, 'c2', 0, 1200).duration, 600)
-  assert.equal(placeAnimation('renaming', 2, 'c3', 0, 1200).duration, 200)
-  assert.equal(placeAnimation('renaming', 2, 'c4', Number.NaN, Number.NaN).startedAt, 0)
-  assert.ok(Number.isFinite(placeAnimation('founding', 2, 'c5', 0, Number.POSITIVE_INFINITY).duration))
+test('place animations use fixed durations and malformed start times stay finite', () => {
+  const founding = placeAnimation('founding', 2, 'c1', 100)
+  assert.equal(founding.duration, 3_200)
+  assert.equal(placeAnimation('renaming', 2, 'c3', 0).duration, 700)
+  assert.equal(placeAnimation('renaming', 2, 'c4', Number.NaN).startedAt, 0)
   assert.equal(animationProgress(founding, 99), 0)
   assert.equal(animationProgress(founding, 100), 0)
-  assert.equal(animationProgress(founding, 1700), 1)
+  assert.equal(animationProgress(founding, 3300), 1)
   assert.equal(animationProgress(founding, Number.NaN), 0)
   assert.equal(brickCount(11, 0.5), 5)
   assert.equal(brickCount(Number.NaN, 2), 0)
@@ -79,10 +77,8 @@ test('hidden content includes founding rooms and all descendants', () => {
 })
 
 test('clock stops at the earliest crossed place moment', () => {
-  const clock = createClock('2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z', 1)
+  const clock = createClock('2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z')
   assert.equal(advanceToPlaceMoment(clock, 30_000, [clock.time + 25_000, clock.time + 10_000, Number.NaN]).time, clock.time + 10_000)
   assert.equal(advanceToPlaceMoment({ ...clock, time: clock.time + 10_000 }, 5_000,
     [clock.time + 10_000, clock.time + 15_000]).time, clock.time + 15_000)
-  const paused = { ...clock, paused: true }
-  assert.equal(advanceToPlaceMoment(paused, 30_000, [clock.time + 10_000]), paused)
 })

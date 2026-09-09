@@ -6,7 +6,8 @@ import type { ReplayEvent, ReplayFile, Resident } from '../src/city/types.ts'
 import { nestedLayout, type NestedLayout } from '../src/ground/nested.ts'
 import { roomContains } from '../src/ground/room-shape.ts'
 import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
-import { blocksLiveDelivery, createResidents, retimeResidentWalks, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
+import { blocksLiveDelivery, createResidents, roomCapacity, stepIdleResidents, stepResidents } from '../src/replay/simulation.ts'
+import { inventionDuration } from '../src/inventions.ts'
 import type { ThingReservations } from '../src/things.ts'
 import { followActivity, reappearanceAlpha } from '../src/viewer.ts'
 
@@ -93,35 +94,6 @@ test('a walk finishes before the following note is shown', () => {
   assert.equal(completed.residents[7]!.visible, false)
 })
 
-test('an active normal walk keeps its captured pace when the control speed changes', () => {
-  let state = createResidents(replay(), census, layout)
-  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 })
-  state = stepResidents(state, [move], 0, 0, layout, 1)
-  const duration = state.residents[7]!.walkDuration
-  state = stepResidents(state, [], 1_000, 1_000, layout, 60)
-  assert.equal(state.residents[7]!.walkDuration, duration)
-  assert.equal(state.residents[7]!.walkSpeed, 1)
-  assert.ok(Math.abs(state.residents[7]!.walkElapsed - 1_000) < 0.001)
-})
-
-test('retiming an active walk preserves its exact position and metadata in both directions', () => {
-  const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 })
-  let fast = stepResidents(createResidents(replay(), census, layout), [move], 0, 0, layout, 60)
-  fast = stepResidents(fast, [], 500, 500, layout, 60)
-  const before = fast.residents[7]!
-  const normal = retimeResidentWalks(fast, 1, layout)
-  const after = normal.residents[7]!
-  assert.deepEqual([after.x, after.y, after.path, after.queue, after.walkEventId, after.lastActivityId],
-    [before.x, before.y, before.path, before.queue, before.walkEventId, before.lastActivityId])
-  assert.equal(after.walkSpeed, 1)
-  const next = stepResidents(normal, [], 1_000, 1_500, layout, 1).residents[7]!
-  assert.ok(Math.hypot(next.x - after.x, next.y - after.y) <= 40.01)
-
-  const refast = retimeResidentWalks(normal, 60, layout)
-  assert.deepEqual([refast.residents[7]!.x, refast.residents[7]!.y], [after.x, after.y])
-  assert.equal(refast.residents[7]!.walkSpeed, 60)
-})
-
 test('startedEvents reports records when their visual queue turn begins', () => {
   let state = createResidents(replay(), census, layout)
   const move = event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 1 })
@@ -132,9 +104,9 @@ test('startedEvents reports records when their visual queue turn begins', () => 
   assert.deepEqual(state.startedEvents?.map(row => row.change_id), ['2'])
 })
 
-test('normal replay keeps non-walk visual holds at the readable 60x ceiling', () => {
+test('speech uses its fixed live hold', () => {
   const state = createResidents(replay(), census, layout)
-  const next = stepResidents(state, [event('note', { place_id: 2 }, 'hello')], 0, 1_000, layout, 1)
+  const next = stepResidents(state, [event('note', { place_id: 2 }, 'hello')], 0, 1_000, layout)
   assert.equal(next.residents[7]!.bubble?.expiresAt, 11_000)
 })
 
@@ -218,11 +190,13 @@ test('inventions take their actor queue turn between walks and words, one at a t
   state = stepResidents(state, [], 10_000, 10_100, layout)
   assert.equal(state.startedInventions?.[0]?.invention.name, 'lamp moss')
   assert.equal(state.residents[7]!.bubble, null)
-  state = stepResidents(state, [], 0, 12_300, layout)
+  const secondAt = 10_100 + inventionDuration()
+  state = stepResidents(state, [], 0, secondAt, layout)
   assert.equal(state.startedInventions?.[0]?.invention.name, 'patient')
-  state = stepResidents(state, [], 0, 14_500, layout)
+  const noteAt = secondAt + inventionDuration()
+  state = stepResidents(state, [], 0, noteAt, layout)
   assert.deepEqual(state.residents[7]!.bubble, { text: 'done', cut: false, placeId: 1,
-    startedAt: 14_500, charInterval: 34, expiresAt: 19_500 })
+    startedAt: noteAt, charInterval: 68, expiresAt: noteAt + 10_000 })
 })
 
 test('a full destination reports no free spot rather than no path', () => {
@@ -350,8 +324,9 @@ test('expired bubble releases the next queued note and state remains immutable',
   const one = event('note', { place_id: 2 }, 'one')
   const two = { ...event('note', { place_id: 2 }, 'two'), event_id: 2 }
   const first = stepResidents(state, [one, two], 0, 1_000, layout)
-  const second = stepResidents(first, [], 0, 5_999, layout)
-  const third = stepResidents(second, [], 0, 6_000, layout)
+  const expiry = first.residents[7]!.bubble!.expiresAt
+  const second = stepResidents(first, [], 0, expiry - 1, layout)
+  const third = stepResidents(second, [], 0, expiry, layout)
   assert.equal(first.residents[7]!.bubble?.text, 'one')
   assert.equal(second.residents[7]!.bubble?.text, 'one')
   assert.equal(third.residents[7]!.bubble?.text, 'two')
@@ -652,23 +627,4 @@ test('the same events at two frame rates end on the same standing spots', () => 
   assert.equal(fine[7]!.placeId, 3)
   assert.deepEqual(fine, settled(100))
   assert.deepEqual(fine, settled(50))
-})
-
-test('a faster chosen speed settles the same events in less time', () => {
-  const settleMs = (speed: number): number => {
-    let state = createResidents(replay(), census, layout)
-    let now = 0
-    state = stepResidents(state, [
-      event('action', { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 }),
-      event('note', { place_id: 3 }, 'arrived'),
-    ], 0, now, layout, speed)
-    for (let frame = 0; frame < 20_000 && state.pending; frame += 1) {
-      now += 16
-      state = stepResidents(state, [], 16, now, layout, speed)
-    }
-    return now
-  }
-
-  assert.ok(settleMs(300) < settleMs(120))
-  assert.ok(settleMs(120) < settleMs(60))
 })

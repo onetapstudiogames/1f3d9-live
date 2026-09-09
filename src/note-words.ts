@@ -11,4 +11,3 @@ export function verifiedNoteEvent(event: ReplayEvent, note: NoteBody | null): Re
   return note && !note.cut && note.author.trim() === event.actor?.trim() && note.placeId === event.detail.place_id
     ? Object.freeze({ ...event, line: note.text, line_cut: false }) : null
 }
-

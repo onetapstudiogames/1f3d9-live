@@ -4,6 +4,7 @@ import type { CueFrame } from '../src/activity-cues.ts'
 import type { NestedLayout, Room } from '../src/ground/nested.ts'
 import type { HandoverState, HandoverStep } from '../src/handovers.ts'
 import type { ResidentState } from '../src/replay/simulation.ts'
+import { transferDuration } from '../src/giving.ts'
 import { projectCueAnchors, projectRoomHandovers, roomAnchorPair, visibleFigureMidpoint } from '../src/room-anchors.ts'
 
 const room = (id: number, x: number, y: number): Room => ({ id, parentId: 1, name: `room ${id}`, quiet: false, depth: 1,
@@ -55,7 +56,7 @@ test('handover floats recompute from projected figures and hearts belong only to
     const frame = handoverFrame(state, [{ key: 'transfer:transfer', thingId: 9, x: 900, y: 900, visible: true,
       alpha: 0.4, heart: { x: 1, y: 1 } }])
     const residents = { 1: resident(1, 'giver', 2, 40, 100), 2: resident(2, 'receiver', 2, 140, 100) }
-    const motion = projectRoomHandovers(frame, state, residents, 600).motions[0]!
+    const motion = projectRoomHandovers(frame, state, residents, transferDuration() / 2).motions[0]!
     assert.equal(motion.x, 90); assert.equal(motion.y, 68)
     assert.equal('heart' in motion, mode === 'gift')
     assert.equal(frame.motions[0]?.x, 900)
@@ -73,7 +74,7 @@ function handoverState(mode: 'gift' | 'effect'): HandoverState {
     noticeChangeId: 'notice', actionChangeId: 'action' }
   return { carries: [plan], held: [{ plan, rows: [], actionSeen: true }], floats: [{ transfer: { thingId: 9, actor: 'giver',
     mode, partnerId: 2, placeId: 2 }, changeId: 'transfer', partners: { from: { x: 800, y: 800 }, to: { x: 900, y: 900 } },
-    startedAt: 0, speed: 120 }], seenActions: [] }
+    startedAt: 0 }], seenActions: [] }
 }
 
 function handoverFrame(state: HandoverState, motions: HandoverStep['motions']): HandoverStep {

@@ -4,6 +4,20 @@ import { activityReduce, emptyActivity, type ActivityContext, type ActivityEntry
 const HISTORY_LIMIT = 200
 const compare = (a: ActivityEntry, b: ActivityEntry): number => a.time - b.time || a.changeId - b.changeId
 
+export function activityObservationWatermark(rows: readonly ReplayEvent[], observedAt: number): number {
+  let watermark = Number.isFinite(observedAt) ? observedAt : Number.NEGATIVE_INFINITY
+  for (const row of rows) {
+    const recordedAt = Date.parse(row.at)
+    if (Number.isFinite(recordedAt)) watermark = Math.max(watermark, recordedAt)
+  }
+  return watermark
+}
+
+export function activityEntriesFromRows(rows: readonly ReplayEvent[], recordedNow: number,
+  context: ActivityContext): readonly ActivityEntry[] {
+  return activityReduce(emptyActivity(), rows, recordedNow, context, Math.max(HISTORY_LIMIT, rows.length)).entries
+}
+
 function roomIds(entry: ActivityEntry): readonly number[] {
   const ids = new Set<number>()
   if (entry.roomId != null) ids.add(entry.roomId)
@@ -79,6 +93,12 @@ export class RoomActivityLine {
     this.state = Object.freeze({ ...next, entries: this.addWitnessed(this.state.entries, next.entries) })
     this.render()
     return next.entries
+  }
+
+  witness(rows: readonly ReplayEvent[], observedAt: number, context: ActivityContext = this.context): readonly ActivityEntry[] {
+    if (!rows.length) return Object.freeze([])
+    const entries = activityEntriesFromRows(rows, activityObservationWatermark(rows, observedAt), context)
+    return this.appendEntries(entries)
   }
 
   appendEntries(entries: readonly ActivityEntry[]): readonly ActivityEntry[] {

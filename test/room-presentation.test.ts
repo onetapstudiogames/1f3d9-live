@@ -52,12 +52,12 @@ test('speakers outrank idle followed residents and hidden speakers are reported'
   assert.deepEqual(twoSpeakers.hiddenSpeakerIds, [2])
 })
 
-test('presentation exposes reusable crowding state for unchanged paused frames', () => {
+test('presentation exposes reusable crowding state for unchanged unchanged frames', () => {
   const residents = Object.freeze({ 1: Object.freeze(actor(1)), 2: Object.freeze(actor(2)) })
   const first = presentRoom(residents, {}, world, target, new Set())
-  const paused = presentRoom(residents, {}, world, target, new Set(), first.crowding)
-  assert.equal(paused.crowding, first.crowding)
-  assert.equal(paused.placements, first.placements)
+  const unchanged = presentRoom(residents, {}, world, target, new Set(), first.crowding)
+  assert.equal(unchanged.crowding, first.crowding)
+  assert.equal(unchanged.placements, first.placements)
 })
 
 test('quiet, unavailable and hidden rooms cannot expose projected occupants or anchors', () => {

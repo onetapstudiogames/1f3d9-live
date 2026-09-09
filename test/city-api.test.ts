@@ -117,7 +117,7 @@ test('fetchReplay reports missing required public fields', async (t) => {
   await assert.rejects(fetchReplay('/fixture.json'), /invalid replay file/)
 })
 
-test('drawing loader caches one promise per id, including 404 and failures', async (t) => {
+test('drawing loader caches success and absence but retries after a transient failure', async (t) => {
   const original = globalThis.fetch
   const calls = new Map<string, number>()
   globalThis.fetch = async (input) => {
@@ -125,7 +125,9 @@ test('drawing loader caches one promise per id, including 404 and failures', asy
     calls.set(url, (calls.get(url) ?? 0) + 1)
     if (url.endsWith('2.json')) return new Response('', { status: 404 })
     if (url.endsWith('3.json')) return Response.json({ type: 'resident', id: 3, state: 'draft', drawing: null })
-    if (url.endsWith('4.json')) throw new Error('offline')
+    if (url.endsWith('4.json') && calls.get(url) === 1) throw new Error('offline')
+    if (url.endsWith('4.json')) return Response.json({ type: 'resident', id: 4, state: 'complete',
+      drawing: { palette: ['#ffffff'], indices: Array(64).fill(0) } })
     return Response.json({ type: 'resident', id: 1, state: 'complete', drawing: { palette: ['#ffffff'], indices: Array(64).fill(null) } })
   }
   t.after(() => { globalThis.fetch = original })
@@ -136,8 +138,9 @@ test('drawing loader caches one promise per id, including 404 and failures', asy
   assert.equal(await load(2), null)
   assert.equal(await load(3), null)
   await assert.rejects(load(4), /offline/)
-  await assert.rejects(load(4), /offline/)
-  assert.deepEqual([...calls.values()], [1, 1, 1, 1])
+  assert.equal((await load(4))?.id, 4)
+  assert.equal((await load(4))?.id, 4)
+  assert.deepEqual([...calls.values()], [1, 1, 1, 2])
 })
 
 test('drawing loader rejects malformed complete drawing data', async (t) => {
@@ -160,7 +163,7 @@ test('a drawing with indices but no palette is refused in plain words', async (t
   await assert.rejects(createDrawingLoader('')(5), /invalid resident drawing 5/)
 })
 
-test('place drawing loader uses the place path and caches success, absence, and errors', async (t) => {
+test('place drawing loader uses the place path, caches results, and retries errors', async (t) => {
   const original = globalThis.fetch
   const calls = new Map<string, number>()
   globalThis.fetch = async (input) => {
@@ -187,7 +190,7 @@ test('place drawing loader uses the place path and caches success, absence, and 
     '/fixtures/drawings/place-3.json',
     '/fixtures/drawings/place-4.json',
   ])
-  assert.deepEqual([...calls.values()], [1, 1, 1, 1])
+  assert.deepEqual([...calls.values()], [1, 1, 1, 2])
 })
 
 test('place drawings reject malformed shapes and mismatched identity', async (t) => {
@@ -241,7 +244,7 @@ test('fixture JSON parse and read failures stay visible', async (t) => {
   await assert.rejects(createDrawingLoader('?drawings=/fixtures/drawings', 'place')(1), /JSON/)
 })
 
-test('a place drawing server error stays in plain words and is not fetched again', async (t) => {
+test('a place drawing server error stays in plain words and can be retried', async (t) => {
   const original = globalThis.fetch
   const urls: string[] = []
   globalThis.fetch = async input => {
@@ -252,7 +255,10 @@ test('a place drawing server error stays in plain words and is not fetched again
   const load = createDrawingLoader('', 'place')
   await assert.rejects(load(1), /the city answered 503 for the place drawing 1/)
   await assert.rejects(load(1), /the city answered 503 for the place drawing 1/)
-  assert.deepEqual(urls, ['https://1f3d9.com/api/drawing/place/1'])
+  assert.deepEqual(urls, [
+    'https://1f3d9.com/api/drawing/place/1',
+    'https://1f3d9.com/api/drawing/place/1',
+  ])
 })
 
 test('a record override saves thing labels, and only ?drawings= saves art', async (t) => {

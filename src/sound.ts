@@ -6,7 +6,7 @@ export type SoundResident = Readonly<{ id: number; walkKey: string | null; walkE
 export type SoundFounding = Readonly<{ key: string; endsAt: number; drawn: boolean; onCamera: boolean }>
 export type SoundState = Readonly<{ bubbles: ReadonlyMap<number, string>; walkTicks: ReadonlyMap<string, number>;
   foundings: ReadonlyMap<string, SoundFounding>; lastStepAt: number }>
-export type SoundInput = Readonly<{ enabled: boolean; trusted: boolean; paused: boolean; now: number;
+export type SoundInput = Readonly<{ enabled: boolean; trusted: boolean; now: number;
   residents: readonly SoundResident[]; activeFoundings: readonly SoundFounding[] }>
 
 const STEP_MS = 420
@@ -15,7 +15,7 @@ export function createSoundState(): SoundState {
 }
 
 export function soundFrame(previous: SoundState, input: SoundInput): Readonly<{ state: SoundState; cues: readonly SoundCue[] }> {
-  const audible = input.enabled && input.trusted && !input.paused
+  const audible = input.enabled && input.trusted
   const bubbles = new Map(previous.bubbles); const walkTicks = new Map<string, number>(); const cues: SoundCue[] = []
   let step: SoundCue | null = null
   for (const resident of input.residents) {

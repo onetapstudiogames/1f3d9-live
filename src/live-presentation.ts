@@ -31,13 +31,10 @@ export function roomPictureSettled(state: { ready: boolean; firstPollMerged: boo
 
 export function animationDelta(delta: number, state: {
   ready: boolean
-  paused: boolean
-  jumping: boolean
   readFailed: boolean
-  presenceLost: boolean
 }): number {
-  if (!Number.isFinite(delta) || !state.ready || state.paused || state.jumping || state.readFailed || state.presenceLost) return 0
-  return Math.min(100, Math.max(0, delta))
+  if (!Number.isFinite(delta) || !state.ready || state.readFailed) return 0
+  return Math.max(0, delta)
 }
 
 export function roomStatus(state: { tooSmall: boolean; readFailed: boolean; quiet: boolean }): string {

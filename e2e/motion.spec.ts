@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { json, liveFixtureUrl } from './live-fixture.ts'
+import { advanceToLivePoll, json, liveFixtureUrl } from './live-fixture.ts'
 
 const now = '2026-09-08T12:00:00.000Z'
 const wallNow = '2026-09-08T12:01:00.000Z'
@@ -63,7 +63,7 @@ async function readyAndFollow(page: Page, release: () => void, requested: Promis
   }, { timeout: 30_000 }).toBe('true')
   await page.locator('#follow-picker').selectOption('101')
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
-  await page.clock.fastForward(30_001)
+  await advanceToLivePoll(page)
   await requested
   release()
   await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
@@ -155,46 +155,5 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
   expect(settled).toMatchObject(entered?.path?.at(-1) ?? {})
   expect(Math.hypot(settled!.x - entered!.door!.x, settled!.y - entered!.door!.y)).toBeGreaterThan(20)
   expect(settled?.walking).toBe(false)
-  expect(setup.diagnostics).toEqual({ external: [], errors: [] })
-})
-
-test('Pause finishes the current sentence, freezes it, and resumes the next sentence', async ({ page }) => {
-  test.setTimeout(60_000)
-  await page.clock.install({ time: new Date(now) })
-  await page.clock.pauseAt(new Date(wallNow))
-  const body = 'First sentence. Second sentence.'
-  const setup = await fixture(page, { change_id: '11', kind: 'note', actor: 'walker', created_at: wallNow,
-    detail: { note_id: 501, place_id: 2 } }, body)
-  await readyAndFollow(page, setup.release, setup.requested)
-  const card = page.locator('.room-speech-card[data-note-id="501"]')
-  let partial: string | null = null
-  for (let step = 0; step < 40; step += 1) {
-    await page.clock.runFor(50)
-    const revealed = await card.getAttribute('data-revealed')
-    if (revealed?.startsWith('First') && revealed !== 'First sentence.') { partial = revealed; break }
-  }
-  expect(partial).toMatch(/^First/)
-  await page.locator('#pause').click()
-  let drained: { revealed: string | null; paused: string | null } | null = null
-  for (let step = 0; step < 60; step += 1) {
-    await page.clock.runFor(50)
-    const state = { revealed: await card.getAttribute('data-revealed'), paused: await page.locator('body').getAttribute('data-live-paused') }
-    if (state.revealed === 'First sentence.' && state.paused === 'true') { drained = state; break }
-  }
-  expect(drained).toEqual({ revealed: 'First sentence.', paused: 'true' })
-  const frozen = { revealed: await card.getAttribute('data-revealed'), elapsed: Number(await page.locator('body').getAttribute('data-live-elapsed')) }
-  await page.clock.runFor(2_000)
-  expect(await card.getAttribute('data-revealed')).toBe(frozen.revealed)
-  expect(Number(await page.locator('body').getAttribute('data-live-elapsed'))).toBe(frozen.elapsed)
-
-  await page.locator('#pause').click()
-  await expect(page.locator('body')).toHaveAttribute('data-live-paused', 'false')
-  let resumed: string | null = null
-  for (let step = 0; step < 40; step += 1) {
-    await page.clock.runFor(50)
-    const revealed = await card.getAttribute('data-revealed')
-    if ((revealed?.length ?? 0) > 'First sentence.'.length) { resumed = revealed; break }
-  }
-  expect(resumed).toMatch(/^First sentence\. /)
   expect(setup.diagnostics).toEqual({ external: [], errors: [] })
 })

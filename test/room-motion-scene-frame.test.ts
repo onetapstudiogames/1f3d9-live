@@ -53,7 +53,7 @@ const renderCycle = (
 }
 
 const step = (controller: RoomMotion, state: Simulation, events: readonly ReplayEvent[], elapsed: number, now: number) =>
-  stepResidents(state, events, elapsed, now, layout, 1, new Map(), undefined, {
+  stepResidents(state, events, elapsed, now, layout, new Map(), undefined, {
     startMove: (row, event, all) => controller.start(row, event, all),
     advanceMove: (row, delta) => controller.advance(row, delta),
   })

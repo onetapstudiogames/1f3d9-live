@@ -60,7 +60,7 @@ export class SceneSound {
     this.control?.removeEventListener('change', this.change)
     this.view.stop()
   }
-  update(now: number, paused: boolean, residents: Simulation, figures: ReadonlyMap<number, ResidentView>,
+  update(now: number, residents: Simulation, figures: ReadonlyMap<number, ResidentView>,
     animations: readonly PlaceAnimation[], layout: NestedLayout, camera: Phaser.Cameras.Scene2D.Camera): void {
     const width = camera.width / camera.zoom; const height = camera.height / camera.zoom
     const left = camera.scrollX + camera.width / 2 - width / 2; const top = camera.scrollY + camera.height / 2 - height / 2
@@ -77,12 +77,11 @@ export class SceneSound {
         onCamera: !!room && room.x < left + width && room.x + room.width > left && room.y < top + height && room.y + room.height > top }
     })
     const suppress = !this.foreground || this.consumeForeground
-    const frame = soundFrame(this.state, { enabled: this.enabled && !suppress, trusted: this.trusted, paused, now,
+    const frame = soundFrame(this.state, { enabled: this.enabled && !suppress, trusted: this.trusted, now,
       residents: soundResidents, activeFoundings })
     this.state = frame.state
     this.consumeForeground = false
-    if (paused) this.view.stop()
-    else if (frame.cues.length) this.setStatus(this.view.play(frame.cues) ? '' : 'Sound unavailable')
+    if (frame.cues.length) this.setStatus(this.view.play(frame.cues) ? '' : 'Sound unavailable')
   }
   private setStatus(message: string): void {
     const status = document.getElementById('sound-state')

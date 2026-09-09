@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import { fixtureDirectory, json, liveFixtureUrl } from './live-fixture.ts'
+import { advanceToLivePoll, fixtureDirectory, json, liveFixtureUrl } from './live-fixture.ts'
 
 const fixtureUrl = liveFixtureUrl
 const fullBody = Array.from({ length: 8 }, (_, index) => `complete witnessed line ${index + 1}`).join('\n')
@@ -55,7 +55,7 @@ async function fixedPageState(page: Page) {
       return { top: box.top, bottom: box.bottom, left: box.left, right: box.right }
     }
     return { documentHeight: document.documentElement.scrollHeight, viewportHeight: window.innerHeight,
-      follow: bounds('#follow-picker'), place: bounds('#place-picker'), pause: bounds('#pause') }
+      follow: bounds('#follow-picker'), place: bounds('#place-picker') }
   })
 }
 
@@ -68,7 +68,7 @@ test('the global witnessed log scrolls inside a fixed strip and stays with room 
     await expect.poll(() => page.evaluate(() => document.body.dataset['liveReady'] ?? ''), { timeout: 30_000 }).toBe('true')
     await page.locator('#place-picker').selectOption('8')
     await expect(page.locator('body')).toHaveAttribute('data-live-room', '8')
-    await page.clock.fastForward(30_001)
+    await advanceToLivePoll(page)
     await expect.poll(() => diagnostics.changeReads()).toBeGreaterThanOrEqual(1)
     diagnostics.releaseChanges()
     diagnostics.releaseNote()

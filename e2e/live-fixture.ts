@@ -14,6 +14,11 @@ export async function json(route: Route, body: unknown, status = 200): Promise<v
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
 }
 
+export async function advanceToLivePoll(page: Page): Promise<void> {
+  for (let elapsed = 0; elapsed < 30_000; elapsed += 10_000) await page.clock.fastForward(10_000)
+  await page.clock.fastForward(1)
+}
+
 export async function keepFixtureOffline(page: Page): Promise<{ external: string[]; errors: string[] }> {
   const external: string[] = []; const errors: string[] = []
   const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin

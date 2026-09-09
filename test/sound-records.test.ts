@@ -14,7 +14,7 @@ const note = replay.timeline.find(row => row.change_id === '98191')!
 const residentId = census.find(row => row.handle === note.actor)!.id
 const bubble = bubbleFor(note, 100)!
 const resident = { id: residentId, walkKey: null, walkElapsed: 0, bubbleKey: String(bubble.noteId), drawn: true, onCamera: true }
-const frame = { enabled: true, trusted: true, paused: false, now: 100, residents: [resident], activeFoundings: [] }
+const frame = { enabled: true, trusted: true, now: 100, residents: [resident], activeFoundings: [] }
 
 test('an actual recorded excerpt pops once while its typing and scrolling continue', () => {
   assert.equal(bubble.noteId, 12917)
@@ -26,9 +26,9 @@ test('an actual recorded excerpt pops once while its typing and scrolling contin
   }
 })
 
-test('a real note opening while silent never pops later on unmute, resume, reveal, or pan', () => {
+test('a real note opening while silent never pops later on unmute, reveal, or pan', () => {
   const silentFrames = [
-    { ...frame, enabled: false }, { ...frame, trusted: false }, { ...frame, paused: true },
+    { ...frame, enabled: false }, { ...frame, trusted: false },
     { ...frame, residents: [{ ...resident, drawn: false }] },
     { ...frame, residents: [{ ...resident, onCamera: false }] },
   ]

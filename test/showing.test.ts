@@ -30,12 +30,12 @@ test('confetti belongs only to the one verified published-count note', () => {
 test('a reference-only recorded note gets a brief spotlight without guessed contest meaning', () => {
   const event = { actor: 'ada', at: '2026-09-07T00:00:00Z', change_id: '12', event_id: 12, kind: 'note',
     detail: { note_id: 77, place_id: 438 } }
-  const moment = showingNoticeFor(event, 100, 120, places)
+  const moment = showingNoticeFor(event, 100, places)
   assert.equal(moment?.ballot, false)
   assert.equal(moment?.confetti, false)
   assert.ok((moment?.expiresAt ?? 0) > 100)
-  assert.equal(showingNoticeFor({ ...event, actor: null }, 100, 120, places), null)
-  assert.equal(showingNoticeFor({ ...event, detail: { place_id: 438 } }, 100, 120, places), null)
+  assert.equal(showingNoticeFor({ ...event, actor: null }, 100, places), null)
+  assert.equal(showingNoticeFor({ ...event, detail: { place_id: 438 } }, 100, places), null)
 })
 
 test('a reference-only spotlight holds a later recorded walk, then drains cleanly', () => {

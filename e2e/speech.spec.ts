@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
-import { fixtureDirectory, json, liveFixtureUrl } from './live-fixture.ts'
+import { advanceToLivePoll, fixtureDirectory, json, liveFixtureUrl } from './live-fixture.ts'
 
 const fixtureUrl = liveFixtureUrl
 const cardSelector = '.room-speech-card[data-note-id="13243"]'
@@ -101,7 +101,7 @@ test('a newly witnessed long note stays whole beside its speaker through layout 
   }, { timeout: 30_000 }).toBe('true')
   await page.locator('#place-picker').selectOption('782')
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '782')
-  await page.clock.fastForward(30_001)
+  await advanceToLivePoll(page)
   await expect.poll(() => changeRequested).toBe(true)
   releaseChange()
   // This marker follows note enrichment and queueing. No animation time passes during the read.

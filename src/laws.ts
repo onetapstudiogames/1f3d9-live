@@ -1,5 +1,4 @@
 import type { ReplayEvent } from './city/types.ts'
-import { BASE_SPEED, holdScale } from './replay/index.ts'
 
 export type CurrentLaw = Readonly<{ traitId: number; name: string; sourcePlaceId: number; position: number }>
 export type BlockableAction = 'talk' | 'move' | 'use' | 'give' | 'consume' | 'make'
@@ -7,8 +6,7 @@ export type BlockedAttempt = Readonly<{ changeId: string; actor: string; action:
 export type BlockMoment = Readonly<{ attempt: BlockedAttempt; expiresAt: number }>
 export type PixelRect = Readonly<{ x: number; y: number; width: number; height: number; color: number }>
 
-const DURATION_MS = 2_200
-const FLOOR_MS = 1_100
+const DURATION_MS = 4_400
 
 export function parseCurrentLaws(value: unknown): readonly CurrentLaw[] | null {
   if (!Array.isArray(value)) return null
@@ -56,8 +54,8 @@ export function blockedAttemptFor(event: ReplayEvent): BlockedAttempt | null {
   return Object.freeze({ changeId: event.change_id, actor, action: detail.action as BlockableAction })
 }
 
-export function blockDuration(speed: number = BASE_SPEED): number {
-  return Math.max(FLOOR_MS, DURATION_MS * holdScale(speed))
+export function blockDuration(): number {
+  return DURATION_MS
 }
 
 export const blockedAttemptDuration = blockDuration

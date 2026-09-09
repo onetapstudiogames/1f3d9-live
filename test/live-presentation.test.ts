@@ -73,17 +73,20 @@ test('contents hidden before the outline read do not wait for a read that cannot
 })
 
 test('a failed live read freezes the picture until a successful read clears the failure', () => {
-  const moving = { ready: true, paused: false, jumping: false, readFailed: false, presenceLost: false }
+  const moving = { ready: true, readFailed: false }
   assert.equal(animationDelta(40, moving), 40)
   assert.equal(animationDelta(-1, moving), 0)
-  assert.equal(animationDelta(101, moving), 100)
+  assert.equal(animationDelta(101, moving), 101)
   assert.equal(animationDelta(Number.NaN, moving), 0)
   assert.equal(animationDelta(40, { ...moving, ready: false }), 0)
-  assert.equal(animationDelta(40, { ...moving, paused: true }), 0)
-  assert.equal(animationDelta(40, { ...moving, jumping: true }), 0)
   assert.equal(animationDelta(40, { ...moving, readFailed: true }), 0)
-  assert.equal(animationDelta(40, { ...moving, presenceLost: true }), 0)
   assert.equal(animationDelta(40, moving), 40)
+})
+
+test('the live picture uses elapsed wall time without a playback rate or frame clamp', () => {
+  const ready = { ready: true, readFailed: false }
+  for (const elapsed of [16, 40, 250, 1_000, 30_000]) assert.equal(animationDelta(elapsed, ready), elapsed)
+  assert.equal(animationDelta(Number.POSITIVE_INFINITY, ready), 0)
 })
 
 test('chooses room status by size, read failure, then quiet priority', () => {

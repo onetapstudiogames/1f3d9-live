@@ -21,10 +21,10 @@ test('scrolling reaches the measured last line and stays zero for fitting text',
   assert.equal(speechScrollTop(100, 100), 0)
 })
 
-test('typing pace scales, long notes cap at fifteen seconds, and completed text holds', () => {
-  assert.deepEqual([typingInterval(60), typingInterval(120), typingInterval(300), typingInterval(Number.NaN)], [68, 34, 18, 34])
-  assert.equal(bubbleDuration(120, 5), 5_000); assert.equal(bubbleDuration(120, 50_000), 15_000)
-  const bubble = bubbleFor(note('brief'), 1_000, 120)!; const plan = speechCardPlan(bubble, 320, measured)
+test('typing has one live pace, long notes cap at fifteen seconds, and completed text holds', () => {
+  assert.equal(typingInterval(), 68)
+  assert.equal(bubbleDuration(5), 10_000); assert.equal(bubbleDuration(50_000), 15_000)
+  const bubble = bubbleFor(note('brief'), 1_000)!; const plan = speechCardPlan(bubble, 320, measured)
   assert.equal(plan.revealEnd - plan.start, 5 * bubble.charInterval); assert.ok(plan.end - plan.revealEnd >= 2_500)
 })
 
@@ -40,14 +40,14 @@ test('one continuous card types every grapheme once and retains the whole record
 })
 
 test('the first typed frame reveals one complete Unicode grapheme', () => {
-  const bubble = bubbleFor(note('👩🏽‍💻a'), 0, 120)!
+  const bubble = bubbleFor(note('👩🏽‍💻a'), 0)!
   assert.equal(speechCardFrame(bubble, 0).revealed, '👩🏽‍💻')
   assert.equal(speechCardFrame(bubble, bubble.expiresAt - 1).revealed, '👩🏽‍💻a')
 })
 
 test('a fifty-thousand-grapheme note types by 12.5 seconds and holds for 2.5 seconds', () => {
   const text = 'a'.repeat(50_000)
-  const bubble = bubbleFor(note(text), 0, 120)!
+  const bubble = bubbleFor(note(text), 0)!
   const plan = speechCardPlan(bubble, 320, measured)
   assert.equal(bubble.expiresAt, 15_000)
   assert.equal(plan.revealEnd, 12_500)

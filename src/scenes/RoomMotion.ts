@@ -230,7 +230,7 @@ export class RoomMotion {
       x: arrivingOnly ? targetWorld.x : resident.x, y: arrivingOnly ? targetWorld.y : resident.y,
       walking: true, ambientWalking: false, walkEventId: event.change_id,
       destinationId: move.toId, destination: targetWorld, path: [], walkElapsed: 0,
-      walkDuration: plan.durationMs, walkSpeed: undefined, bubble: null })
+      walkDuration: plan.durationMs, bubble: null })
   }
 
   advance(resident: ResidentState, deltaMs: number): ResidentState | undefined {
@@ -460,7 +460,7 @@ function pose(sample: ReturnType<typeof sampleRoomWalk>, moving: boolean): RoomM
 function finishResident(resident: ResidentState, eventId: string | null, placeId: number,
   target: Point, keepVisible: boolean): ResidentState {
   return Object.freeze({ ...resident, placeId, x: target.x, y: target.y, visible: keepVisible,
-    walking: false, path: [], walkElapsed: 0, walkDuration: 0, walkSpeed: undefined,
+    walking: false, path: [], walkElapsed: 0, walkDuration: 0,
     destinationId: null, destination: null, walkEventId: null,
     lastActivityId: eventId ?? resident.lastActivityId })
 }

@@ -4,7 +4,7 @@ import type { NestedLayout, Point } from '../ground/nested.ts'
 import { pointAlongPath, sidestepPath, walkPath } from '../ground/path.ts'
 import { roomContains } from '../ground/room-shape.ts'
 import { stageFindFreeSpots, type StageStandingSpot } from '../ground/stage-ground.ts'
-import { appliedMove, bubbleFor, bubbleVisible, walkDuration, walkProgress, BASE_SPEED, type Bubble } from './index.ts'
+import { appliedMove, bubbleFor, bubbleVisible, walkDuration, walkProgress, type Bubble } from './index.ts'
 import { newcomerSpot, registrationFor, sparkleFor, type Sparkle } from '../newcomers.ts'
 import { createdThing, movedThing, type ThingReservations } from '../things.ts'
 import { transferDuration, transferFor, transferPartners, type Transfer, type TransferPartners } from '../giving.ts'
@@ -18,7 +18,7 @@ import { residentReservationFootprint } from '../resident-footprint.ts'
 import { ROOM_RESIDENT_SIZE } from '../room-appearance.ts'
 import { roomNoteMayStart } from '../room-speech-queue.ts'
 
-export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number; speed: number }>
+export type StartedTransfer = Readonly<{ transfer: Transfer; changeId: string; partners: TransferPartners; startedAt: number }>
 type TransferCandidate = Readonly<{ transfer: Transfer; changeId: string; actorId: number }>
 type AgreementCandidate = Readonly<{ signature: AgreementSignature; actorId: number }>
 
@@ -40,7 +40,6 @@ export type ResidentState = Readonly<{
   path: readonly Point[]
   walkElapsed: number
   walkDuration: number
-  walkSpeed?: number
   destinationId: number | null
   destination: Point | null
   walkEventId: string | null
@@ -74,7 +73,6 @@ export type Simulation = Readonly<{
 export type StepResidentsOptions = Readonly<{
   startMove?: (resident: ResidentState, event: ReplayEvent, all: Readonly<Record<number, ResidentState>>) => ResidentState | null | undefined
   advanceMove?: (resident: ResidentState, deltaMs: number) => ResidentState | undefined
-  allowStarts?: boolean
   sleepers?: ReadonlySet<number>
 }>
 
@@ -210,7 +208,6 @@ export function stepResidents(
   deltaMs: number,
   nowMs: number,
   layout: NestedLayout,
-  speed: number = BASE_SPEED,
   agreementPairs: ReadonlyMap<string, AgreementPair> = new Map(),
   canDraw?: (resident: ResidentState) => boolean,
   options: StepResidentsOptions = {},
@@ -246,7 +243,6 @@ export function stepResidents(
   }
 
   const elapsed = Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 0
-  const holdSpeed = Math.max(60, speed)
   for (const id of Object.keys(residents).map(Number).sort((a, b) => a - b)) {
     let resident = residents[id]!
     if (resident.transferUntil !== null && nowMs >= resident.transferUntil) resident = { ...resident, transferUntil: null }
@@ -259,9 +255,9 @@ export function stepResidents(
     if (resident.walking) resident = options.advanceMove?.(resident, elapsed) ?? advanceWalk(resident, elapsed, layout)
     if (!resident.walking && !resident.bubble && !resident.sparkle && !resident.showingNotice && !resident.blockedAttempt
       && resident.transferUntil === null && resident.inventionUntil == null && resident.agreementUntil == null
-      && options.allowStarts !== false) {
+      ) {
       if (resident.queue.length > 0 && resident.ambientWalking) resident = { ...resident, ambientWalking: false, ambientFrom: null, ambientDestination: null }
-      resident = startNext(resident, residents, nowMs, layout, issues, speed, holdSpeed, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs, startedEvents, options)
+      resident = startNext(resident, residents, nowMs, layout, issues, state.reservations, candidates, startedInventions, agreementCandidates, agreementPairs, startedEvents, options)
     }
     residents[id] = resident
   }
@@ -271,11 +267,11 @@ export function stepResidents(
     if (!partners) { addIssue(issues, 'handover'); continue }
     // Both ends stand still for the float. The copy is drawn between the two figures the record
     // named, so a partner who walked off mid-float would leave the icon landing on empty floor.
-    const until = nowMs + transferDuration(holdSpeed)
+    const until = nowMs + transferDuration()
     residents[candidate.actorId] = { ...residents[candidate.actorId]!, transferUntil: until }
     const partner = residents[candidate.transfer.partnerId]
     if (partner) residents[candidate.transfer.partnerId] = { ...partner, transferUntil: until }
-    startedTransfers.push(Object.freeze({ transfer: candidate.transfer, changeId: candidate.changeId, partners, startedAt: nowMs, speed: holdSpeed }))
+    startedTransfers.push(Object.freeze({ transfer: candidate.transfer, changeId: candidate.changeId, partners, startedAt: nowMs }))
   }
   const startedHandshakes: StartedHandshake[] = []
   for (const candidate of agreementCandidates) {
@@ -283,10 +279,10 @@ export function stepResidents(
     const projected = Object.fromEntries(Object.values(residents).map(row => [row.id, handshakeResident(row, canDraw?.(row) ?? true)]))
     const plan = planHandshake(candidate.signature, projected, layout, state.reservations, nowMs)
     if (!plan) { addIssue(issues, 'agreement'); continue }
-    const until = nowMs + handshakeDuration(holdSpeed)
+    const until = nowMs + handshakeDuration()
     residents[plan.leftId] = { ...residents[plan.leftId]!, agreementUntil: until }
     residents[plan.rightId] = { ...residents[plan.rightId]!, agreementUntil: until }
-    startedHandshakes.push(Object.freeze({ plan, speed: holdSpeed }))
+    startedHandshakes.push(Object.freeze({ plan }))
   }
   return Object.freeze({ ...freezeSimulation(residents, state.actors, issues, Object.values(residents).some(isPending), state.reservations, startedTransfers),
     startedInventions: Object.freeze(startedInventions), startedHandshakes: Object.freeze(startedHandshakes), startedEvents: Object.freeze(startedEvents) })
@@ -354,30 +350,12 @@ function idleObstacles(id: number, placeId: number, residents: Readonly<Record<n
   ...(reservations[placeId] ?? []).map(spot => ({ x: spot.x + 16, y: spot.y + 16 }))]
 }
 
-export function retimeResidentWalks(state: Simulation, speed: number, layout: NestedLayout): Simulation {
-  if (!Number.isFinite(speed) || speed <= 0) return state
-  let changed = false
-  const residents = Object.fromEntries(Object.entries(state.residents).map(([id, resident]) => {
-    if (!resident.walking) return [id, resident]
-    const distance = pathDistance(resident.path)
-    const oldShare = resident.walkDuration ? resident.walkElapsed / resident.walkDuration : 1
-    const pathShare = walkProgress(distance, oldShare, walkSlowCentres(resident, layout), resident.walkSpeed ?? BASE_SPEED)
-    const duration = walkDuration(distance, speed)
-    const elapsedShare = inverseWalkProgress(distance, pathShare, walkSlowCentres(resident, layout), speed)
-    changed = true
-    return [id, Object.freeze({ ...resident, walkSpeed: speed, walkDuration: duration, walkElapsed: duration * elapsedShare })]
-  }))
-  return changed ? Object.freeze({ ...state, residents: Object.freeze(residents) }) : state
-}
-
 function startNext(
   resident: ResidentState,
   all: Readonly<Record<number, ResidentState>>,
   nowMs: number,
   layout: NestedLayout,
   issues: string[],
-  speed: number,
-  holdSpeed: number,
   reservations: ThingReservations,
   candidates: TransferCandidate[],
   startedInventions: StartedInvention[],
@@ -406,7 +384,7 @@ function startNext(
     if (blocked) {
       next = { ...next, queue }
       if (next.placeId === null || !next.visible || !placeVisible(layout, next.placeId)) { addIssue(issues, 'blocked'); continue }
-      return { ...next, blockedAttempt: Object.freeze({ attempt: blocked, expiresAt: nowMs + blockedAttemptDuration(holdSpeed) }) }
+      return { ...next, blockedAttempt: Object.freeze({ attempt: blocked, expiresAt: nowMs + blockedAttemptDuration() }) }
     }
     if (event.kind === 'agreement_sign') {
       const signature = agreementSignature(event, agreementPairs)
@@ -417,7 +395,7 @@ function startNext(
     }
     const invention = inventionFor(event)
     if (invention) {
-      const expiresAt = nowMs + inventionDuration(holdSpeed)
+      const expiresAt = nowMs + inventionDuration()
       startedInventions.push(Object.freeze({ invention, residentId: next.id, expiresAt }))
       return { ...next, queue, inventionUntil: expiresAt }
     }
@@ -428,7 +406,7 @@ function startNext(
       return next
     }
     if (event.kind === 'register') {
-      next = arrive({ ...next, queue }, all, nowMs, layout, issues, holdSpeed, reservations)
+      next = arrive({ ...next, queue }, all, nowMs, layout, issues, reservations)
       if (next.sparkle) return next
       continue
     }
@@ -501,14 +479,14 @@ function startNext(
         continue
       }
       const distance = path.slice(1).reduce((sum, point, index) => sum + Math.hypot(point.x - path[index]!.x, point.y - path[index]!.y), 0)
-      return { ...next, queue, walking: true, ambientWalking: false, ambientFrom: null, ambientDestination: null, path, walkElapsed: 0, walkDuration: walkDuration(distance, speed), walkSpeed: speed, destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
+      return { ...next, queue, walking: true, ambientWalking: false, ambientFrom: null, ambientDestination: null, path, walkElapsed: 0, walkDuration: walkDuration(distance), destinationId: walk.toId, destination, bubble: null, walkEventId: event.change_id }
     }
     if (event.kind === 'note') {
       if (sleeping) {
         next = { ...next, queue }
         continue
       }
-      next = handleNote(next, event, queue, all, nowMs, layout, issues, holdSpeed, reservations)
+      next = handleNote(next, event, queue, all, nowMs, layout, issues, reservations)
       if (next.bubble || next.showingNotice) return next
       continue
     }
@@ -523,7 +501,6 @@ function arrive(
   nowMs: number,
   layout: NestedLayout,
   issues: string[],
-  speed: number,
   reservations: ThingReservations,
 ): ResidentState {
   if (resident.placeId !== null) return resident
@@ -539,7 +516,7 @@ function arrive(
   if (!point) { addIssue(issues, 'placement'); return resident }
   // The registration plus the city's front-door rule places a new resident in the
   // ownerless world. Only this free edge spot is presentation; later moves win.
-  return { ...resident, placeId: root.id, x: point.x, y: point.y, visible: placeVisible(layout, root.id), sparkle: sparkleFor(nowMs, speed) }
+  return { ...resident, placeId: root.id, x: point.x, y: point.y, visible: placeVisible(layout, root.id), sparkle: sparkleFor(nowMs) }
 }
 
 function handleNote(
@@ -550,7 +527,6 @@ function handleNote(
   nowMs: number,
   layout: NestedLayout,
   issues: string[],
-  speed: number,
   reservations: ThingReservations,
 ): ResidentState {
   const recordedPlace = event.detail.place_id
@@ -569,9 +545,9 @@ function handleNote(
     if (resident.placeId !== null) addIssue(issues, 'route-gap')
     next = { ...resident, placeId, x: destination.x, y: destination.y, relocatedAt: nowMs, visible: placeVisible(layout, placeId) }
   }
-  const bubble = bubbleFor({ ...event, detail: { ...event.detail, place_id: placeId ?? undefined } }, nowMs, speed)
+  const bubble = bubbleFor({ ...event, detail: { ...event.detail, place_id: placeId ?? undefined } }, nowMs)
   const room = placeId === null ? undefined : layout.rooms[placeId]
-  const showingNotice = !bubble && room ? showingNoticeFor(event, nowMs, speed, [room]) : null
+  const showingNotice = !bubble && room ? showingNoticeFor(event, nowMs, [room]) : null
   return { ...next, queue, bubble, showingNotice }
 }
 
@@ -580,10 +556,10 @@ function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLay
   const distance = pathDistance(resident.path)
   const elapsedShare = resident.walkDuration ? walkElapsed / resident.walkDuration : 1
   const slowCentres = walkSlowCentres(resident, layout)
-  const sampled = pointAlongPath(resident.path, walkProgress(distance, elapsedShare, slowCentres, resident.walkSpeed ?? BASE_SPEED))
+  const sampled = pointAlongPath(resident.path, walkProgress(distance, elapsedShare, slowCentres))
   if (!sampled.done) return { ...resident, walkElapsed, x: sampled.x, y: sampled.y, flipX: sampled.flipX, visible: visibleAt(sampled, layout) }
   const placeId = resident.destinationId
-  return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, walkSpeed: undefined, destinationId: null, destination: null, walkEventId: null }
+  return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null }
 }
 
 function walkSlowCentres(resident: ResidentState, layout: NestedLayout): number[] {
@@ -597,17 +573,6 @@ function walkSlowCentres(resident: ResidentState, layout: NestedLayout): number[
     }
   }
   return centres
-}
-
-function inverseWalkProgress(distance: number, wanted: number, slowCentres: readonly number[], speed: number): number {
-  let low = 0
-  let high = 1
-  for (let index = 0; index < 40; index += 1) {
-    const middle = (low + high) / 2
-    if (walkProgress(distance, middle, slowCentres, speed) < wanted) low = middle
-    else high = middle
-  }
-  return (low + high) / 2
 }
 
 function pathDistance(path: readonly Point[]): number {

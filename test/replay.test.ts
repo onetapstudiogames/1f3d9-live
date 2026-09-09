@@ -4,16 +4,13 @@ import test from 'node:test'
 
 import type { ReplayEvent, ReplayFile } from '../src/city/types.ts'
 import {
-  BASE_SPEED,
   advanceClock,
   appliedMove,
   bubbleDuration,
   bubbleFor,
   bubbleVisible,
-  chosenSpeed,
   createClock,
   dueEvents,
-  holdScale,
   prepareTimeline,
   walkDuration,
   walkProgress,
@@ -29,33 +26,28 @@ const event = (overrides: Partial<ReplayEvent> = {}): ReplayEvent => ({
   ...overrides,
 })
 
-test('clock starts at the replay window and advances at replay speed', () => {
+test('offline fixture clock advances one millisecond per elapsed millisecond', () => {
   const clock = createClock('2026-09-07T00:00:00.000Z', '2026-09-07T00:01:00.000Z')
   const advanced = advanceClock(clock, 250)
 
   assert.equal(clock.time, clock.start)
-  assert.equal(clock.speed, 120)
-  assert.equal(advanced.time, clock.start + 30_000)
+  assert.deepEqual(Object.keys(clock).sort(), ['end', 'start', 'time'])
+  assert.equal(advanced.time, clock.start + 250)
   assert.notEqual(advanced, clock)
 })
 
 test('clock clamps at the end and ignores unusable elapsed time', () => {
-  const clock = createClock('2026-09-07T00:00:00.000Z', '2026-09-07T00:00:10.000Z', 2)
+  const clock = createClock('2026-09-07T00:00:00.000Z', '2026-09-07T00:00:10.000Z')
 
-  assert.equal(advanceClock(clock, 6_000).time, clock.end)
+  assert.equal(advanceClock(clock, 11_000).time, clock.end)
   assert.deepEqual(advanceClock(clock, -1), clock)
   assert.deepEqual(advanceClock(clock, Number.NaN), clock)
-  assert.deepEqual(advanceClock({ ...clock, paused: true }, 1_000), { ...clock, paused: true })
 })
 
-test('clock rejects invalid windows and speed', () => {
+test('clock rejects invalid windows', () => {
   assert.throws(() => createClock('bad', '2026-09-07T00:00:00.000Z'), RangeError)
   assert.throws(
     () => createClock('2026-09-07T00:00:01.000Z', '2026-09-07T00:00:00.000Z'),
-    RangeError,
-  )
-  assert.throws(
-    () => createClock('2026-09-07T00:00:00.000Z', '2026-09-07T00:00:01.000Z', 0),
     RangeError,
   )
 })
@@ -99,7 +91,7 @@ test('bubble keeps the recorded note line, cut flag, start, and room for its rea
   const bubble = bubbleFor(note, 10_000)
 
   assert.deepEqual(bubble, { text: 'first line\nsecond line', cut: true, placeId: null,
-    startedAt: 10_000, charInterval: 34, expiresAt: 15_000 })
+    startedAt: 10_000, charInterval: 68, expiresAt: 20_000 })
   assert.equal(bubbleVisible(15_000, 14_999), true)
   assert.equal(bubbleVisible(15_000, 15_000), false)
   assert.equal(bubbleFor(event({ kind: 'note', line: '' }), 0), null)
@@ -141,27 +133,17 @@ test('the timeline is sorted and read once, with unreadable times left until las
   assert.deepEqual(dueEvents(rows, 0, Date.parse('2026-09-07T00:00:02.000Z')).events.map(item => item.event_id), [1, 2, 3])
 })
 
-test('hold lengths shrink with the chosen speed and stop at a floor', () => {
-  assert.equal(holdScale(BASE_SPEED), 1)
-  assert.equal(holdScale(60), 2)
-  assert.equal(holdScale(300), 0.4)
-  assert.equal(holdScale(0), 1)
-  assert.equal(holdScale(Number.NaN), 1)
+test('fixed speech holds stay readable with a bounded total lifetime', () => {
+  assert.equal(bubbleDuration(), 10_000)
+  assert.equal(bubbleDuration(100), 11_800)
+  assert.equal(bubbleDuration(100_000), 15_000)
+})
 
-  assert.equal(bubbleDuration(BASE_SPEED), 5_000)
-  assert.equal(bubbleDuration(60), 10_000)
-  assert.equal(bubbleDuration(300), 2_000)
-  assert.equal(bubbleDuration(100_000), 1_500)
-
-  assert.equal(walkDuration(0, BASE_SPEED), 2_800)
-  assert.equal(walkDuration(1_000, BASE_SPEED), 2_800)
-  assert.equal(walkDuration(16_000, BASE_SPEED), 3_400)
-  assert.equal(walkDuration(1_000_000, BASE_SPEED), 4_000)
-  assert.equal(walkDuration(1_000, 60), 5_600)
-  assert.equal(walkDuration(1_000, 300), 1_200)
-  assert.equal(walkDuration(0, 100_000), 1_200)
-  assert.equal(walkDuration(400, 1), 10_000)
-  assert.equal(walkDuration(10_000, 1), 250_000)
+test('offline route durations use one fixed timing rule', () => {
+  assert.equal(walkDuration(0), 5_600)
+  assert.equal(walkDuration(1_000), 5_600)
+  assert.equal(walkDuration(16_000), 6_800)
+  assert.equal(walkDuration(1_000_000), 8_000)
 })
 
 test('walk pace spends visible time near each room and accelerates only the far middle', () => {
@@ -175,48 +157,4 @@ test('walk pace spends visible time near each room and accelerates only the far 
   const doors = [0, 2_000, 8_000, distance]
   assert.ok(walkProgress(distance, 0.25, doors) < 0.21)
   assert.ok(walkProgress(distance, 0.75, doors) > 0.79)
-  assert.equal(walkProgress(distance, 0.2, doors, 1), 0.2)
-  assert.equal(walkProgress(distance, 0.8, doors, 1), 0.8)
-})
-
-test('a faster speed shortens every hold and never inverts the order of the speeds', () => {
-  const speeds = [60, BASE_SPEED, 300]
-  const holds = speeds.map(speed => bubbleDuration(speed) + walkDuration(0, speed) + walkDuration(900, speed))
-  assert.deepEqual([...holds].sort((left, right) => right - left), holds)
-  assert.ok(holds[2]! < holds[1]!)
-  assert.ok(holds[1]! < holds[0]!)
-})
-
-test('a bubble expires sooner at a faster speed and keeps its recorded words', () => {
-  const note = event({ kind: 'note', line: 'a word' })
-  assert.equal(bubbleFor(note, 10_000)!.expiresAt, 15_000)
-  assert.equal(bubbleFor(note, 10_000, 300)!.expiresAt, 12_000)
-  assert.equal(bubbleFor(note, 10_000, 60)!.expiresAt, 20_000)
-  assert.equal(bubbleFor(note, 10_000, 300)!.text, 'a word')
-})
-
-test('the speed box reading takes any positive number the page offers', () => {
-  assert.equal(chosenSpeed('60'), 60)
-  assert.equal(chosenSpeed('120'), 120)
-  assert.equal(chosenSpeed('300'), 300)
-  assert.equal(chosenSpeed(' 300 '), 300)
-  assert.equal(chosenSpeed('2.5'), 2.5)
-})
-
-test('a missing speed box falls back to the speed the page starts at', () => {
-  assert.equal(chosenSpeed(null), BASE_SPEED)
-  assert.equal(chosenSpeed(undefined), BASE_SPEED)
-})
-
-test('an empty or nonsense speed box falls back to the speed the page starts at', () => {
-  assert.equal(chosenSpeed(''), BASE_SPEED)
-  assert.equal(chosenSpeed('   '), BASE_SPEED)
-  assert.equal(chosenSpeed('fast'), BASE_SPEED)
-  assert.equal(chosenSpeed('12x'), BASE_SPEED)
-  assert.equal(chosenSpeed('Infinity'), BASE_SPEED)
-})
-
-test('a zero or negative speed box falls back to the speed the page starts at', () => {
-  assert.equal(chosenSpeed('0'), BASE_SPEED)
-  assert.equal(chosenSpeed('-120'), BASE_SPEED)
 })

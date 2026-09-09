@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cameraFrame, zoomAt, followActivity, focusTarget, motionSpeed } from '../src/viewer.ts'
+import { cameraFrame, zoomAt, followActivity, focusTarget } from '../src/viewer.ts'
 
 test('manual browsing resumes only on a new activity from the selected resident', () => {
   const waiting = { residentId: 2, suspended: true, activityId: '10' }
@@ -28,10 +28,4 @@ test('Focus chooses visible current conversations ahead of walking, with stable 
   assert.equal(focusTarget([moving, talking]), talking)
   assert.equal(focusTarget([]), null)
   assert.equal(focusTarget([{ ...moving, x: NaN }]), null)
-})
-
-test('normal clock speed keeps readable animation lengths instead of minute-long steps', () => {
-  assert.equal(motionSpeed(1), 60)
-  assert.equal(motionSpeed(60), 60)
-  assert.equal(motionSpeed(120), 120)
 })

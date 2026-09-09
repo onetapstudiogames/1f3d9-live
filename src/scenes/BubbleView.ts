@@ -2,7 +2,6 @@ import { positionBubbleCard, type BubblePoint, type BubbleSize } from '../bubble
 import { ROOM_RESIDENT_SIZE } from '../room-appearance.ts'
 import { speechCardFrame, speechCardPlan, speechScrollTop, type BubbleShape, type SpeechBubble, type SpeechCardFrame,
   type SpeechCardPlan } from '../speech.ts'
-import { speechPauseAt } from '../speech-pause.ts'
 
 const FONT = '14px Consolas, "Liberation Mono", monospace'
 let measurementContext: CanvasRenderingContext2D | null | undefined
@@ -83,11 +82,6 @@ export class BubbleView {
     if (bubble.noteId === undefined) deleteDataset(this.card, 'noteId')
     else setDataset(this.card, 'noteId', String(bubble.noteId))
     return frame
-  }
-
-  pauseAt(now: number): number {
-    if (this.card.style.display === 'none') return now
-    return speechPauseAt(this.lastBubble, this.lastPlan, now)
   }
 
   destroy(): void { this.card.remove() }

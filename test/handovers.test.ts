@@ -111,11 +111,11 @@ test('gift starts when its queue turn arrives, keeps floor state fixed, and hold
   let state = createResidents(replay([note, gift]), census, layout)
   state = stepResidents(state, [note, gift], 0, 100, layout)
   assert.deepEqual(state.startedTransfers, [])
-  state = stepResidents(state, [], 0, 10_000, layout)
+  state = stepResidents(state, [], 0, 10_100, layout)
   assert.equal(state.startedTransfers[0]?.transfer.thingId, 50, JSON.stringify(state))
-  assert.ok((state.residents[7]?.transferUntil ?? 0) > 10_000)
+  assert.ok((state.residents[7]?.transferUntil ?? 0) > 10_100)
   assert.equal(state.residents[8]?.transferUntil, state.residents[7]?.transferUntil)
-  const motion = stepHandovers(createHandovers([]), [], state, layout, 10_000)
+  const motion = stepHandovers(createHandovers([]), [], state, layout, 10_200)
   assert.equal(motion.motions[0]?.heart !== undefined, true)
   assert.deepEqual(motion.floorEvents, [])
   const replayWithThing = { ...replay(), start: { ...replay().start, 'thing:50': { place_id: 2 } } }
@@ -142,9 +142,9 @@ test('a queued gift waits for the preceding walk and starts from the arrived roo
   state = stepResidents(state, [], 10_000, 10_100, layout)
   assert.equal(state.residents[7]?.placeId, 1)
   assert.equal(state.startedTransfers[0]?.transfer.thingId, 52, JSON.stringify(state))
-  const paused = stepResidents(state, [], 0, 10_100, layout)
-  assert.deepEqual(paused.startedTransfers, [])
-  assert.equal(paused.residents[7]?.transferUntil, state.residents[7]?.transferUntil)
+  const unchanged = stepResidents(state, [], 0, 10_100, layout)
+  assert.deepEqual(unchanged.startedTransfers, [])
+  assert.equal(unchanged.residents[7]?.transferUntil, state.residents[7]?.transferUntil)
 })
 
 test('consecutive carries keep later same-thing rows behind the correct walk', () => {
