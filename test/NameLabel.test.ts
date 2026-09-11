@@ -3,7 +3,7 @@ import Module from 'node:module'
 import test from 'node:test'
 import { visibleRoomLabels } from '../src/room-crowding.ts'
 
-test('NameLabel moves its existing full-name text inside a fixed mask', async () => {
+test('NameLabel shortens a long name in place and keeps a fixed card', async () => {
   const noop = (): void => {}
   class StubCanvas {}
   const context = new Proxy({ getImageData: () => ({ data: [0, 0, 0, 0] }) }, {
@@ -31,12 +31,10 @@ test('NameLabel moves its existing full-name text inside a fixed mask', async ()
   const label = new NameLabel(scene as never, 'The astonishingly complete lantern name', 'thing')
   label.setAllowed(true)
   label.update(100, 50, 1, 1_200)
-  const start = texts[0]!.x
   label.update(100, 50, 1, 2_200)
 
-  assert.equal(texts[0]!.value, 'The astonishingly complete lantern name')
-  assert.equal(texts[0]!.setTextCalls, 0)
-  assert.equal(texts[0]!.x, start - 18)
+  assert.equal(texts[0]!.value.endsWith('...'), true)
+  assert.equal(texts[0]!.value.startsWith('The aston'), true)
   assert.equal(texts[1]!.visible, false)
   assert.equal(addedGraphics, 1)
   assert.deepEqual(label.bounds(), { x: 38, y: 50, width: 124, height: 23 })
@@ -114,7 +112,7 @@ class FakeText {
   texture = { setFilter() {} }
   value: string
   constructor(value: string) { this.value = value }
-  get width() { return this.value.length * 8 }
+  get width() { return [...this.value].length * 8 }
   setOrigin() { return this }
   setDepth() { return this }
   setMask() { return this }

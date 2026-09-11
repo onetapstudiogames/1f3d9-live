@@ -172,10 +172,14 @@ test('a failed live read freezes the picture and recovers with one full repaint'
   })
   await page.goto(liveFixtureUrl)
   await ready(page)
+  const stableSize = await page.evaluate(() => ({ app: document.querySelector('#app')?.clientHeight,
+    canvas: document.querySelector('canvas')?.clientHeight }))
   await advanceToLivePoll(page)
   await expect.poll(() => feedReads).toBe(1)
   await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'true')
   await expect(page.locator('#live-status')).not.toBeEmpty()
+  expect(await page.evaluate(() => ({ app: document.querySelector('#app')?.clientHeight,
+    canvas: document.querySelector('canvas')?.clientHeight }))).toEqual(stableSize)
   const frozen = await page.evaluate(() => ({ figures: document.body.dataset['liveFigures'],
     elapsed: document.body.dataset['liveElapsed'], revision: Number(document.body.dataset['liveLayoutRevision']) }))
   await page.clock.fastForward(500)

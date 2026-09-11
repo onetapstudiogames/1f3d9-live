@@ -80,6 +80,47 @@ body {
   pointer-events: none;
 }
 
+#name-layer {
+  position: absolute;
+  z-index: 3;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.room-name-hit {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.room-name-reveal {
+  position: absolute;
+  display: none;
+  width: max-content;
+  max-width: calc(100% - 16px);
+  margin: auto;
+  padding: 4px 7px;
+  border: 1px solid #8a7256;
+  border-radius: 5px;
+  color: #534b3b;
+  background: #fff4d8;
+  box-shadow: 1px 2px rgb(58 47 37 / 16%);
+  font-size: 13px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.room-name-reveal[data-side="above"] { transform: translate(-50%, -100%); }
+
+.room-name-hit:hover + .room-name-reveal,
+.room-name-hit:focus-visible + .room-name-reveal,
+.room-name-hit[data-open="true"] + .room-name-reveal { display: block; }
+
 #room-footer {
   display: flex;
   align-items: center;
@@ -100,6 +141,7 @@ body {
 }
 
 #live-status {
+  height: 1.35em;
   min-height: 1em;
   margin: 0;
   overflow: hidden;
@@ -112,7 +154,7 @@ body {
 #live-status { color: #e5b995; }
 #room-activity { flex: 1 1 auto; margin: 0; color: var(--quiet); font-size: 12px; }
 #live-status { flex: 0 1 auto; }
-#live-status:empty { display: none; }
+#live-status:empty { visibility: hidden; }
 
 #room-controls {
   display: flex;

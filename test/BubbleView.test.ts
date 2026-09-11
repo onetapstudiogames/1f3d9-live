@@ -72,6 +72,8 @@ test('BubbleView reuses safe DOM text and keeps scrolling speech in the room', t
   const bubble = bubbleFor(event, 0)!
   const view = new BubbleView(4)
   const card = layer.children[0]!
+  assert.equal(view.update(bubble, { x: 100, y: 40 }, { width: 200, height: 100 }, 'plain', -1), null)
+  assert.equal(card.style.display, 'none')
   card.intrinsicHeight = 40
   view.update({ ...bubble, text: 'brief' }, { x: 100, y: 240 }, { width: 200, height: 300 }, 'plain', bubble.expiresAt - 1)
   assert.ok(Number.parseFloat(card.style.top) + 40 <= 300)
@@ -100,8 +102,20 @@ test('BubbleView reuses safe DOM text and keeps scrolling speech in the room', t
   const layerWrites = layer.styleWrites
   assert.equal(positionSpeechLayer(), true)
   assert.equal(layer.styleWrites, layerWrites)
+  const nextEvent: ReplayEvent = { ...event, change_id: '2', event_id: 2, detail: { place_id: 3, note_id: 8 }, line: 'second speech' }
+  const nextBubble = bubbleFor(nextEvent, bubble.expiresAt)!
+  assert.equal(view.update(nextBubble, { x: 100, y: 40 }, { width: 200, height: 100 }, 'plain', nextBubble.startedAt - 1), null)
+  assert.equal(card.style.display, 'none')
+  assert.equal(card.children[0]!.textContent, '')
+  assert.equal(card.dataset['revealed'], undefined)
+  assert.equal(card.dataset['complete'], undefined)
+  assert.equal(card.dataset['noteId'], undefined)
   view.update(null, { x: 0, y: 0 }, { width: 200, height: 100 }, 'plain', 0)
   assert.equal(card.style.display, 'none')
+  assert.equal(card.children[0]!.textContent, '')
+  assert.equal(card.dataset['revealed'], undefined)
+  assert.equal(card.dataset['complete'], undefined)
+  assert.equal(card.dataset['noteId'], undefined)
   layer.style.left = 'unchanged'
   assert.equal(positionSpeechLayer(), false)
   assert.equal(layer.style.left, 'unchanged')

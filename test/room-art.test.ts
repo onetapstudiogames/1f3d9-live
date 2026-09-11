@@ -18,7 +18,7 @@ test('place art repeats as a crisp 32 pixel tile across each inner floor', async
     assert.equal(floor.height, room.height - 8)
     assert.equal(floor.tileOffsetX, 4)
     assert.equal(floor.tileOffsetY, 4)
-    assert.equal(floor.shadeAlpha, 0.10)
+    assert.equal(floor.shadeAlpha, 0.34)
   }
 })
 

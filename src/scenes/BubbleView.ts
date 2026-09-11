@@ -45,6 +45,8 @@ export class BubbleView {
     now: number, opacity = 1): SpeechCardFrame | null {
     if (!bubble) {
       setStyle(this.card, 'display', 'none')
+      if (this.words.textContent) this.words.textContent = ''
+      for (const key of ['side', 'shape', 'complete', 'revealed', 'noteId']) deleteDataset(this.card, key)
       this.lastBubble = null
       this.lastFrame = null
       this.lastPlan = null
@@ -60,6 +62,13 @@ export class BubbleView {
       this.lastWidth = availableWidth; this.lastHeight = availableHeight
     }
     const frame = speechCardFrame(bubble, now, availableWidth, availableHeight, measureText, this.lastPlan)
+    if (!frame.revealed) {
+      setStyle(this.card, 'display', 'none')
+      if (this.words.textContent) this.words.textContent = ''
+      for (const key of ['side', 'shape', 'complete', 'revealed', 'noteId']) deleteDataset(this.card, key)
+      this.lastBubble = bubble; this.lastFrame = frame
+      return null
+    }
     const unchangedFrame = this.lastBubble === bubble && this.lastFrame?.revealed === frame.revealed
       && this.lastFrame.width === frame.width && this.lastFrame.height === frame.height
     if (!unchangedFrame) this.words.textContent = frame.text
