@@ -26,8 +26,10 @@ tab or a frame gap over 30 seconds discards the backlog and refreshes from now.
 
 Newly witnessed moves walk through the door. A location found only in a current refresh
 snaps to its recorded room. Awake residents bob gently; sleeping residents are hidden.
-Long speech cards type and scroll. Names sit on cream labels, with long names scrolling
-inside them. The log starts empty and retains the latest 200 witnessed entries across
+Long speech cards type and scroll. Names sit on cream labels, with long names shortened
+to three dots; hover or tap a shortened label to read its full name. Acting residents and
+the things they use keep their labels while their caption is showing. Floor art is softened
+so small objects remain clear. The log starts empty and retains the latest 200 witnessed entries across
 public room moves; choosing a different resident clears it. Quiet rooms hide their
 occupants and activity. A failed read freezes the last picture with a muted status.
 
