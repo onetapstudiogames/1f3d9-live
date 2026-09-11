@@ -80,7 +80,7 @@ export function createArrival(room: Room, target: Point,
   obstacles: readonly MotionRect[]): readonly Point[] | null {
   if (!validRoom(room) || !validPoint(target) || !validRects(obstacles)) return null
   const inside = routeInsideRoom(room, room.door, target, obstacles)
-  return inside ? freezePoints([outsideDoor(room), ...inside]) : null
+  return inside ? freezePoints(inside) : null
 }
 
 export function createRoomPath(room: Room, from: Point, to: Point,

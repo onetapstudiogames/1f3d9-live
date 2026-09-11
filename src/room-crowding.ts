@@ -12,6 +12,8 @@ export type RoomCrowdingEntry = Readonly<{
   kind: 'resident' | 'thing'
   preferred: RoomCrowdingPoint
   priority: number
+  stable?: boolean
+  displacesStable?: boolean
 }>
 export type RoomCrowdingPlacement = Readonly<{
   id: string
@@ -66,7 +68,8 @@ function crowdingBandKey(band: RoomCrowdingRect): string {
 
 function allocationKey(entries: readonly RoomCrowdingEntry[], bandKey: string): string {
   return JSON.stringify([bandKey,
-    ...entries.map(entry => [entry.id, entry.kind, entry.preferred.x, entry.preferred.y, entry.priority])])
+    ...entries.map(entry => [entry.id, entry.kind, entry.preferred.x, entry.preferred.y, entry.priority,
+      Boolean(entry.stable), Boolean(entry.displacesStable)])])
 }
 
 function isState(value: RoomCrowdingState | Readonly<Record<string, RoomCrowdingPlacement>>): value is RoomCrowdingState {
@@ -84,6 +87,10 @@ export function allocateRoomCrowdingFrame(entries: readonly RoomCrowdingEntry[],
   const key = allocationKey(ordered, bandKey) + JSON.stringify([reserved, routes])
   if (isState(previous) && previous.key === key) return previous
   const previousPlacements = isState(previous) ? previous.placements : previous
+  const retentionRank = (entry: RoomCrowdingEntry): number => entry.displacesStable ? 2
+    : entry.stable && previousPlacements[entry.id]?.visible && previousPlacements[entry.id]?.kind === entry.kind ? 1 : 0
+  const allocationOrder = [...ordered].sort((left, right) => retentionRank(right) - retentionRank(left)
+    || right.priority - left.priority || left.id.localeCompare(right.id))
   const result: Record<string, RoomCrowdingPlacement> = {}
   let candidateChecks = 0
   if (!finiteRect(band)) {
@@ -120,7 +127,7 @@ export function allocateRoomCrowdingFrame(entries: readonly RoomCrowdingEntry[],
   const grid: readonly RoomCrowdingPoint[] = reusedGrid ? previous.grid : buildGrid('resident')
   const thingGrid = buildGrid('thing')
 
-  for (const entry of ordered) {
+  for (const entry of allocationOrder) {
     const old = previousPlacements[entry.id]
     const oldOffsetIsUsable = old?.visible === true && old.kind === entry.kind &&
       Number.isFinite(old.offsetX) && Number.isFinite(old.offsetY)

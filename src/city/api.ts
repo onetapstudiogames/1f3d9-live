@@ -126,7 +126,10 @@ export function createDrawingLoader(
   return (id: number) => {
     const cached = cache.get(id)
     if (cached) return cached
-    const pending = fetchDrawing(type, id, search).catch(error => {
+    const pending = fetchDrawing(type, id, search).then(drawing => {
+      if (drawing === null && cache.get(id) === pending) cache.delete(id)
+      return drawing
+    }).catch(error => {
       if (cache.get(id) === pending) cache.delete(id)
       throw error
     })

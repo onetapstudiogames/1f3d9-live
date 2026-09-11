@@ -279,7 +279,7 @@ test('fetchCensus stops repeated pagination cursors', async (t) => {
   await assert.rejects(fetchCensus(''), /repeated next_before_id/)
 })
 
-test('drawing loader caches success and absence but retries after a transient failure', async (t) => {
+test('drawing loader caches complete art and retries absent, pending, or failed reads', async (t) => {
   const original = globalThis.fetch
   const calls = new Map<string, number>()
   globalThis.fetch = async (input) => {
@@ -299,10 +299,11 @@ test('drawing loader caches success and absence but retries after a transient fa
   assert.equal(await load(2), null)
   assert.equal(await load(2), null)
   assert.equal(await load(3), null)
+  assert.equal(await load(3), null)
   await assert.rejects(load(4), /offline/)
   assert.equal((await load(4))?.id, 4)
   assert.equal((await load(4))?.id, 4)
-  assert.deepEqual([...calls.values()], [1, 1, 1, 2])
+  assert.deepEqual([...calls.values()], [1, 2, 2, 2])
 })
 
 test('drawing loader rejects malformed complete drawing data', async (t) => {
@@ -352,7 +353,7 @@ test('place drawing loader uses the place path, caches results, and retries erro
     '/fixtures/drawings/place-3.json',
     '/fixtures/drawings/place-4.json',
   ])
-  assert.deepEqual([...calls.values()], [1, 1, 1, 2])
+  assert.deepEqual([...calls.values()], [1, 2, 1, 2])
 })
 
 test('place drawings reject malformed shapes and mismatched identity', async (t) => {

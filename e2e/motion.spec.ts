@@ -65,7 +65,7 @@ async function fixture(page: Page, event: Record<string, unknown>, note?: string
   return { release, requested, diagnostics: { external, errors } }
 }
 
-async function readyAndFollow(page: Page, release: () => void, requested: Promise<void>): Promise<void> {
+async function readyAndFollow(page: Page, release: () => void, requested: Promise<void>, follow = true): Promise<void> {
   const params = liveFixtureUrl.replace('/?', '/?map=/motion-map.json&cursor=/motion-cursor.json&')
     .replace('census=/fixtures/residents-presence-page1.json', 'census=/motion-census-page1.json')
     .replace('map=/fixtures/map-current-page1.json&', '').replace('cursor=/fixtures/change-cursor.json&', '')
@@ -77,7 +77,8 @@ async function readyAndFollow(page: Page, release: () => void, requested: Promis
     await page.clock.runFor(16)
     return await page.locator('body').getAttribute('data-live-ready')
   }, { timeout: 30_000 }).toBe('true')
-  await page.locator('#follow-picker').selectOption('101')
+  if (follow) await page.locator('#follow-picker').selectOption('101')
+  else await page.locator('#place-picker').selectOption('2')
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
   await advanceToLivePoll(page)
   await requested
@@ -127,7 +128,7 @@ function nearestLeg(point: { x: number; y: number }, path: readonly { x: number;
 
 test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives door to free target', async ({ page }) => {
   test.setTimeout(60_000)
-  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.setViewportSize({ width: 1920, height: 1200 })
   await page.clock.install({ time: new Date(now) })
   await page.clock.pauseAt(new Date(wallNow))
   const setup = await fixture(page, { change_id: '11', kind: 'action', actor: 'walker', created_at: wallNow,
@@ -135,18 +136,23 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
   await readyAndFollow(page, setup.release, setup.requested)
 
   await expect.poll(async () => { await page.clock.runFor(16); return (await motion(page))?.phase }).toBe('departure')
-  const samples: Array<{ elapsed: number; motion: Motion; figure: Figure; room: string | null }> = []
+  const moveCaption = page.locator('.room-action-caption[data-resident-id="101"]')
+  await expect(moveCaption).toBeVisible()
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
+  const samples: Array<{ elapsed: number; motion: Motion; figure: Figure; room: string | null; caption: boolean }> = []
   let entered: Motion | null = null
-  for (let elapsed = 0; elapsed < 4_000; elapsed += 250) {
+  for (let elapsed = 0; elapsed < 8_000; elapsed += 250) {
     await page.clock.runFor(250)
     const current = await motion(page); const drawn = await figure(page)
     if (current?.phase === 'departure' && drawn) samples.push({ elapsed, motion: current, figure: drawn,
-      room: await page.locator('body').getAttribute('data-live-room') })
+      room: await page.locator('body').getAttribute('data-live-room'), caption: await moveCaption.isVisible() })
     if (current?.phase === 'arrival') entered = current
     if (current?.phase !== 'departure') break
   }
   expect(samples.length).toBeGreaterThanOrEqual(3)
   expect(new Set(samples.map(sample => sample.motion.placeId))).toEqual(new Set([2]))
+  expect(samples.filter(sample => sample.elapsed >= 3_000).length).toBeGreaterThan(0)
+  expect(samples.filter(sample => sample.elapsed >= 3_000).every(sample => sample.caption)).toBe(true)
   for (const sample of samples) {
     expect(Math.abs(sample.figure.x - sample.motion.x)).toBeLessThanOrEqual(3)
     expect(Math.abs(sample.figure.y - sample.motion.y)).toBeLessThanOrEqual(3)
@@ -163,17 +169,21 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
   expect(paces.filter(pace => Math.abs(pace - 140) <= 5).length).toBeGreaterThanOrEqual(2)
 
   expect(entered?.phase).toBe('arrival')
+  await expect(moveCaption).toHaveCount(0)
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '3')
+  await expect(page.locator('#room-name')).toHaveText('Destination')
+  expect(await page.evaluate(() => ({
+    room: document.body.dataset['liveRoom'],
+    heading: document.querySelector('#room-name')?.textContent,
+    thingCount: Number(document.body.dataset['liveThingsCount']),
+    drawnThings: JSON.parse(document.body.dataset['liveThings'] ?? '[]').length,
+  }))).toEqual({ room: '3', heading: 'Destination', thingCount: 0, drawnThings: 0 })
   expect(entered?.placeId).toBe(3)
   expect(entered?.path?.length).toBeGreaterThanOrEqual(3)
   expect(entered?.path).toContainEqual(entered?.door)
-  const outside = entered!.path![0]!; const door = entered!.door!
-  const firstLeg = { x: door.x - outside.x, y: door.y - outside.y }
-  const progress = ((entered!.x - outside.x) * firstLeg.x + (entered!.y - outside.y) * firstLeg.y)
-    / (firstLeg.x * firstLeg.x + firstLeg.y * firstLeg.y)
-  expect(progress).toBeGreaterThanOrEqual(0)
-  expect(progress).toBeLessThan(1)
-  expect(Math.hypot(entered!.x - outside.x, entered!.y - outside.y)).toBeLessThanOrEqual(140 * 0.25 + 3)
+  const door = entered!.door!
+  expect(entered!.path![0]).toEqual(door)
+  expect(Math.hypot(entered!.x - door.x, entered!.y - door.y)).toBeLessThanOrEqual(140 * 0.25 + 3)
   let settled: Motion | null = null
   for (let step = 0; step < 120; step += 1) {
     await page.clock.runFor(50)
@@ -185,6 +195,34 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
   expect(settled).toMatchObject(entered?.path?.at(-1) ?? {})
   expect(Math.hypot(settled!.x - entered!.door!.x, settled!.y - entered!.door!.y)).toBeGreaterThan(20)
   expect(settled?.walking).toBe(false)
+  expect(setup.diagnostics).toEqual({ external: [], errors: [] })
+})
+
+test('a stayed-room move caption remains through a long departure and ends at the boundary', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.setViewportSize({ width: 1920, height: 1200 })
+  await page.clock.install({ time: new Date(now) })
+  await page.clock.pauseAt(new Date(wallNow))
+  const setup = await fixture(page, { change_id: '11', kind: 'action', actor: 'walker', created_at: wallNow,
+    detail: { action: 'move', action_id: 11, status: 'applied', from_place_id: 2, to_place_id: 3 } })
+  await readyAndFollow(page, setup.release, setup.requested, false)
+
+  await expect.poll(async () => { await page.clock.runFor(16); return (await motion(page))?.phase }).toBe('departure')
+  const caption = page.locator('.room-action-caption[data-resident-id="101"]')
+  let sawLongDeparture = false
+  for (let elapsed = 0; elapsed < 8_000; elapsed += 250) {
+    await page.clock.runFor(250)
+    const current = await motion(page)
+    if (current?.phase !== 'departure') break
+    if (elapsed >= 3_000) {
+      sawLongDeparture = true
+      await expect(caption).toBeVisible()
+    }
+    await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
+  }
+  expect(sawLongDeparture).toBe(true)
+  await expect(caption).toHaveCount(0)
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
   expect(setup.diagnostics).toEqual({ external: [], errors: [] })
 })
 

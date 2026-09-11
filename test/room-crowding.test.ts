@@ -55,6 +55,22 @@ test('keeps a stable seat offset while a projected resident moves slightly', () 
   }
 })
 
+test('decoration-only resident motion never reshuffles stable things', () => {
+  const band = { x: 0, y: 0, width: 260, height: 140 }
+  const first = allocateRoomCrowdingFrame([
+    entry('resident:1', 80, 70, 10), entry('thing:7', 80, 70, 200, 'thing'),
+    entry('thing:8', 140, 70, 200, 'thing'),
+  ], band)
+  const moved = allocateRoomCrowdingFrame([
+    entry('resident:1', 98, 70, 10), entry('thing:7', 80, 70, 200, 'thing'),
+    entry('thing:8', 140, 70, 200, 'thing'),
+  ], band, first)
+  for (const id of ['thing:7', 'thing:8']) {
+    assert.deepEqual({ x: moved.placements[id]!.x, y: moved.placements[id]!.y },
+      { x: first.placements[id]!.x, y: first.placements[id]!.y })
+  }
+})
+
 test('returns to the preferred projection as soon as the blocking crowd leaves', () => {
   const band = { x: 0, y: 0, width: 220, height: 120 }
   const crowded = allocateRoomCrowdingFrame([entry('blocker', 48, 48, 2), entry('moved', 48, 48, 1)], band).placements

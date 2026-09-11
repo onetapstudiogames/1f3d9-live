@@ -8,18 +8,39 @@ import type { ThingState } from '../things.ts'
 type DrawingReader = (id: number) => Promise<Drawing | null>
 type Issue = (message: string) => void
 
+export const RESIDENT_DRAWING_RETRY_MS = 30_000
+
+export function residentDrawingCandidates(census: readonly Resident[], visibleIds: ReadonlySet<number>,
+  resolvedIds: ReadonlySet<number>, loadingIds: ReadonlySet<number>, retryAt: ReadonlyMap<number, number>,
+  now: number): readonly Resident[] {
+  return Object.freeze(census.filter(row => visibleIds.has(row.id) && row.has_drawing && !resolvedIds.has(row.id)
+    && !loadingIds.has(row.id) && (retryAt.get(row.id) ?? 0) <= now))
+}
+
 async function inFours(ids: readonly number[], read: (id: number) => Promise<void>): Promise<void> {
   for (let offset = 0; offset < ids.length; offset += 4) await Promise.all(ids.slice(offset, offset + 4).map(read))
 }
 
 export async function readResidentDrawings(census: readonly Resident[], residents: Simulation['residents'], read: DrawingReader,
-  apply: (id: number, drawing: Drawing | null) => void, issue: Issue): Promise<void> {
+  apply: (id: number, drawing: Drawing) => void, issue: Issue,
+  priorityIds: ReadonlySet<number> = new Set()): Promise<readonly number[]> {
   const ids = [...new Set([...census.filter(row => row.has_drawing).map(row => row.id),
     ...Object.values(residents).filter(row => !census.some(item => item.id === row.id)).map(row => row.id)])]
+    .sort((left, right) => Number(priorityIds.has(right)) - Number(priorityIds.has(left)) || left - right)
+  const failed: number[] = []
   await inFours(ids, async id => {
-    try { apply(id, await read(id)) }
-    catch (error) { console.error(error); issue('Some drawings could not be read; their last figures are kept.') }
+    try {
+      const drawing = await read(id)
+      if (drawing) apply(id, drawing)
+      else failed.push(id)
+    }
+    catch (error) { failed.push(id); console.error(error); issue('Some drawings could not be read; their last figures are kept.') }
   })
+  return Object.freeze(failed.sort((left, right) => left - right))
+}
+
+export function residentDrawingPending(resident: Resident | undefined, resolved: boolean): boolean {
+  return resident?.has_drawing === true && !resolved
 }
 
 export async function readNoteWords(events: readonly ReplayEvent[], layout: NestedLayout,

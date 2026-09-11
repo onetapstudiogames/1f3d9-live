@@ -7,7 +7,7 @@ import type { ReplayEvent } from '../src/city/types.ts'
 
 const entry = (text: string, cue: ActivityEntry['cue'] = 'action', key = text): ActivityEntry => ({
   key, changeId: 1, time: 0, kind: 'event', text, cue, roomId: 2, anchorRoomId: 2,
-  actorResidentId: 7, entities: [{ type: 'resident', id: 7, name: 'vigil', hasDrawing: true }],
+  actorResidentId: 7, thingId: 10, entities: [{ type: 'resident', id: 7, name: 'vigil', hasDrawing: true }],
 })
 
 test('caption uses the witnessed log words without the actor and excludes talk', () => {
@@ -67,10 +67,18 @@ test('real public rows produce the required caption words through the activity f
 
 test('captions last three seconds and can be cleared by replacing the collection', () => {
   const caption = actionCaption(entry('vigil made a lamp.'), 500)!
+  assert.equal(caption.thingId, 10)
+  assert.equal(caption.move, false)
   assert.equal(caption.expiresAt, 3_500)
   assert.deepEqual(activeActionCaptions([caption], 3_499), [caption])
   assert.deepEqual(activeActionCaptions([caption], 3_500), [])
   assert.deepEqual(activeActionCaptions([], 500), [])
+})
+
+test('move captions are marked so follow view can wait for their final frame', () => {
+  const caption = actionCaption(entry('vigil moved to the square.', 'move'), 500)!
+  assert.equal(caption.move, true)
+  assert.equal(caption.thingId, null)
 })
 
 test('simultaneous captions stack inside edge viewports clear of speech and the resident name', () => {

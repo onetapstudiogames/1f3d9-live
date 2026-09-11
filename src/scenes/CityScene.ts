@@ -30,7 +30,8 @@ import { fixtureMode, recordSpeechFixture } from './fixture-state.ts'
 import { createActivityContext, type ActivityContext } from '../activity.ts'
 import { residentReservationFootprint } from '../resident-footprint.ts'
 import { SceneActivity } from './SceneActivity.ts'
-import { readNoteWords, readResidentDrawings, readVisibleThingDetails, rememberOutlineThingDetails, thingDetailsPending } from './SceneDetails.ts'
+import { readNoteWords, readResidentDrawings, readVisibleThingDetails, rememberOutlineThingDetails,
+  RESIDENT_DRAWING_RETRY_MS, residentDrawingCandidates, residentDrawingPending, thingDetailsPending } from './SceneDetails.ts'
 import { fetchChangeCursor } from '../city/current.ts'
 import { refreshPresentResidents } from '../current-state.ts'
 import { filterCurrentVisualEvents, returnToCurrentResidents } from '../current-return.ts'
@@ -42,7 +43,7 @@ import { parseRoomLink, resolveRoomLink, replaceRoomLink, type RoomLinkSelection
 import { singleRoomLayout, roomViewportUsable, roomIsPublic } from '../room-view.ts'
 import { RoomActivityLine } from './RoomActivityLine.ts'
 import { animationDelta, eventsAfterMarker, roomPictureSettled, roomPictureAccess, roomStatus, type OutlineResolution } from '../live-presentation.ts'
-import { presentRoom, roomFigurePriority } from '../room-presentation.ts'
+import { presentRoom, roomFigurePriority, roomNameLabelPriority } from '../room-presentation.ts'
 import { roomLabelFitsViewport, visibleRoomLabels, type RoomCrowdingState } from '../room-crowding.ts'
 import { projectRoomHandovers, roomAnchorPair } from '../room-anchors.ts'
 import { removableOnce } from '../scene-lifecycle.ts'
@@ -51,6 +52,7 @@ import { positionSpeechLayer } from './BubbleView.ts'
 import { RoomCanvas } from './RoomCanvas.ts'
 import { RoomMotion } from './RoomMotion.ts'
 import { actionFloorEvents, type HeldActionThingEvent } from '../action-delivery.ts'
+import { positionNameLayer } from './NameReveal.ts'
 
 export class CityScene extends Phaser.Scene {
   private places: readonly ReplayPlace[] = []
@@ -105,6 +107,9 @@ export class CityScene extends Phaser.Scene {
   private roomResidents: Simulation['residents'] = {}
   private roomThings: ThingSimulation['things'] = {}
   private readonly readResidentDrawing = createDrawingLoader()
+  private residentDrawingResolved = new Set<number>()
+  private residentDrawingLoading = new Set<number>()
+  private residentDrawingRetryAt = new Map<number, number>()
   private readonly readPlaceDrawing = createDrawingLoader(undefined, 'place')
   private placeDrawingReads = 0
   private activityLog?: RoomActivityLine
@@ -246,11 +251,25 @@ export class CityScene extends Phaser.Scene {
   }
   private async loadDrawings(census: readonly Resident[]): Promise<void> {
     const cycle = this.issueCycle
-    const visible = Object.fromEntries(Object.entries(this.residents?.residents ?? {})
-      .filter(([, row]) => row.placeId === this.viewPlaceId && !this.sleepers.has(row.id)))
-    await readResidentDrawings(census.filter(row => visible[row.id]), visible, this.readResidentDrawing, (id, art) => {
-      addDrawingTexture(this, `resident-${id}`, art); this.figures.get(id)?.sprite.setTexture(`resident-${id}`)
-    }, message => this.thingReadIssue(message, cycle))
+    const visibleIds = new Set(Object.values(this.roomResidents).filter(row => row.visible && !this.sleepers.has(row.id)).map(row => row.id))
+    const now = Date.now()
+    const pending = residentDrawingCandidates(census, visibleIds, this.residentDrawingResolved,
+      this.residentDrawingLoading, this.residentDrawingRetryAt, now)
+    if (!pending.length) return
+    for (const row of pending) this.residentDrawingLoading.add(row.id)
+    const priority = new Set(this.following === null ? [] : [this.following])
+    const pendingIds = new Set(pending.map(row => row.id))
+    const pendingResidents = Object.fromEntries(Object.entries(this.roomResidents)
+      .filter(([id]) => pendingIds.has(Number(id))))
+    try {
+      const failed = await readResidentDrawings(pending, pendingResidents, this.readResidentDrawing, (id, art) => {
+        this.residentDrawingResolved.add(id)
+        this.residentDrawingRetryAt.delete(id)
+        addDrawingTexture(this, `resident-${id}`, art)
+        this.figures.get(id)?.sprite.setTexture(`resident-${id}`).clearTint()
+      }, message => this.thingReadIssue(message, cycle), priority)
+      for (const id of failed) this.residentDrawingRetryAt.set(id, Date.now() + RESIDENT_DRAWING_RETRY_MS)
+    } finally { for (const row of pending) this.residentDrawingLoading.delete(row.id) }
   }
   private async loadPlaceDrawings(): Promise<void> {
     const cycle = this.issueCycle
@@ -631,6 +650,10 @@ export class CityScene extends Phaser.Scene {
         if (this.textures.exists(`resident-${resident.id}`)) figure.sprite.setTexture(`resident-${resident.id}`)
         this.figures.set(resident.id, figure)
       }
+      const censusResident = this.census.find(row => row.id === resident.id)
+      if (residentDrawingPending(censusResident, this.residentDrawingResolved.has(resident.id))) {
+        figure.sprite.setTintFill(0x858980)
+      } else figure.sprite.clearTint()
       const hidden = !usable || !this.isResidentDrawn(resident) || resident.placeId !== this.viewPlaceId
       const speech = figure.update(hidden ? { ...resident, visible: false } : resident, this.elapsed,
         this.places, this.viewport, this.following === resident.id,
@@ -642,18 +665,22 @@ export class CityScene extends Phaser.Scene {
       { ...row, x: row.x + (actionOffsets.get(row.id) ?? 0) }]))
     this.activity?.updateCaptions(captionResidents, this.viewport, this.elapsed)
     positionSpeechLayer()
+    positionNameLayer()
     const obstacles = [...this.figures].flatMap(([id, figure]) => figure.sprite.visible
       ? [{ ...figure.sprite.getBounds(), id: String(id) }] : [])
       .concat([...this.thingViews].flatMap(([id, thing]) => thing.sprite.visible
         ? [{ ...thing.sprite.getBounds(), id: `thing:${id}` }] : []))
+    const captionPriority = this.activity?.captionPriorities(this.elapsed)
+      ?? { residentIds: new Set<number>(), thingIds: new Set<number>(), movingResidentIds: new Set<number>() }
     const labels = visibleRoomLabels([...this.figures].flatMap(([id, figure]) => {
       const box = figure.labelBounds()
       return box && roomLabelFitsViewport(box, this.viewport.width, this.viewport.height)
-        ? [{ ...box, id: String(id), priority: roomFigurePriority(state[id]!, this.following) }] : []
+        ? [{ ...box, id: String(id), priority: roomNameLabelPriority(roomFigurePriority(state[id]!, this.following),
+          captionPriority.residentIds.has(id)) }] : []
     }).concat([...this.thingViews].flatMap(([id, thing]) => {
       const box = thing.labelBounds()
       return box && roomLabelFitsViewport(box, this.viewport.width, this.viewport.height)
-        ? [{ ...box, id: `thing:${id}`, priority: 0 }] : []
+        ? [{ ...box, id: `thing:${id}`, priority: roomNameLabelPriority(0, captionPriority.thingIds.has(id)) }] : []
     })), obstacles)
     for (const [id, thing] of this.thingViews) thing.setNameVisible(labels.has(`thing:${id}`))
     for (const [id, figure] of this.figures) figure.setNameVisible(labels.has(String(id)))
@@ -662,6 +689,7 @@ export class CityScene extends Phaser.Scene {
     this.agreementLayer.draw(this, this.figures, this.displayHiddenRooms())
     recordSpeechFixture(visibleSpeech, this.fixtureMode, this.agreementLayer.count)
     this.updateFollowChoices()
+    if (document.body.dataset['liveReady'] === 'true') void this.loadDrawings(this.census)
     if (!this.fixtureMode) return
     const listed = JSON.stringify([...this.figures].flatMap(([id, figure]) => figure.sprite.visible
       && figure.sprite.x >= 0 && figure.sprite.x <= this.viewport.width && figure.sprite.y >= 0 && figure.sprite.y <= this.viewport.height
@@ -730,8 +758,13 @@ export class CityScene extends Phaser.Scene {
       && Boolean(this.layout && roomIsPublic(this.layout, resident.placeId))
   }
   private updateFollowRoom(): void {
+    const diagnostics = this.roomMotion.diagnostics()
+    this.activity?.syncMoveCaptions(diagnostics, this.elapsed)
     const resident = this.following === null ? undefined : this.residents?.residents[this.following]
-    if (resident?.placeId != null && !this.sleepers.has(resident.id) && resident.placeId !== this.viewPlaceId) this.showRoom(resident.placeId)
+    const moveCaptionActive = resident && this.activity?.captionPriorities(this.elapsed).movingResidentIds.has(resident.id)
+    if (resident?.placeId != null && !this.sleepers.has(resident.id) && resident.placeId !== this.viewPlaceId && !moveCaptionActive) {
+      this.showRoom(resident.placeId)
+    }
   }
   private updateFollowChoices(): void {
     const residents = awakeRoomChoices(this.residents?.residents ?? {}, this.layout, this.sleepers)
