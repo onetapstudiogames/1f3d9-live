@@ -85,6 +85,8 @@ async function readyAndFollow(page: Page, release: () => void, requested: Promis
   release()
   await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
 }
+type DepartureSample = { elapsed: number; motion: Motion; figure: Figure | null; room: string | null; caption: boolean }
+type MotionSamples = { departure: DepartureSample[]; entered: Motion | null; last: Motion | null }
 
 async function motion(page: Page): Promise<Motion | null> {
   return page.evaluate(() => {
@@ -114,6 +116,34 @@ async function actionMotion(page: Page): Promise<ActionMotion | null> {
   })
 }
 
+async function startMotionSampler(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const target = window as Window & typeof globalThis & { motionSamples?: MotionSamples; motionSampler?: number }
+    target.motionSamples = { departure: [], entered: null, last: null }
+    target.motionSampler = window.setInterval(() => {
+      const rows = JSON.parse(document.body.dataset['liveMotion'] ?? '[]') as Motion[]
+      const figures = JSON.parse(document.body.dataset['liveFigures'] ?? '[]') as Figure[]
+      const current = rows.find(row => row.id === 101) ?? null
+      target.motionSamples!.last = current
+      if (current?.phase === 'arrival' && !target.motionSamples!.entered) target.motionSamples!.entered = current
+      if (current?.phase === 'departure') target.motionSamples!.departure.push({
+        elapsed: Number(document.body.dataset['liveElapsed']), motion: current,
+        figure: figures.find(row => row.id === 101) ?? null,
+        room: document.body.dataset['liveRoom'] ?? null,
+        caption: Boolean(document.querySelector('.room-action-caption[data-resident-id="101"]')),
+      })
+    }, 250)
+  })
+}
+
+async function stopMotionSampler(page: Page): Promise<MotionSamples> {
+  return page.evaluate(() => {
+    const target = window as Window & typeof globalThis & { motionSamples?: MotionSamples; motionSampler?: number }
+    window.clearInterval(target.motionSampler)
+    return target.motionSamples!
+  })
+}
+
 function nearestLeg(point: { x: number; y: number }, path: readonly { x: number; y: number }[]): number {
   let nearest = -1; let nearestDistance = Number.POSITIVE_INFINITY
   for (let index = 0; index < path.length - 1; index += 1) {
@@ -127,8 +157,10 @@ function nearestLeg(point: { x: number; y: number }, path: readonly { x: number;
 }
 
 test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives door to free target', async ({ page }) => {
-  test.setTimeout(60_000)
-  await page.setViewportSize({ width: 1920, height: 1200 })
+  // CI's software canvas previously exceeded 60 seconds; keep bounded headroom for six simulated seconds.
+  test.setTimeout(120_000)
+  // Wide keeps the departure over three seconds; shallow cuts software-rendering work in CI.
+  await page.setViewportSize({ width: 2050, height: 600 })
   await page.clock.install({ time: new Date(now) })
   await page.clock.pauseAt(new Date(wallNow))
   const setup = await fixture(page, { change_id: '11', kind: 'action', actor: 'walker', created_at: wallNow,
@@ -139,20 +171,16 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
   const moveCaption = page.locator('.room-action-caption[data-resident-id="101"]')
   await expect(moveCaption).toBeVisible()
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
-  const samples: Array<{ elapsed: number; motion: Motion; figure: Figure; room: string | null; caption: boolean }> = []
-  let entered: Motion | null = null
-  for (let elapsed = 0; elapsed < 8_000; elapsed += 250) {
-    await page.clock.runFor(250)
-    const current = await motion(page); const drawn = await figure(page)
-    if (current?.phase === 'departure' && drawn) samples.push({ elapsed, motion: current, figure: drawn,
-      room: await page.locator('body').getAttribute('data-live-room'), caption: await moveCaption.isVisible() })
-    if (current?.phase === 'arrival') entered = current
-    if (current?.phase !== 'departure') break
-  }
+  const departureStartedAt = Number(await page.locator('body').getAttribute('data-live-elapsed'))
+  await startMotionSampler(page)
+  await page.clock.runFor(6_000)
+  const sampled = await stopMotionSampler(page)
+  const samples = sampled.departure.filter((sample): sample is DepartureSample & { figure: Figure } => sample.figure !== null)
+  const entered = sampled.entered
   expect(samples.length).toBeGreaterThanOrEqual(3)
   expect(new Set(samples.map(sample => sample.motion.placeId))).toEqual(new Set([2]))
-  expect(samples.filter(sample => sample.elapsed >= 3_000).length).toBeGreaterThan(0)
-  expect(samples.filter(sample => sample.elapsed >= 3_000).every(sample => sample.caption)).toBe(true)
+  expect(samples.filter(sample => sample.elapsed - departureStartedAt >= 3_000).length).toBeGreaterThan(0)
+  expect(samples.filter(sample => sample.elapsed - departureStartedAt >= 3_000).every(sample => sample.caption)).toBe(true)
   for (const sample of samples) {
     expect(Math.abs(sample.figure.x - sample.motion.x)).toBeLessThanOrEqual(3)
     expect(Math.abs(sample.figure.y - sample.motion.y)).toBeLessThanOrEqual(3)
@@ -184,12 +212,7 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
   const door = entered!.door!
   expect(entered!.path![0]).toEqual(door)
   expect(Math.hypot(entered!.x - door.x, entered!.y - door.y)).toBeLessThanOrEqual(140 * 0.25 + 3)
-  let settled: Motion | null = null
-  for (let step = 0; step < 120; step += 1) {
-    await page.clock.runFor(50)
-    const current = await motion(page)
-    if (current?.phase === 'done') { settled = current; break }
-  }
+  const settled = sampled.last
   expect(settled?.phase).toBe('done')
   expect(settled?.placeId).toBe(3)
   expect(settled).toMatchObject(entered?.path?.at(-1) ?? {})
@@ -199,8 +222,10 @@ test('a followed live move exits at 140 CSS px/sec, switches rooms, and arrives 
 })
 
 test('a stayed-room move caption remains through a long departure and ends at the boundary', async ({ page }) => {
-  test.setTimeout(60_000)
-  await page.setViewportSize({ width: 1920, height: 1200 })
+  // CI's software canvas previously exceeded 60 seconds; keep bounded headroom for six simulated seconds.
+  test.setTimeout(120_000)
+  // Wide keeps the departure over three seconds; shallow cuts software-rendering work in CI.
+  await page.setViewportSize({ width: 2050, height: 600 })
   await page.clock.install({ time: new Date(now) })
   await page.clock.pauseAt(new Date(wallNow))
   const setup = await fixture(page, { change_id: '11', kind: 'action', actor: 'walker', created_at: wallNow,
@@ -209,18 +234,13 @@ test('a stayed-room move caption remains through a long departure and ends at th
 
   await expect.poll(async () => { await page.clock.runFor(16); return (await motion(page))?.phase }).toBe('departure')
   const caption = page.locator('.room-action-caption[data-resident-id="101"]')
-  let sawLongDeparture = false
-  for (let elapsed = 0; elapsed < 8_000; elapsed += 250) {
-    await page.clock.runFor(250)
-    const current = await motion(page)
-    if (current?.phase !== 'departure') break
-    if (elapsed >= 3_000) {
-      sawLongDeparture = true
-      await expect(caption).toBeVisible()
-    }
-    await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
-  }
-  expect(sawLongDeparture).toBe(true)
+  const departureStartedAt = Number(await page.locator('body').getAttribute('data-live-elapsed'))
+  await startMotionSampler(page)
+  await page.clock.runFor(6_000)
+  const sampled = await stopMotionSampler(page)
+  const longDeparture = sampled.departure.filter(sample => sample.elapsed - departureStartedAt >= 3_000)
+  expect(longDeparture.length).toBeGreaterThan(0)
+  expect(longDeparture.every(sample => sample.caption && sample.room === '2')).toBe(true)
   await expect(caption).toHaveCount(0)
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
   expect(setup.diagnostics).toEqual({ external: [], errors: [] })

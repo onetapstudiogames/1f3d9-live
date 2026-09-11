@@ -63,9 +63,9 @@ async function keepFixtureOffline(page: Page): Promise<{ external: string[]; err
 }
 
 test('a newly witnessed long note stays whole beside its speaker through layout and room changes', async ({ page }) => {
-  // Software-rendered CI needs wall time to draw every controlled frame. This budget
-  // is separate from the unchanged 15-second speech lifetime in simulated time.
-  test.setTimeout(120_000)
+  // The prior 120-second deadline expired on CI software rendering; this bounded
+  // budget is separate from the unchanged 15-second simulated speech loop.
+  test.setTimeout(240_000)
   // This fixture needs a room short enough to require card scrolling, independently of project defaults.
   await page.setViewportSize({ width: 1280, height: 640 })
   // Install and pause before the app creates timers, reads or speech. The one-minute jump
