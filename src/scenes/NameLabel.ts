@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
-import { labelContent, marqueeCopies, NAME_LABEL } from '../name-label.ts'
+import { labelContent, NAME_LABEL, shortenLabelName } from '../name-label.ts'
 import { roomTextResolution } from '../room-appearance.ts'
+import { NameReveal } from './NameReveal.ts'
 
 export type NameLabelBounds = Readonly<{ x: number; y: number; width: number; height: number }>
 
@@ -9,13 +10,13 @@ export class NameLabel {
   private readonly clipShape: Phaser.GameObjects.Graphics
   private readonly clip: Phaser.Display.Masks.GeometryMask
   private readonly text: Phaser.GameObjects.Text
-  private readonly echo: Phaser.GameObjects.Text
   private readonly kind: Phaser.GameObjects.Text
+  private readonly reveal: NameReveal
   private name: string
   private kindName: string | null
   private allowed = false
   private shown = true
-  private scrolling = false
+  private truncated = false
   private showKind = false
   private anchorX = 0
   private anchorY = 0
@@ -34,31 +35,27 @@ export class NameLabel {
       resolution: roomTextResolution(window.devicePixelRatio),
     }).setOrigin(0, 0.5).setDepth(depth + 0.1).setMask(this.clip)
     this.text.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
-    // The second copy of a scrolling name, one gap behind the first, so the label never shows empty.
-    this.echo = scene.add.text(0, 0, name, {
-      fontFamily: 'system-ui, sans-serif', fontSize: `${NAME_LABEL.fontSize}px`, color: '#534b3b',
-      resolution: roomTextResolution(window.devicePixelRatio),
-    }).setOrigin(0, 0.5).setDepth(depth + 0.1).setMask(this.clip).setVisible(false)
-    this.echo.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
     this.kind = scene.add.text(0, 0, kind ?? '', {
       fontFamily: 'system-ui, sans-serif', fontSize: '9px', color: '#8a7256',
       resolution: roomTextResolution(window.devicePixelRatio),
     }).setOrigin(0, 0.5).setDepth(depth + 0.1).setMask(this.clip)
     this.kind.texture.setFilter(Phaser.Textures.FilterMode.LINEAR)
+    this.reveal = new NameReveal(name)
     this.refreshLayout()
     this.setVisible(false)
   }
 
   setContent(name: string, kind: string | null = this.kindName): void {
     if (name === this.name && kind === this.kindName) return
-    if (name !== this.name) { this.text.setText(name); this.echo.setText(name) }
+    if (name !== this.name) this.text.setText(name)
     if (kind !== this.kindName) this.kind.setText(kind ?? '')
     this.name = name
     this.kindName = kind
+    this.reveal.setContent(name)
     this.refreshLayout()
   }
 
-  update(x: number, y: number, zoom: number, elapsedMs: number): void {
+  update(x: number, y: number, zoom: number, _elapsedMs: number): void {
     this.anchorX = x
     this.anchorY = y
     this.zoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1
@@ -66,25 +63,19 @@ export class NameLabel {
     const resolution = roomTextResolution(window.devicePixelRatio)
     if (this.text.style.resolution !== resolution) {
       this.text.setResolution(resolution)
-      this.echo.setResolution(resolution)
       this.kind.setResolution(resolution)
       this.refreshLayout()
     }
     this.card.setPosition(x, y).setScale(scale)
     this.clipShape.setPosition(x, y).setScale(scale)
-    const left = x - this.textWidth * scale / 2
     const centerY = y + NAME_LABEL.height * scale / 2
-    if (this.scrolling) {
-      const [first, second] = marqueeCopies(this.text.width, elapsedMs)
-      this.text.setPosition(left + first * scale, centerY).setScale(scale)
-      this.echo.setPosition(left + second * scale, centerY).setScale(scale)
-    } else {
-      const kindWidth = this.showKind ? this.kind.width : 0
-      const totalWidth = this.text.width + (kindWidth > 0 ? kindWidth + 5 : 0)
-      const start = x - totalWidth * scale / 2
-      this.text.setPosition(start, centerY).setScale(scale)
-      this.kind.setPosition(start + (this.text.width + 5) * scale, centerY).setScale(scale)
-    }
+    const kindWidth = this.showKind ? this.kind.width : 0
+    const totalWidth = this.text.width + (kindWidth > 0 ? kindWidth + 5 : 0)
+    const start = x - totalWidth * scale / 2
+    this.text.setPosition(start, centerY).setScale(scale)
+    this.kind.setPosition(start + (this.text.width + 5) * scale, centerY).setScale(scale)
+    const bounds = this.bounds()
+    if (bounds) this.reveal.update(bounds)
   }
 
   setAllowed(allowed: boolean): void {
@@ -100,7 +91,6 @@ export class NameLabel {
   setAlpha(alpha: number): void {
     this.card.setAlpha(alpha)
     this.text.setAlpha(alpha)
-    this.echo.setAlpha(alpha)
     this.kind.setAlpha(alpha)
   }
 
@@ -113,16 +103,21 @@ export class NameLabel {
 
   destroy(): void {
     this.text.destroy()
-    this.echo.destroy()
     this.kind.destroy()
+    this.reveal.destroy()
     this.clip.destroy()
     this.clipShape.destroy()
     this.card.destroy()
   }
 
   private refreshLayout(): void {
+    const shortened = shortenLabelName(this.name, NAME_LABEL.textWidth, value => {
+      this.text.setText(value)
+      return this.text.width
+    })
+    if (this.text.text !== shortened) this.text.setText(shortened)
     const policy = labelContent(this.name, this.kindName, this.text.width, this.kind.width)
-    this.scrolling = policy.scroll
+    this.truncated = shortened !== this.name
     this.showKind = policy.showKind
     this.width = policy.width
     this.textWidth = policy.textWidth
@@ -135,16 +130,15 @@ export class NameLabel {
     this.clipShape.fillStyle(0xffffff, 1).fillRect(-this.textWidth / 2, 0,
       this.textWidth, NAME_LABEL.height)
     this.kind.setVisible(policy.showKind && this.allowed && this.shown)
-    this.echo.setVisible(policy.scroll && this.allowed && this.shown)
   }
 
   private applyVisibility(): void {
     const visible = this.allowed && this.shown
+    this.reveal.setVisible(visible && this.truncated)
     this.card.setVisible(visible)
     this.text.setVisible(visible)
     const policy = labelContent(this.name, this.kindName, this.text.width, this.kind.width)
     this.showKind = policy.showKind
     this.kind.setVisible(visible && this.showKind)
-    this.echo.setVisible(visible && this.scrolling)
   }
 }

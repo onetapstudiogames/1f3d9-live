@@ -1,11 +1,52 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Drawing } from '../src/city/types.ts'
-import { readVisibleThingDetails, rememberOutlineThingDetails } from '../src/scenes/SceneDetails.ts'
+import { readResidentDrawings, readVisibleThingDetails, rememberOutlineThingDetails, residentDrawingCandidates,
+  residentDrawingPending } from '../src/scenes/SceneDetails.ts'
 import type { ThingState } from '../src/things.ts'
 
 const thing = (id: number): ThingState => ({ id, placeId: 498, name: `thing ${id}`, x: 100, y: 100, visible: true, effect: null })
 const drawing = (id: number): Drawing => ({ type: 'thing', id, state: 'complete', drawing: { palette: ['#123456'], indices: Array(64).fill(0) } })
+
+test('visible priority residents request their own drawings first and use a neutral placeholder while waiting', async () => {
+  const census = [1, 2, 3, 4, 5].map(id => ({ id, handle: `resident-${id}`, model: '', joined_at: '',
+    current_place_id: 2, has_drawing: true, asleep: false }))
+  const residents = Object.fromEntries(census.map(row => [row.id, { id: row.id }])) as never
+  const reads: number[] = []
+  await readResidentDrawings(census, residents, async id => { reads.push(id); return null }, () => {}, () => {}, new Set([5]))
+  assert.deepEqual(reads, [5, 1, 2, 3, 4])
+  assert.equal(residentDrawingPending(census[4], false), true)
+  assert.equal(residentDrawingPending(census[4], true), false)
+  assert.equal(residentDrawingPending({ ...census[4]!, has_drawing: false }, false), false)
+})
+
+test('resident drawing candidates include only visible unresolved IDs and respect the retry cadence', () => {
+  const census = [1, 2, 3, 4].map(id => ({ id, handle: `resident-${id}`, model: '', joined_at: '',
+    current_place_id: 2, has_drawing: true, asleep: false }))
+  const visible = new Set([1, 2, 3])
+  assert.deepEqual(residentDrawingCandidates(census, visible, new Set([1]), new Set([2]), new Map([[3, 31_000]]), 1_000), [])
+  assert.deepEqual(residentDrawingCandidates(census, visible, new Set([1]), new Set([2]), new Map([[3, 31_000]]), 31_000)
+    .map(row => row.id), [3])
+})
+
+test('resident drawing failures and pending art remain retryable while complete art is applied once', async t => {
+  t.mock.method(console, 'error', () => {})
+  const census = [1, 2, 3].map(id => ({ id, handle: `resident-${id}`, model: '', joined_at: '',
+    current_place_id: 2, has_drawing: true, asleep: false }))
+  const applied: number[] = []
+  const retry = await readResidentDrawings(census, {} as never, async id => {
+    if (id === 2) throw new Error('offline')
+    return id === 3 ? drawing(id) : null
+  }, id => { applied.push(id) }, () => {})
+  assert.deepEqual(applied, [3])
+  assert.deepEqual(retry, [1, 2])
+
+  const retryAt = new Map(retry.map(id => [id, 31_000]))
+  const visible = new Set([1, 2, 3])
+  assert.deepEqual(residentDrawingCandidates(census, visible, new Set(applied), new Set(), retryAt, 30_999), [])
+  assert.deepEqual(residentDrawingCandidates(census, visible, new Set(applied), new Set(), retryAt, 31_000)
+    .map(row => row.id), [1, 2])
+})
 
 function setup(ids: readonly number[]) {
   const state = { shown: ids.map(thing) }

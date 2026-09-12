@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import type { ReplayEvent } from '../src/city/types.ts'
 import { animationDelta, eventsAfterMarker, roomPictureSettled, roomPictureAccess, roomStatus } from '../src/live-presentation.ts'
@@ -81,6 +82,12 @@ test('a failed live read freezes the picture until a successful read clears the 
   assert.equal(animationDelta(40, { ...moving, ready: false }), 0)
   assert.equal(animationDelta(40, { ...moving, readFailed: true }), 0)
   assert.equal(animationDelta(40, moving), 40)
+})
+
+test('the status row always reserves one line so a read failure cannot resize the room', () => {
+  const css = readFileSync(new URL('../src/style.css', import.meta.url), 'utf8')
+  assert.match(css, /#live-status:empty\s*\{\s*visibility:\s*hidden;\s*\}/)
+  assert.doesNotMatch(css, /#live-status:empty\s*\{\s*display:\s*none;/)
 })
 
 test('the live picture uses elapsed wall time without a playback rate or frame clamp', () => {

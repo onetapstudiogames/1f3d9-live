@@ -19,8 +19,12 @@ export class ActivityLayer {
         : this.entityAnchor(frame, residents, things) ?? this.roomAnchor(frame.roomId, layout, zoom)
       if (!position || position.roomId === null || hidden.has(position.roomId)) continue
       const color = frame.cue === 'looking' ? 0xffe69a : 0xe7c965
+      const rects = activityCueRects(frame.cells, position.kind, zoom, color, frame.alpha)
+      this.graphics.fillStyle(0x243c30, frame.alpha)
+      for (const cell of rects) this.graphics.fillRect(position.x + cell.x - 1, position.y + cell.y - 1,
+        cell.width + 2, cell.height + 2)
       this.graphics.fillStyle(color, frame.alpha)
-      for (const cell of activityCueRects(frame.cells, position.kind, zoom, color, frame.alpha)) this.graphics.fillRect(
+      for (const cell of rects) this.graphics.fillRect(
         position.x + cell.x, position.y + cell.y, cell.width, cell.height)
     }
   }

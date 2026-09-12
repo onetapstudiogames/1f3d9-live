@@ -23,6 +23,10 @@ export function roomFigurePriority(row: Figure, following: number | null): numbe
   return 10
 }
 
+export function roomNameLabelPriority(base: number, captioned: boolean): number {
+  return base + (captioned ? 1_000 : 0)
+}
+
 // All visual layers consume these copies; simulation positions remain in the recorded room layout.
 export function presentRoom<R extends Figure, T extends Entity>(residents: Readonly<Record<number, R>>,
   things: Readonly<Record<number, T>>, source: NestedLayout | undefined, target: NestedLayout | undefined,
@@ -62,9 +66,9 @@ export function presentRoom<R extends Figure, T extends Entity>(residents: Reado
   })
   const entries: readonly RoomCrowdingEntry[] = [
     ...figures.filter(row => row.visible && !motion?.poses.get(row.id)?.moving && !motion?.pinnedResidentIds?.has(row.id)).map(row => ({ id: `resident:${row.id}`, kind: 'resident' as const,
-      preferred: row, priority: roomFigurePriority(row, following) })),
+      preferred: row, priority: roomFigurePriority(row, following), displacesStable: Boolean(row.bubble) })),
     ...objects.filter(row => row.visible && !motion?.thingPoses?.has(row.id)).map(row => ({ id: `thing:${row.id}`, kind: 'thing' as const,
-      preferred: row, priority: 0 })),
+      preferred: row, priority: 50, stable: true })),
   ]
   const room = target?.rooms[target.rootId]
   const allocated: RoomCrowdingState = room ? allocateRoomCrowdingFrame(entries, room.standing, previous, motion?.reservations, motion?.routes) :

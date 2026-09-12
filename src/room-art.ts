@@ -17,7 +17,7 @@ export function undrawnFloor(): UndrawnFloor { return PLAIN_FLOOR }
 export function placeFloorArt(room: Room): PlaceFloorArt {
   return Object.freeze({
     x: room.x + 4, y: room.y + 4, width: room.width - 8, height: room.height - 8,
-    cellSize: 4, tileSize: 32, tileOffsetX: 4, tileOffsetY: 4, shadeAlpha: 0.10,
+    cellSize: 4, tileSize: 32, tileOffsetX: 4, tileOffsetY: 4, shadeAlpha: 0.34,
   })
 }
 

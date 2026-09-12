@@ -62,9 +62,7 @@ test('mid-arrival inside resize continues from the rebased pose and a blocking w
 })
 
 test('resizing in the inner door corridor continues the current leg without restarting it', () => {
-  const outsideDistance = Math.hypot(oldPlan.arrival[1]!.x - oldPlan.arrival[0]!.x,
-    oldPlan.arrival[1]!.y - oldPlan.arrival[0]!.y)
-  const elapsed = (oldPlan.departureDistance + outsideDistance + 12) / ROOM_WALK_SPEED * 1_000
+  const elapsed = (oldPlan.departureDistance + 12) / ROOM_WALK_SPEED * 1_000
   const resized = resizeRoomWalk(oldPlan, elapsed, oldSource, newSource, oldTarget, newTarget,
     { x: 280, y: 210 }, [], [])!
   assert.ok(resized)

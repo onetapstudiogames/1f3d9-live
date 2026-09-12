@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { nestedLayout } from '../src/ground/nested.ts'
 import { singleRoomLayout } from '../src/room-view.ts'
-import { presentRoom, roomFigurePriority } from '../src/room-presentation.ts'
+import { presentRoom, roomFigurePriority, roomNameLabelPriority } from '../src/room-presentation.ts'
 import { ROOM_FIGURE_PITCH, ROOM_FIGURE_SIZE, ROOM_THING_PITCH } from '../src/room-crowding.ts'
 
 const places = [1, 2, 3].map(id => ({ id, parent_id: id === 1 ? null : 1, name: `room ${id}`,
@@ -55,12 +55,49 @@ test('speakers outrank idle followed residents and hidden speakers are reported'
   assert.deepEqual(twoSpeakers.hiddenSpeakerIds, [2])
 })
 
+test('a speaker keeps the scarce seat when a thing is also present', () => {
+  const small = singleRoomLayout(source, 112 + ROOM_FIGURE_SIZE, 186 + ROOM_FIGURE_SIZE)
+  const speaker = { ...actor(2), bubble: { text: 'hello' } }
+  const frame = presentRoom({ 2: speaker }, { 4: actor(4) }, world, small, new Set())
+
+  assert.equal(frame.residents[2]!.visible, true)
+  assert.equal(frame.things[4]!.visible, false)
+  assert.deepEqual(frame.hiddenSpeakerIds, [])
+})
+
 test('presentation exposes reusable crowding state for unchanged unchanged frames', () => {
   const residents = Object.freeze({ 1: Object.freeze(actor(1)), 2: Object.freeze(actor(2)) })
   const first = presentRoom(residents, {}, world, target, new Set())
   const unchanged = presentRoom(residents, {}, world, target, new Set(), first.crowding)
   assert.equal(unchanged.crowding, first.crowding)
   assert.equal(unchanged.placements, first.placements)
+})
+
+test('captioned residents and used things win label collisions', () => {
+  assert.ok(roomNameLabelPriority(0, true) > roomNameLabelPriority(120, false))
+  assert.equal(roomNameLabelPriority(80, false), 80)
+})
+
+test('idle resident decoration cannot move an already placed thing', () => {
+  const thing = { ...actor(4), x: source.standing.x + 40, y: source.standing.y + 30 }
+  const first = presentRoom({ 1: actor(1) }, { 4: thing }, world, target, new Set())
+  const movedResident = { ...actor(1), x: first.things[4]!.x, y: first.things[4]!.y }
+  const next = presentRoom({ 1: movedResident }, { 4: thing }, world, target, new Set(), first.crowding)
+  assert.deepEqual({ x: next.things[4]!.x, y: next.things[4]!.y },
+    { x: first.things[4]!.x, y: first.things[4]!.y })
+})
+
+test('a followed idle step cannot move an already placed thing', () => {
+  const compact = singleRoomLayout(source, 375, 540)
+  const preferred = { x: compact.rooms[2]!.standing.x + 40, y: compact.rooms[2]!.standing.y + 30 }
+  const resident = { ...actor(1), ...preferred }
+  const thing = { ...actor(4), ...preferred }
+  const first = presentRoom({ 1: resident }, { 4: thing }, compact, compact, new Set(), {}, 1)
+  const moved = { ...resident, x: first.residents[1]!.x + 12, y: first.residents[1]!.y }
+  const next = presentRoom({ 1: moved }, { 4: thing }, compact, compact, new Set(), first.crowding, 1)
+
+  assert.deepEqual({ x: next.things[4]!.x, y: next.things[4]!.y },
+    { x: first.things[4]!.x, y: first.things[4]!.y })
 })
 
 test('quiet, unavailable and hidden rooms cannot expose projected occupants or anchors', () => {

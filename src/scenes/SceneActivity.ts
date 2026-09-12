@@ -21,6 +21,7 @@ export class SceneActivity {
   private looking: LookingState | undefined
   private activeLooks: readonly Readonly<{ residentId: number; key: string; expiresAt: number }>[] = []
   private captions: readonly ActionCaption[] = []
+  private witnessedCaptionKeys = new Set<string>()
   private readonly captionLayer = new CaptionLayer()
 
   constructor(scene: Phaser.Scene,
@@ -32,22 +33,27 @@ export class SceneActivity {
   }
 
   reset(): void {
-    this.log.clearHistory(); this.cues = emptyCueState(); this.looking = undefined; this.activeLooks = []; this.captions = []; this.captionLayer.clear()
+    this.log.clearHistory(); this.cues = emptyCueState(); this.looking = undefined; this.activeLooks = []
+    this.captions = []; this.witnessedCaptionKeys.clear(); this.captionLayer.clear()
   }
 
   animate(rows: readonly ReplayEvent[], recordedNow: number, presentationNow: number,
     representedKeys: ReadonlySet<string> = new Set()): readonly ActivityEntry[] {
     const derived = activityEntriesFromRows(rows, recordedNow, this.context)
+    const captions = derived.filter(entry => this.witnessedCaptionKeys.has(entry.key))
+      .flatMap(entry => actionCaption(entry, presentationNow) ?? [])
+    for (const entry of derived) this.witnessedCaptionKeys.delete(entry.key)
+    if (captions.length) this.captions = Object.freeze([...this.captions, ...captions]
+      .filter((caption, index, all) => all.findIndex(other => other.key === caption.key) === index))
     const entries = derived.map(entry => this.toCue(entry, presentationNow))
     this.cues = stepActivityCues(this.cues, entries, presentationNow, representedKeys)
     return derived
   }
 
   witness(rows: readonly ReplayEvent[], observedAt: number, context: ActivityContext = this.context,
-    presentationNow = observedAt): readonly ActivityEntry[] {
+    _presentationNow = observedAt): readonly ActivityEntry[] {
     const added = this.log.witness(rows, observedAt, context)
-    const captions = added.flatMap(entry => actionCaption(entry, presentationNow) ?? [])
-    if (captions.length) this.captions = Object.freeze([...this.captions, ...captions])
+    for (const entry of added) this.witnessedCaptionKeys.add(entry.key)
     return added
   }
 
@@ -89,6 +95,27 @@ export class SceneActivity {
     const captionResidents = new Set(this.captions.map(caption => caption.residentId))
     const laneHeight = actionCaptionLaneHeight(this.captions, viewport.height)
     this.captionLayer.update(this.captions, residents, viewport, now, visibleSpeechCardRects(captionResidents, viewport.height, laneHeight))
+  }
+
+  syncMoveCaptions(diagnostics: readonly Readonly<{ id: number; phase: 'departure' | 'arrival' | 'done' }>[], now: number): void {
+    const phases = new Map(diagnostics.map(row => [row.id, row.phase]))
+    this.captions = Object.freeze(this.captions.flatMap(caption => {
+      if (!caption.move) return [caption]
+      const phase = phases.get(caption.residentId)
+      if (phase === 'arrival' || phase === 'done') return []
+      return [phase === 'departure' && caption.expiresAt <= now
+        ? Object.freeze({ ...caption, expiresAt: now + 1 }) : caption]
+    }))
+  }
+
+  captionPriorities(now: number): Readonly<{ residentIds: ReadonlySet<number>; thingIds: ReadonlySet<number>;
+    movingResidentIds: ReadonlySet<number> }> {
+    const active = activeActionCaptions(this.captions, now)
+    return Object.freeze({
+      residentIds: new Set(active.map(caption => caption.residentId)),
+      thingIds: new Set(active.flatMap(caption => caption.thingId === null ? [] : [caption.thingId])),
+      movingResidentIds: new Set(active.filter(caption => caption.move).map(caption => caption.residentId)),
+    })
   }
 
   update(residents: Readonly<Record<number, ResidentState>>, things: Readonly<Record<number, ThingState>>, layout: NestedLayout,

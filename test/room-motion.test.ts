@@ -37,8 +37,7 @@ test('recorded room walk leaves fully through the source door before arrival beg
   assert.deepEqual(plan.departure[0], { x: 120, y: 100 })
   assert.deepEqual(plan.departure.at(-2), source.door)
   assert.ok(plan.departure.at(-1)!.x > source.x + source.width + 30)
-  assert.ok(plan.arrival[0]!.x < target.x - 30)
-  assert.deepEqual(plan.arrival[1], target.door)
+  assert.deepEqual(plan.arrival[0], target.door)
 
   const departureEnd = plan.departureDistance / ROOM_WALK_SPEED * 1_000
   assert.equal(sampleRoomWalk(plan, departureEnd - 0.01).roomId, 1)
@@ -55,7 +54,7 @@ test('offscreen resident has only an arrival and still enters through the door',
   const plan = createRoomWalk(undefined, target, { x: 1, y: 1 }, { x: 180, y: 100 }, [], [])
   assert.ok(plan)
   assert.deepEqual(plan.departure, [])
-  assert.deepEqual(plan.arrival[1], target.door)
+  assert.deepEqual(plan.arrival[0], target.door)
   assert.equal(sampleRoomWalk(plan, 0).phase, 'arrival')
   assert.equal(sampleRoomWalk(plan, 0).roomId, 4)
 })

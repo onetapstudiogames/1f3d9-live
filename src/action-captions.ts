@@ -2,7 +2,8 @@ import type { ActivityEntry } from './activity.ts'
 
 export const ACTION_CAPTION_LIFETIME = 3_000
 
-export type ActionCaption = Readonly<{ key: string; residentId: number; text: string; startedAt: number; expiresAt: number }>
+export type ActionCaption = Readonly<{ key: string; residentId: number; thingId: number | null; move: boolean;
+  text: string; startedAt: number; expiresAt: number }>
 export type CaptionResident = Readonly<{ id: number; x: number; y: number; visible: boolean }>
 export type CaptionRect = Readonly<{ x: number; y: number; width: number; height: number }>
 export type SpeechRect = CaptionRect & Readonly<{ residentId: number }>
@@ -14,7 +15,8 @@ export function actionCaption(entry: ActivityEntry, startedAt: number): ActionCa
   if (!actor || !entry.text.startsWith(`${actor} `)) return null
   let text = entry.text.slice(actor.length + 1).trim().replace(/\.$/, '')
   if (!text || /^talked(?:;|$)/.test(text)) return null
-  return Object.freeze({ key: entry.key, residentId: entry.actorResidentId, text,
+  return Object.freeze({ key: entry.key, residentId: entry.actorResidentId,
+    thingId: entry.cue === 'move' ? null : entry.thingId ?? null, move: entry.cue === 'move', text,
     startedAt, expiresAt: startedAt + ACTION_CAPTION_LIFETIME })
 }
 

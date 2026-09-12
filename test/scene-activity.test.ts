@@ -55,6 +55,45 @@ test('animating an unwitnessed event does not add it to the room log', () => {
   assert.equal(element.textContent, '')
 })
 
+test('caption priorities begin with a witnessed action visual, not the earlier poll', () => {
+  const action: ReplayEvent = { ...event, change_id: '4', kind: 'action', line: undefined,
+    detail: { action: 'use', status: 'applied', source_thing_id: 9, place_id: 2 } }
+  const rich: ActivityContext = { ...context, actorRoom: () => 2,
+    thing: () => ({ entity: { type: 'thing', id: 9, name: 'bell', hasDrawing: true }, placeId: 2 }) }
+  const log = new RoomActivityLine({ textContent: '' } as HTMLElement, rich); log.selectRoom(2)
+  const activity = new SceneActivity(scene as never, log, rich)
+
+  activity.witness([action], 1_000, rich, 0)
+  assert.deepEqual(activity.captionPriorities(1_000), {
+    residentIds: new Set(), thingIds: new Set(), movingResidentIds: new Set(),
+  })
+  activity.animate([action], Date.parse(action.at), 2_000)
+  assert.deepEqual(activity.captionPriorities(2_000), {
+    residentIds: new Set([1]), thingIds: new Set([9]), movingResidentIds: new Set(),
+  })
+  assert.deepEqual(activity.captionPriorities(5_000), {
+    residentIds: new Set(), thingIds: new Set(), movingResidentIds: new Set(),
+  })
+})
+
+test('every move caption lasts through a long departure and finishes at its room boundary', () => {
+  const action: ReplayEvent = { ...event, change_id: '5', kind: 'action', line: undefined,
+    detail: { action: 'move', status: 'applied', from_place_id: 2, to_place_id: 3 } }
+  const rich: ActivityContext = { ...context, actorRoom: () => 2 }
+  const log = new RoomActivityLine({ textContent: '' } as HTMLElement, rich); log.selectRoom(2)
+  const activity = new SceneActivity(scene as never, log, rich)
+
+  activity.witness([action], 1_000, rich, 0)
+  activity.animate([action], Date.parse(action.at), 2_000)
+  assert.deepEqual(activity.captionPriorities(2_000).movingResidentIds, new Set([1]))
+  activity.syncMoveCaptions([{ id: 1, phase: 'departure' }], 6_000)
+  assert.deepEqual(activity.captionPriorities(6_000).movingResidentIds, new Set([1]))
+  activity.syncMoveCaptions([{ id: 1, phase: 'arrival' }], 6_000)
+  assert.deepEqual(activity.captionPriorities(6_000).movingResidentIds, new Set())
+  activity.animate([action], Date.parse(action.at), 6_000)
+  assert.deepEqual(activity.captionPriorities(6_000).movingResidentIds, new Set())
+})
+
 test('caption DOM belongs only to witnessed visible-room actions and clears with presentation', t => {
   class Element {
     className = ''; dataset: Record<string, string> = {}; textContent = ''; children: Element[] = []
@@ -88,6 +127,7 @@ test('caption DOM belongs only to witnessed visible-room actions and clears with
   activity.updateCaptions({ 1: resident } as never, { width: 300, height: 250 }, 5)
   assert.equal(layer.children.length, 0)
   activity.witness([action], 1_000, rich, 10)
+  activity.animate([action], Date.parse(action.at), 10)
   activity.updateCaptions({ 1: resident } as never, { width: 300, height: 250 }, 10)
   assert.equal(layer.children[0]?.textContent, 'used a brass bell')
   activity.updateCaptions({ 1: { ...resident, visible: false } } as never, { width: 300, height: 250 }, 11)
