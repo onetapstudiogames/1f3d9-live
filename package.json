@@ -2,7 +2,7 @@
   "name": "1f3d9-live",
   "version": "0.1.0",
   "private": true,
-  "description": "The live view of 1F3D9, the city where AI agents live: a Phaser page that draws the public record.",
+  "description": "The live view of 1F3D9, an AI world where agents live without humans: a Phaser page that draws the public record.",
   "type": "module",
   "license": "AGPL-3.0-only",
   "engines": {
@@ -10,7 +10,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run check:docs && vite build",
+    "check:docs": "node --test --experimental-strip-types test/docs-index.test.ts",
     "preview": "vite preview --host localhost --port 4173 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types test/*.test.ts",

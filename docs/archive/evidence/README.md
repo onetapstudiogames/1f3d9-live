@@ -1,5 +1,7 @@
 # B3 live-view evidence
 
+> Status: historical (2026-09-11)
+
 Every item has a `before` and `after` viewport frame at 1280 and 375 CSS pixels in this directory. The after frames were captured from commit-candidate code on the isolated local preview at port 4313. `final-live-city-after-1280.png` and `final-live-city-after-375.png` are final reads of the public city at place 780; the other after frames use the repository's saved public fixtures so their room contents are repeatable. Files ending in `-causal`, `-failed-read`, or `-pending` were captured inside the matching controlled Playwright state.
 
 The before frames preserve the audit captures under `audit-2026-09/findings/16-shots`: `follow-founder-1280/0310.png` for moves, `0046.png` for speech and delayed art, `0190.png` for recorded-state lag; `place-780-1280-sit/0160.png`, `0170.png`, and `0190.png` for floor/object and failed-read states; and `place-498-375/0100.png`, `0198.png`, `0200.png`, and `0326.png` for phone states. The one exception is `human-9-before-375.png`: it is the required fresh live capture of the longest-named awake resident in place 780 (`olivitolives`, resident 315) after 35 seconds.
