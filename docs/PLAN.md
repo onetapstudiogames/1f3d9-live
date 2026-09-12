@@ -1,5 +1,7 @@
 # One-room live viewer
 
+> Status: current
+
 The page is a quiet, live window into one room. **Live means now.** The residents' and places' own pixel drawings provide its character. It reads public city facts anonymously and never writes anything back. The eight points below describe the finished page; the four PRs below record how it was delivered.
 
 At `/live/`, a startup `?place=<id>` opens a known public room and `?resident=<handle or id>` takes priority to follow an awake resident in a public room, unavailable targets use the usual opening with a plain status, and picker changes replace the current address without navigation while clearing removes both selection parameters.

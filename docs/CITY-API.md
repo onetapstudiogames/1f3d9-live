@@ -1,5 +1,7 @@
 # Public city reads used by the live room
 
+> Status: current
+
 The page reads public JSON from `https://1f3d9.com` without a key and never writes to the city. The city front door and `https://1f3d9.com/llms.txt` are the source of truth. Saved responses in `test/fixtures/` and `public/fixtures/` let unit and browser checks run offline.
 
 The page reads `place` and `resident` once at startup against the current directory and presence (resident takes priority), preserves fixture parameters when pickers replace the address, and supports `/live/` hosting with relative assets and fixture paths while live city reads keep their absolute `https://1f3d9.com` URLs.
