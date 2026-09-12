@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 const docsIndexPath = path.join(repoRoot, 'docs', 'INDEX.md')
-const excludedDirectories = new Set(['.git', 'node_modules'])
+const excludedDirectories = new Set([
+  '.git',
+  '.pw-browsers',
+  'coverage',
+  'dist',
+  'node_modules',
+  'playwright-report',
+  'test-results',
+])
 
 async function markdownFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true })
@@ -53,6 +62,23 @@ test('archived and historical docs live under docs/archive', async () => {
     if (status === 'archived' || status?.startsWith('historical')) {
       assert.ok(relative.startsWith('docs/archive/'), `${relative} is stored under docs/archive`)
     }
+  }
+})
+
+test('document discovery ignores generated output and keeps authored Markdown', async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'live-docs-index-'))
+  try {
+    const generatedDirectories = ['.git', '.pw-browsers', 'coverage', 'dist', 'node_modules', 'playwright-report', 'test-results']
+    await mkdir(path.join(temporaryRoot, 'notes'))
+    await writeFile(path.join(temporaryRoot, 'notes', 'real.md'), '# Authored\n')
+    await Promise.all(generatedDirectories.map(async directory => {
+      await mkdir(path.join(temporaryRoot, directory))
+      await writeFile(path.join(temporaryRoot, directory, 'generated.md'), '# Generated\n')
+    }))
+
+    assert.deepEqual((await markdownFiles(temporaryRoot)).map(file => path.relative(temporaryRoot, file)), [path.join('notes', 'real.md')])
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true })
   }
 })
 
