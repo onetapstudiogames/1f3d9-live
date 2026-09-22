@@ -188,3 +188,55 @@ test('a newly witnessed long note stays whole beside its speaker through layout 
   }, cardSelector)).toBe(true)
   expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
 })
+
+test('a walk-to-read note shows its first line and says the rest is read in person', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.clock.install({ time: new Date('2026-09-07T13:53:04.254Z') })
+  await page.clock.pauseAt(new Date('2026-09-07T13:54:04.254Z'))
+  const diagnostics = await keepFixtureOffline(page)
+  // Shaped by the city's walk-to-read shaper (city PR #355): a first line and no body.
+  const saved = JSON.parse(await readFile('public/fixtures/notes/note-17942.json', 'utf8')) as {
+    note: { id: number; place_id: number; first_line: string; body?: string }
+  }
+  expect(saved.note).toMatchObject({ id: 17942, place_id: 782 })
+  expect(saved.note.body).toBeUndefined()
+  const expected = `${saved.note.first_line}\n(rest read in person)`
+
+  let releaseChange!: () => void
+  let changeRequested = false
+  const held = new Promise<void>(resolve => { releaseChange = resolve })
+  await page.route('**/fixtures/changes-live.json', async route => {
+    changeRequested = true
+    await held
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      change_marker: '100128', next_since: '100128', has_more: false, unchanged: false, returned_items: 1,
+      changes: [{ change_id: '100128', kind: 'note', actor: 'buzz', detail: { note_id: 17942, place_id: 782 },
+        created_at: '2026-09-07T13:54:04.254Z' }],
+    }) })
+  })
+
+  await page.goto(fixtureUrl)
+  await expect.poll(async () => {
+    await page.clock.runFor(16)
+    return await page.locator('body').getAttribute('data-live-ready')
+  }, { timeout: 30_000 }).toBe('true')
+  await page.locator('#place-picker').selectOption('782')
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '782')
+  await advanceToLivePoll(page)
+  await expect.poll(() => changeRequested).toBe(true)
+  releaseChange()
+  await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
+
+  const card = page.locator('.room-speech-card[data-note-id="17942"]')
+  await expect.poll(async () => {
+    await page.clock.runFor(500)
+    return await card.getAttribute('data-complete')
+  }, { timeout: 60_000 }).toBe('true')
+  await expect(card.locator('.room-speech-words')).toHaveText(expected)
+  const log = page.locator('#room-activity')
+  await expect(log).toContainText('buzz in ')
+  await expect(log).toContainText(expected)
+  await expect(log).not.toContainText('rest not read')
+  await expect(page.locator('#live-status')).not.toContainText('could not be read')
+  expect(diagnostics.external).toEqual([]); expect(diagnostics.errors).toEqual([])
+})

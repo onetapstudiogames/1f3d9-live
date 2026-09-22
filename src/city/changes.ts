@@ -4,7 +4,8 @@ import type { ReplayDetail, ReplayEvent } from './types.ts'
 export type ChangesPage = Readonly<{
   marker: string; nextSince: string; hasMore: boolean; unchanged: boolean; events: readonly ReplayEvent[]
 }>
-export type NoteExcerpt = Readonly<{ id: number; author: string; placeId: number; text: string; cut: boolean }>
+// `readInPerson` marks a walk-to-read note whose `text` is only its public first line.
+export type NoteExcerpt = Readonly<{ id: number; author: string; placeId: number; text: string; cut: boolean; readInPerson?: true }>
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -68,11 +69,18 @@ export async function fetchChanges(since: string, search: string = browserSearch
 export function parseNoteExcerpt(value: unknown, id: number): NoteExcerpt {
   const note = object(value) ? value['note'] : undefined
   if (!Number.isSafeInteger(id) || id < 1 || !object(note) || note['id'] !== id || typeof note['author'] !== 'string' || !note['author'].trim()
-    || typeof note['body'] !== 'string' || typeof note['place_id'] !== 'number'
-    || !Number.isSafeInteger(note['place_id']) || note['place_id'] < 1) {
+    || typeof note['place_id'] !== 'number' || !Number.isSafeInteger(note['place_id']) || note['place_id'] < 1) {
     throw new Error('The public note answer is incomplete or names a different note.')
   }
-  return Object.freeze({ id, author: note['author'], placeId: note['place_id'], text: note['body'], cut: false })
+  const common = { id, author: note['author'], placeId: note['place_id'] }
+  if (typeof note['body'] === 'string') return Object.freeze({ ...common, text: note['body'], cut: false })
+  // A walk-to-read note read from afar has no body: only its first line and the city's
+  // read_in_person sentence. Keep the first line; never guess at the rest.
+  if (note['body'] === undefined && note['walk_to_read'] === true && typeof note['first_line'] === 'string'
+    && typeof note['read_in_person'] === 'string' && note['read_in_person'].trim()) {
+    return Object.freeze({ ...common, text: note['first_line'], cut: false, readInPerson: true })
+  }
+  throw new Error('The public note answer is incomplete or names a different note.')
 }
 
 export function createNoteExcerptLoader(search: string = browserSearch()): (id: number) => Promise<NoteExcerpt | null> {

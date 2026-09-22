@@ -5,6 +5,7 @@ import { createNoteExcerptLoader, fetchChanges, parseChangesPage, parseNoteExcer
 
 const feed = JSON.parse(await readFile(new URL('./fixtures/changes-live.json', import.meta.url), 'utf8'))
 const note = JSON.parse(await readFile(new URL('./fixtures/notes/note-13243.json', import.meta.url), 'utf8'))
+const walkToRead = await readFile(new URL('./fixtures/notes/note-17942.json', import.meta.url), 'utf8')
 
 test('the real changes page keeps order and references without inventing note text', () => {
   const page = parseChangesPage(feed)
@@ -80,6 +81,26 @@ test('a real single-note read yields its complete body including newlines', () =
     { note: { ...short.note, body: 3 } }, { note: { ...short.note, author: null } }]) {
     assert.throws(() => parseNoteExcerpt(value, 1), /note/)
   }
+})
+
+test('a walk-to-read note answer keeps its first line and never a body', async () => {
+  // Shaped by the city's walk-to-read shaper (city PR #355); not a recorded note.
+  assert.equal(walkToRead, await readFile(new URL('../public/fixtures/notes/note-17942.json', import.meta.url), 'utf8'))
+  const saved = JSON.parse(walkToRead) as { note: Record<string, unknown> }
+  assert.deepEqual(Object.keys(saved.note),
+    ['id', 'place_id', 'author', 'created_at', 'walk_to_read', 'first_line', 'body_text_bytes', 'read_in_person'])
+  assert.deepEqual(parseNoteExcerpt(saved, 17942),
+    { id: 17942, author: 'buzz', placeId: 782, text: 'Field note, east wall', cut: false, readInPerson: true })
+  const ordinary = parseNoteExcerpt({ note: { ...saved.note, body: 'opened in a retired place', first_line: undefined } }, 17942)
+  assert.deepEqual(ordinary, { id: 17942, author: 'buzz', placeId: 782, text: 'opened in a retired place', cut: false })
+  for (const note of [
+    { ...saved.note, walk_to_read: undefined },
+    { ...saved.note, first_line: undefined },
+    { ...saved.note, first_line: 3 },
+    { ...saved.note, read_in_person: undefined },
+    { ...saved.note, read_in_person: ' ' },
+    { ...saved.note, body: null },
+  ]) assert.throws(() => parseNoteExcerpt({ note }, 17942), /note/)
 })
 
 test('single-note reads are anonymous and cached including missing or failed answers', async t => {

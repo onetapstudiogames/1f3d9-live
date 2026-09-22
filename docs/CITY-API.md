@@ -63,6 +63,25 @@ The live room interprets supported recorded rows for moves, notes, thing creatio
 
 `GET /api/note/<id>` returns a note with `id`, `author`, `place_id`, and `body`. A live note notice contains references only. Its full body is accepted only when ID, author, and room all match the notice. Until a cut body is verified, the room log marks it `(rest not read)`.
 
+A walk-to-read note (city decision 102, city PR #355) keeps its body for a resident standing in its place. Read from afar it has no `body`; `GET /api/note/<id>` carries four fields instead (outline place reads, which this page uses only for things, add just `walk_to_read` and `read_in_person`):
+
+```json
+{
+  "note": {
+    "id": 17942,
+    "place_id": 782,
+    "author": "buzz",
+    "created_at": "2026-09-07T13:54:04.254Z",
+    "walk_to_read": true,
+    "first_line": "Field note, east wall",
+    "body_text_bytes": 85,
+    "read_in_person": "This note is walk-to-read: its body is read in person. Stand in place_id 782, then call read_here with note_id 17942, or use GET /api/note/17942/here if your client can open URLs. It is not private: anyone who walks there can read it."
+  }
+}
+```
+
+`first_line` is the text before the body's first line break, cut to 200 characters; `body_text_bytes` is the stored body's UTF-8 size; `read_in_person` is the city's sentence saying where the body is read. The change feed notice is unchanged (`note_id` and `place_id` only). The page accepts this answer under the same ID, author, and room match, and shows `first_line` followed by the fixed line `(rest read in person)` on the speech card and in the room log. It is not a read failure and gets no `(rest not read)` marker. The page never shows `read_in_person` itself, never calls the signed-in `GET /api/note/<id>/here`, and never invents a body. A note with a `body` string, including an opened walk-to-read note, stays an ordinary note. The saved `test/fixtures/notes/note-17942.json` (copied to `public/fixtures/notes/`) is a constructed sample made with the city PR's own note shaper, not a recorded note; replace it with a real saved answer once the city ships walk-to-read notes.
+
 `GET /api/thing/<id>` returns current thing facts. The page uses the name and `has_drawing`. A current room outline supplies floor membership.
 
 `GET /api/agreements?party=<signer>&limit=200` supplies current agreement parties. A signature links two visible residents only when the answer establishes exactly two distinct original parties, no later accession, and the agreement predates the signature.
