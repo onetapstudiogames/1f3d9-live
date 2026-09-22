@@ -1,7 +1,7 @@
 import type { Drawing, OutlineThing, ReplayEvent, Resident, Thing } from '../city/types.ts'
 import type { NestedLayout } from '../ground/nested.ts'
 import { liveNoteReferences } from '../live.ts'
-import { NOTE_READ_ISSUE, verifiedNoteEvent } from '../note-words.ts'
+import { NOTE_READ_ISSUE, verifiedNoteEvent, type NoteBody } from '../note-words.ts'
 import type { Simulation } from '../replay/simulation.ts'
 import type { ThingState } from '../things.ts'
 
@@ -44,7 +44,7 @@ export function residentDrawingPending(resident: Resident | undefined, resolved:
 }
 
 export async function readNoteWords(events: readonly ReplayEvent[], layout: NestedLayout,
-  read: (id: number) => Promise<Readonly<{ author: string; placeId: number; text: string; cut: boolean }> | null>, issue: Issue): Promise<readonly ReplayEvent[]> {
+  read: (id: number) => Promise<NoteBody | null>, issue: Issue): Promise<readonly ReplayEvent[]> {
   const result = [...events]
   const candidates = liveNoteReferences(events, layout)
   await inFours(candidates.map((_, index) => index), async candidateIndex => {
