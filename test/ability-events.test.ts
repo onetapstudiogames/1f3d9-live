@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { activityEntry, activityReduce, emptyActivity, knownActivityKind, type ActivityContext, type ActivityPlace } from '../src/activity.ts'
-import { chanceRollWords, copyLine, roomSettleWords, thingEditWords, unknownKindWords } from '../src/ability-events.ts'
+import { chanceRollWords, copyLine, copySkippedWords, roomReachedWords, roomSettleWords, thingEditWords, unknownKindWords } from '../src/ability-events.ts'
 import { fetchPlaceOutline } from '../src/city/api.ts'
 import { parseChangesPage } from '../src/city/changes.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
@@ -50,7 +50,7 @@ test('every ability row becomes one short plain room-log line in its room', () =
     [3, 'northstar checked in; the square settled and nothing woke.'],
     [3, 'northstar changed the state box of thing #2557.'],
     [3, "northstar's thing made a copy: a gift for whoever comes next."],
-    [3, 'northstar turned thing #2557 into another kind.'],
+    [3, 'northstar turned thing #2557 into kind #91.'],
     [3, 'northstar left a public record (weather turned).'],
   ])
   for (const entry of state.entries) {
@@ -67,11 +67,11 @@ test('a known thing name replaces its number, and a copy of itself says so', () 
   assert.equal(activityEntry(row(1, 'chance_rolled', { thing_id: 2557, place_id: 3, status: 'then' }), named)?.text,
     'northstar rolled a public chance with a brass bell; it hit.')
   assert.equal(activityEntry(row(2, 'thing_created', { thing_id: 9, place_id: 3, name: 'a brass bell', mode: 'copy', source_thing_id: 2557 }), named)?.text,
-    "northstar's a brass bell made a copy of itself.")
+    "northstar's a brass bell copied itself.")
   assert.equal(activityEntry(row(3, 'thing_created', { thing_id: 9, place_id: 3, name: 'a small bell', mode: 'copy', source_thing_id: 2557 }), named)?.text,
     "northstar's a brass bell made a copy: a small bell.")
   assert.equal(activityEntry(row(4, 'thing_edited', { thing_id: 2557, place_id: 3, mode: 'converted', kind_id: 4 }), named)?.text,
-    'northstar turned a brass bell into another kind.')
+    'northstar turned a brass bell into kind #4.')
 })
 
 test('ability rows in a quiet room or an unknown room stay out of the log', () => {
@@ -100,7 +100,7 @@ test('an unknown kind is never dropped in silence: it takes its room, or where i
   assert.deepEqual(witnessedEvents([row(6, 'dream_woven', {})], { ...context, actorRoom: () => 3 }, 3).map(event => event.change_id), ['6'])
   assert.deepEqual(witnessedEvents([row(7, 'dream_woven', {})], { ...context, actorRoom: () => 1 }, 3), [])
   assert.equal(knownActivityKind('dream_woven'), false)
-  for (const kind of ['action', 'note', 'chance_rolled', 'room_settled', 'thing_edited', 'thing_created']) assert.equal(knownActivityKind(kind), true)
+  for (const kind of ['action', 'note', 'chance_rolled', 'room_settled', 'room_reached', 'copy_skipped', 'thing_edited', 'thing_created']) assert.equal(knownActivityKind(kind), true)
 })
 
 test('the word helpers never claim what the feed did not carry', () => {
@@ -110,8 +110,8 @@ test('the word helpers never claim what the feed did not carry', () => {
   assert.equal(roomSettleWords({ mode: 'talk', status: 'woke' }, 'the square'), 'spoke and things woke in the square')
   assert.equal(roomSettleWords({ mode: 'act', status: 'quiet' }, 'the square'), 'acted; the square settled and nothing woke')
   assert.equal(roomSettleWords({ mode: 'later', status: 'woke' }, 'the square'), 'was there and things woke in the square')
-  assert.equal(thingEditWords('state', 'a box'), 'changed the state box of a box')
-  assert.equal(thingEditWords(undefined, 'a box'), null)
+  assert.equal(thingEditWords({ mode: 'state' }, 'a box'), 'changed the state box of a box')
+  assert.equal(thingEditWords({}, 'a box'), null)
   assert.equal(activityEntry(row(1, 'thing_edited', { thing_id: 4, place_id: 3 }), context)?.text, 'northstar changed thing #4.')
   assert.equal(copyLine('a', 'seed', null), "a's thing made a copy: seed.")
   assert.equal(unknownKindWords('  '), 'left a public record')
@@ -131,5 +131,84 @@ test('a rough room is marked only when its place read says rough_room true', asy
   for (const value of [false, 'true', undefined]) {
     rough = value
     assert.equal((await fetchPlaceOutline(3, '?places=/fixtures/places'))?.roughRoom, undefined, String(value))
+  }
+})
+
+// Built from the rows city PR #368's own integration test records
+// (test/integration/public-feed-details-postgres.test.ts), with this page's room and thing
+// numbers. Not a recorded live page; replace once the city ships PR #368.
+const detailsSaved = await readFile(new URL('./fixtures/changes-abilities-details.json', import.meta.url), 'utf8')
+const detailsPage = parseChangesPage(JSON.parse(detailsSaved))
+
+test('the saved ability rows with numbers are in the city PR #368 feed shape and served identically', async () => {
+  assert.equal(detailsSaved, await readFile(new URL('../public/fixtures/changes-abilities-details.json', import.meta.url), 'utf8'))
+  // Exactly the fields the city lists for each kind, beside the shared reference fields.
+  const kindFields: Record<string, readonly string[]> = {
+    chance_rolled: ['roll_id', 'purpose', 'roll', 'sides', 'percent', 'outcome', 'settle_id', 'thing_id', 'place_id', 'action_id', 'status'],
+    room_settled: ['settle_id', 'tried', 'woke', 'forfeited', 'place_id', 'mode', 'status'],
+    room_reached: ['over', 'reached', 'more', 'skipped', 'stopped', 'settle_id', 'thing_id', 'trait_id', 'place_id', 'action_id'],
+    copy_skipped: ['family_id', 'cap', 'limit', 'over_by', 'settle_id', 'thing_id', 'trait_id', 'place_id', 'action_id'],
+    thing_created: ['generation', 'family_id', 'thing_id', 'place_id', 'name', 'kind_id', 'mode', 'source_thing_id'],
+    thing_edited: ['version', 'key', 'op', 'from_kind_id', 'law_trait_id', 'thing_id', 'place_id', 'mode', 'source_thing_id', 'kind_id'],
+  }
+  for (const event of detailsPage.events) {
+    const allowed = kindFields[event.kind]; if (!allowed) continue
+    for (const field of Object.keys(event.detail)) assert.ok(allowed.includes(field), `${event.kind} ${field}`)
+    // Never the day secret's fingerprint, the budget, or the trim count.
+    for (const hidden of ['day', 'commitment', 'budget', 'trimmed']) assert.equal(hidden in event.detail, false)
+  }
+})
+
+test('ability rows with numbers say them in plain words', () => {
+  const names: Record<number, string> = { 2557: 'a coin', 2600: 'moss', 2602: 'a cloud', 2603: 'an open oak' }
+  const named: ActivityContext = { ...context, thing: id => names[id]
+    ? { entity: { type: 'thing', id, name: names[id]!, hasDrawing: null }, placeId: 3 } : null }
+  const state = activityReduce(emptyActivity(), detailsPage.events, Date.parse('2026-09-08T00:00:00Z'), named)
+  assert.deepEqual(state.entries.map(entry => [entry.roomId, entry.text]), [
+    [3, 'northstar rolled 37 of 100 with a coin, a 50 percent chance, hit.'],
+    [3, 'northstar rolled 81 of 100 with a coin, a 50 percent chance, missed; the action failed, so it did not count.'],
+    [3, 'northstar rolled 3 of 8 to pick which things wake in the square.'],
+    [3, 'northstar arrived and things woke in the square: 8 tried, 8 woke.'],
+    [3, 'northstar added to guests in the state box of a coin, version 12.'],
+    [3, 'northstar cleared the state box of a coin, version 13.'],
+    [3, "northstar's moss copied itself, generation 2."],
+    [3, 'northstar had a copy of moss refused: room daily limit 3, over by 1.'],
+    [3, 'northstar set off a reach from a cloud in the square: reached 8 things, 1 refused.'],
+    [3, "northstar set off a reach from the room's law in the square: reached 1 resident, 2 more left out; the action's reach limit stopped it."],
+    [3, 'northstar turned an open oak from kind #66 into kind #67 by a law.'],
+    [3, 'northstar left a public record (weather turned).'],
+  ])
+  for (const entry of state.entries) assert.doesNotMatch(entry.text, /undefined|null|NaN|\[object/i)
+})
+
+test('a number the row does not carry, or carries in the wrong shape, is never shown', () => {
+  assert.equal(chanceRollWords({ status: 'then', roll: 37 }, 'a coin', 'x'), 'rolled a public chance with a coin; it hit')
+  assert.equal(chanceRollWords({ status: 'then', roll: '37', sides: 100 }, 'a coin', 'x'), 'rolled a public chance with a coin; it hit')
+  assert.equal(chanceRollWords({ status: 'else', roll: 5, sides: 6, percent: 250, outcome: 'counted' }, '', null), 'rolled 5 of 6, missed')
+  assert.equal(chanceRollWords({ purpose: 'copy_place', roll: 2, sides: 3, status: null }, 'moss', 'x'), 'rolled 2 of 3 to pick where a copy of moss lands')
+  assert.equal(chanceRollWords({ status: 'then', outcome: 'member_refused' }, 'a die', 'x'),
+    'rolled a public chance with a die; it hit; the thing it reached refused, so it did not count')
+  assert.equal(roomSettleWords({ mode: 'me', status: 'quiet', tried: 3, woke: 0, forfeited: 2 }, 'the square'),
+    'checked in; the square settled and nothing woke: 3 tried, 0 woke, 2 dropped')
+  assert.equal(roomSettleWords({ mode: 'me', status: 'quiet', tried: 3 }, 'the square'), 'checked in; the square settled and nothing woke')
+  assert.equal(thingEditWords({ mode: 'state', key: 'Bad Key!', op: 'set', version: 4 }, 'a box'), 'changed the state box of a box, version 4')
+  assert.equal(thingEditWords({ mode: 'state', key: 'mood', op: 'twist' }, 'a box'), 'wrote mood in the state box of a box')
+  assert.equal(thingEditWords({ mode: 'converted', kind_id: 67, law_trait_id: null }, 'a box'), 'turned a box into kind #67')
+  assert.equal(thingEditWords({ mode: 'converted', from_kind_id: 66, law_trait_id: 9 }, 'a box'), 'turned a box into another kind by a law')
+  assert.equal(copyLine('a', 'seed', null, 0), "a's thing made a copy: seed.")
+  assert.equal(copyLine('a', 'seed', 'moss', 3), "a's moss made a copy: seed, generation 3.")
+  assert.equal(copySkippedWords({ cap: 'copies', limit: 1, over_by: 1 }, 'moss'), 'had a copy of moss refused: copy limit 1, over by 1')
+  assert.equal(copySkippedWords({ cap: 'sideways', limit: 1 }, 'moss'), 'had a copy of moss stopped by a growth limit')
+  assert.equal(copySkippedWords({ cap: 'generations' }, ''), 'had a copy refused: generation limit')
+  assert.equal(roomReachedWords({ over: 'things', reached: 0, more: 0, skipped: 0, stopped: null }, 'a cloud', 'the square'),
+    'set off a reach from a cloud in the square: reached 0 things')
+  assert.equal(roomReachedWords({ over: 'people', reached: 4 }, 'a cloud', 'the square'), 'set off a reach from a cloud in the square')
+})
+
+test('the new kinds follow the room rules: a quiet or unknown room keeps them out', () => {
+  for (const kind of ['room_reached', 'copy_skipped']) {
+    assert.equal(activityEntry(row(1, kind, { thing_id: 7, place_id: 5, over: 'things', reached: 1 }), context), null, kind)
+    assert.equal(activityEntry(row(2, kind, { thing_id: 7, place_id: 99, over: 'things', reached: 1 }), context), null, kind)
+    assert.equal(activityEntry(row(3, kind, { thing_id: 7, over: 'things', reached: 1 }), context), null, kind)
   }
 })

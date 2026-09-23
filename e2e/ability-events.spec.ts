@@ -49,7 +49,7 @@ test('ability rows show as plain room-log lines and a rough room shows its mark'
   for (const words of ['northstar rolled a public chance with ', '; it hit.', '; it missed.',
     'northstar set off a public roll that picked which things wake in the square.',
     'northstar arrived and things woke in the square.', 'northstar checked in; the square settled and nothing woke.',
-    'northstar changed the state box of ', 'made a copy', ' into another kind.', 'northstar left a public record (weather turned).']) {
+    'northstar changed the state box of ', 'copied itself.', ' into kind #91.', 'northstar left a public record (weather turned).']) {
     await expect(log).toContainText(words)
   }
   await expect(log).not.toContainText(/error|undefined|null/i)
