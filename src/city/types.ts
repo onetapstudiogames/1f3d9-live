@@ -53,10 +53,12 @@ export type Drawing = Readonly<{
   id: number
   state: string
   drawing: Readonly<{ palette: readonly string[]; indices: readonly (number | null)[] }> | null
+  description?: string | null
 }>
 
-export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean }>
-export type OutlineThing = Readonly<{ id: number; name: string; placeId: number; hasDrawing: boolean | undefined }>
+export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean; owner?: string | null; kind?: string | null }>
+export type OutlineThing = Readonly<{ id: number; name: string; placeId: number; hasDrawing: boolean | undefined;
+  owner?: string | null; kind?: string | null }>
 export type PlaceOutline = Readonly<{ placeId: number; quiet: boolean; things: readonly OutlineThing[]; totalItems: number;
   hasMore: boolean; lawNames?: readonly string[] | null; name?: string; parentId?: number | null;
   owner?: string | null; ownerId?: number | null; roughRoom?: boolean }>

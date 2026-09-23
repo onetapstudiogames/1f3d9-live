@@ -14,7 +14,20 @@
       <h1 id="room-name"></h1>
       <span id="room-mark" hidden></span>
     </header>
-    <div id="app" aria-label="The recorded room"></div>
+    <div id="app" aria-label="The recorded room">
+      <section id="item-panel" role="dialog" aria-labelledby="item-panel-title" hidden>
+        <button id="item-panel-close" type="button" aria-label="Close item details">×</button>
+        <div class="item-panel__heading">
+          <img id="item-panel-image" alt="">
+          <div class="item-panel__title">
+            <h2 id="item-panel-title"></h2>
+            <p id="item-panel-id"></p>
+          </div>
+        </div>
+        <dl id="item-panel-facts"></dl>
+        <a id="item-panel-record" target="_blank" rel="noopener noreferrer"></a>
+      </section>
+    </div>
     <div id="speech-layer"></div>
     <div id="name-layer"></div>
     <footer id="room-footer">

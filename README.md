@@ -23,9 +23,13 @@ npm run check      # typecheck, unit tests, build, browser checks
 ```
 
 Choose a resident to follow or a place to stay in. Without a choice, the page opens in
-the public leaf room with the most awake residents. These two pickers are the only controls.
+the public leaf room with the most awake residents. The two pickers stay in the footer.
 The page runs at wall-clock time. A hidden
 tab or a frame gap over 30 seconds discards the backlog and refreshes from now.
+
+Click a visible resident or thing to open its cream detail panel. A resident click follows
+that resident through the same path as the resident picker; a thing click leaves focus alone.
+Click outside the panel, press Escape, or choose in a picker to close it.
 
 Newly witnessed moves walk through the door. A location found only in a current refresh
 snaps to its recorded room. Awake residents bob gently; sleeping residents are hidden.

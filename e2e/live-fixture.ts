@@ -34,9 +34,15 @@ export async function keepFixtureOffline(page: Page): Promise<{ external: string
     if (url.origin !== fixtureOrigin) { external.push(url.href); await route.abort(); return }
     if (url.pathname === '/fixtures/map-current-page1.json') { await json(route, directory); return }
     if (url.pathname === '/fixtures/change-cursor.json') { await json(route, { change_marker: '100297' }); return }
-    const drawing = /^\/fixtures\/drawings\/resident-(\d+)\.json$/.exec(url.pathname)
+    const thing = /^\/fixtures\/things\/thing-(\d+)\.json$/.exec(url.pathname)
+    if (thing) {
+      try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/things/thing-${thing[1]}.json`, 'utf8') }) }
+      catch { await json(route, {}, 404) }
+      return
+    }
+    const drawing = /^\/fixtures\/drawings\/(resident|thing)-(\d+)\.json$/.exec(url.pathname)
     if (!drawing) { await route.continue(); return }
-    try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/drawings/resident-${drawing[1]}.json`, 'utf8') }) }
+    try { await route.fulfill({ contentType: 'application/json', body: await readFile(`public/fixtures/drawings/${drawing[1]}-${drawing[2]}.json`, 'utf8') }) }
     catch { await json(route, {}, 404) }
   })
   return { external, errors }

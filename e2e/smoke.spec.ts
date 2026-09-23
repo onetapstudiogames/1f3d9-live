@@ -34,7 +34,9 @@ test('opens live in the busiest room with only the one-room controls', async ({ 
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '3')
   await expect(page.locator('#room-controls > select')).toHaveCount(2)
   await expect(page.locator('#room-controls > *')).toHaveCount(2)
-  await expect(page.locator('button, input')).toHaveCount(0)
+  await expect(page.locator('#item-panel')).toBeHidden()
+  await expect(page.locator('#item-panel-close')).toHaveCount(1)
+  await expect(page.locator('button:not(#item-panel-close), input')).toHaveCount(0)
   await expect(page.locator('#follow-picker')).toHaveAttribute('aria-label', 'Choose resident')
   await expect(page.locator('#place-picker')).toHaveAttribute('aria-label', 'Choose place')
   // Every choice names its resident or place and its number, as the owner asked (2026-09-09).
