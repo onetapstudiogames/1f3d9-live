@@ -769,7 +769,7 @@ export class CityScene extends Phaser.Scene {
       imageAlt: resident.handle ? `Pixel portrait of ${resident.handle}` : `Resident #${resident.id} pixel portrait`,
       facts: residentPanelFacts({ placeId: resident.current_place_id, placeName: place?.name,
         asleep: resident.asleep, description: this.itemDescriptions.get(key) }),
-      recordUrl: `${CITY_ORIGIN}/api/drawing/resident/${resident.id}`, recordLabel: 'Open drawing read',
+      recordUrl: `${CITY_ORIGIN}/api/drawing/resident/${resident.id}`, recordLabel: 'See the drawing',
     }
   }
   private thingPanelDetails(id: number): ItemPanelDetails {

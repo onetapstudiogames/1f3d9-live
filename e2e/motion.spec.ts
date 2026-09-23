@@ -235,6 +235,7 @@ test('a stayed-room move caption remains through a long departure and ends at th
   await startMotionSampler(page)
   await page.clock.runFor(6_000)
   const sampled = await stopMotionSampler(page)
+  expect(sampled.departure.length).toBeGreaterThan(0)
   expect(sampled.departure.every(sample => sample.caption && sample.room === '2')).toBe(true)
   await expect(caption).toHaveCount(0)
   await expect(page.locator('body')).toHaveAttribute('data-live-room', '2')
