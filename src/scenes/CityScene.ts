@@ -42,7 +42,7 @@ import { parseRoomLink, resolveRoomLink, replaceRoomLink, type RoomLinkSelection
 
 import { singleRoomLayout, roomViewportUsable, roomIsPublic } from '../room-view.ts'
 import { RoomActivityLine } from './RoomActivityLine.ts'
-import { animationDelta, eventsAfterMarker, roomPictureSettled, roomPictureAccess, roomStatus, type OutlineResolution } from '../live-presentation.ts'
+import { animationDelta, eventsAfterMarker, roomMark, roomPictureSettled, roomPictureAccess, roomStatus, type OutlineResolution } from '../live-presentation.ts'
 import { presentRoom, roomFigurePriority, roomNameLabelPriority } from '../room-presentation.ts'
 import { roomLabelFitsViewport, visibleRoomLabels, type RoomCrowdingState } from '../room-crowding.ts'
 import { projectRoomHandovers, roomAnchorPair } from '../room-anchors.ts'
@@ -95,6 +95,7 @@ export class CityScene extends Phaser.Scene {
   private outlineResolutions: Readonly<Record<number, OutlineResolution>> = {}
   private outlineActive = 0
   private outlinePending = new Map<number, PlaceOutline>()
+  private readonly roughRooms = new Map<number, boolean>()
   private outlineGeneration = 0
   private rooms?: RoomView
   private displayLayout?: NestedLayout
@@ -381,6 +382,7 @@ export class CityScene extends Phaser.Scene {
       this.roomMotion.forgetResidents(refreshed.snappedIds)
       this.observeLooking(census)
       this.liveQueue = Object.freeze([...this.liveQueue, ...eventsAfterMarker(visual, this.liveDeliveredMarker)])
+      if (outline) this.noteRoughRoom(outline)
       if (outline && this.roomHasMotion(outline.placeId)) this.outlinePending.set(outline.placeId, outline)
       else if (outline) this.mergeOutline(outline)
       else if (outlineId !== null) this.outlineResolutions = { ...this.outlineResolutions, [outlineId]: 'unmergeable' }
@@ -549,6 +551,7 @@ export class CityScene extends Phaser.Scene {
         if (this.contentsHidden.has(room.id)) {
           this.outlineResolutions = { ...this.outlineResolutions, [room.id]: 'unmergeable' }; return
         }
+        this.noteRoughRoom(outline)
         if (this.roomHasMotion(room.id)) this.outlinePending.set(room.id, outline)
         else this.mergeOutline(outline)
       }).catch(error => {
@@ -566,7 +569,10 @@ export class CityScene extends Phaser.Scene {
         && (resident.placeId === placeId || resident.destinationId === placeId))
       || Boolean(this.things?.pending) || Boolean(this.handoverFrame?.pending)
   }
+  // The header mark follows the newest place read at once, even while its floor merge waits.
+  private noteRoughRoom(outline: PlaceOutline): void { this.roughRooms.set(outline.placeId, outline.roughRoom === true) }
   private mergeOutline(outline: PlaceOutline): void {
+    this.noteRoughRoom(outline)
     const previous = this.places.find(place => place.id === outline.placeId)
     const places = placesAfterOutline(this.places, outline)
     const updated = places.find(place => place.id === outline.placeId)
@@ -806,6 +812,13 @@ export class CityScene extends Phaser.Scene {
     }))
     const name = room?.name ?? null
     document.getElementById('room-name')!.textContent = name ?? (failed ? 'City unavailable' : 'Opening the city…')
+    const mark = roomMark(room ? this.roughRooms.get(room.id) : undefined)
+    const markNode = document.getElementById('room-mark')
+    if (markNode) {
+      markNode.hidden = !mark; markNode.textContent = mark?.text ?? ''
+      if (mark) { markNode.title = mark.title; markNode.setAttribute('aria-label', mark.title) }
+      else { markNode.removeAttribute('title'); markNode.removeAttribute('aria-label') }
+    }
     document.getElementById('live-status')!.textContent = roomStatus({
       tooSmall: !roomViewportUsable(this.viewport.width, this.viewport.height), readFailed: failed,
       quiet, openingNotice: this.openingNotice, readIssue: this.readIssues[0],

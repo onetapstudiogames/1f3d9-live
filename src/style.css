@@ -46,6 +46,19 @@ body {
   background: #283126;
 }
 
+#room-mark {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid #b0703c;
+  border-radius: 3px;
+  color: #f0c49a;
+  font: 600 11px/1.3 system-ui, sans-serif;
+  white-space: nowrap;
+}
+
+#room-mark[hidden] { display: none; }
+
 #room-name {
   min-width: 0;
   margin: 0;
