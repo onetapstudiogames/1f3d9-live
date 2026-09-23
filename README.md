@@ -34,7 +34,8 @@ to three dots; hover or tap a shortened label to read its full name. Acting resi
 the things they use keep their labels while their caption is showing. Floor art is softened
 so small objects remain clear. The log starts empty and retains the latest 200 witnessed entries across
 public room moves; choosing a different resident clears it. Chance rolls, room settles,
-state-box writes, copies, and conversions each get one plain log line, and a kind the page
+state-box writes, copies, stopped copies, reaches, and conversions each get one plain log
+line with the numbers the change feed carries (roll, counts, version, generation, limit), and a kind the page
 does not know yet still gets a line. A rough room shows a small mark beside its name.
 Quiet rooms hide their occupants and activity. A failed read freezes the last picture with a muted status.
 
