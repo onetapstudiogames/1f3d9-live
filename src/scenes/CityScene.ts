@@ -782,7 +782,7 @@ export class CityScene extends Phaser.Scene {
       imageUrl: this.panelImageUrl(texture),
       imageAlt: `Pixel drawing of ${thing?.name ?? this.thingNames.get(id) ?? `Thing #${id}`}`,
       facts: thingPanelFacts({ kind: facts.kind, owner: facts.owner, description: this.itemDescriptions.get(key) }),
-      recordUrl: `${CITY_ORIGIN}/api/thing/${id}`, recordLabel: 'Open thing record',
+      recordUrl: `${CITY_ORIGIN}/api/thing/${id}`, recordLabel: 'See the record',
     }
   }
   private openResidentPanel(id: number): void {
