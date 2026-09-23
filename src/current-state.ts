@@ -1,4 +1,4 @@
-import { activityEntry, type ActivityContext, type ActivityEntity, type ActivityPlacementVisibility } from './activity.ts'
+import { activityEntry, knownActivityKind, type ActivityContext, type ActivityEntity, type ActivityPlacementVisibility } from './activity.ts'
 import type { ReplayEvent, Resident } from './city/types.ts'
 import type { NestedLayout } from './ground/nested.ts'
 import { appliedMove } from './replay/index.ts'
@@ -143,7 +143,9 @@ function publicRoom(id: number, context: ActivityContext): number | null {
 }
 
 const positiveId = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0
+// A kind this page does not know yet is shown where its actor stands when it names no room.
 const actorLocatedKind = (kind: string): boolean => kind === 'action' || kind === 'resident_edited' || kind.startsWith('thing_')
+  || !knownActivityKind(kind)
 
 function rawPublicNoteInRoom(event: ReplayEvent, context: ActivityContext, roomId: number): boolean {
   if (event.kind !== 'note' || event.detail.place_id !== roomId || !Number.isSafeInteger(event.detail.note_id)

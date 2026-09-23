@@ -1,4 +1,5 @@
 import type { ReplayEvent, ReplayPlace, Resident } from './city/types.ts'
+import { chanceRollWords, copyLine, roomSettleWords, thingEditWords, unknownKindWords } from './ability-events.ts'
 import { noteWords } from './note-words.ts'
 import { appliedMove } from './replay/index.ts'
 
@@ -34,6 +35,7 @@ const eventKinds: Readonly<Record<string, readonly [string, ActivityCue]>> = {
   trait_coined: ['coined', 'make'], thing_created: ['created', 'make'], thing_crafted: ['crafted', 'make'], thing_edited: ['changed', 'change'],
   thing_moved: ['moved', 'action'], thing_upgraded: ['upgraded', 'change'], thing_withdrawn: ['withdrew', 'change'], laws_changed: ['changed the local laws', 'rules'],
   effect_scheduled: ['scheduled an effect', 'wait'], effect_resolved: ['resolved an effect', 'effect'], gazette_printed: ['printed The Gazette', 'make'],
+  chance_rolled: ['rolled a public chance', 'effect'], room_settled: ['settled a room', 'effect'],
   agreement: ['wrote an agreement', 'agreement'], agreement_accession: ['opened an agreement to later signers', 'agreement'], agreement_sign: ['signed an agreement', 'agreement'],
   transfer: ['transferred', 'trade'], transfer_offer: ['offered for sale', 'trade'], sale: ['bought', 'trade'], transfer_cancel: ['canceled a sale offer', 'trade'],
   world_listed: ['listed on the world market', 'trade'], world_sale: ['bought through the world market', 'trade'], world_cancel: ['canceled a world market listing', 'trade'],
@@ -43,8 +45,13 @@ const requiredId: Readonly<Record<string, string>> = {
   resident_edited: 'resident_id', home_set: 'place_id', place_created: 'place_id', place_edited: 'place_id', place_renamed: 'place_id',
   place_retired: 'place_id', place_restored: 'place_id', laws_changed: 'place_id', kind_invented: 'kind_id', kind_revised: 'kind_id', trait_coined: 'trait_id',
   thing_created: 'thing_id', thing_crafted: 'thing_id', thing_edited: 'thing_id', thing_moved: 'thing_id', thing_upgraded: 'thing_id', thing_withdrawn: 'thing_id',
-  effect_scheduled: 'effect_id', effect_resolved: 'effect_id', gazette_printed: 'issue_number', agreement: 'agreement_id', agreement_accession: 'agreement_id',
+  effect_scheduled: 'effect_id', effect_resolved: 'effect_id', chance_rolled: 'place_id', room_settled: 'place_id', gazette_printed: 'issue_number', agreement: 'agreement_id', agreement_accession: 'agreement_id',
   agreement_sign: 'agreement_id', transfer_offer: 'offer_id', transfer_cancel: 'offer_id', flag: 'target_id', moderation: 'target_id',
+}
+
+/** True for every public kind this page has its own words for; any other kind gets one plain line. */
+export function knownActivityKind(kind: string): boolean {
+  return kind === 'action' || kind === 'note' || Object.hasOwn(eventKinds, kind)
 }
 
 export function emptyActivity(): ActivityState {
@@ -114,7 +121,9 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
     if (!place) return null
     const thing: ActivityEntity = Object.freeze({ type: 'thing', id: detail.thing_id, name, hasDrawing: null })
     return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'thing-made', cue: 'make', roomId: place.id, anchorRoomId: place.id,
-      actorResidentId: actor?.id ?? null, thingId: detail.thing_id, text: `${actorName} made ${name}.`, entities: Object.freeze(actor ? [actor, place, thing] : [place, thing]) })
+      actorResidentId: actor?.id ?? null, thingId: detail.thing_id, entities: Object.freeze(actor ? [actor, place, thing] : [place, thing]),
+      text: detail.mode === 'copy' ? copyLine(actorName!, name, validId(detail.source_thing_id) ? context.thing?.(detail.source_thing_id, time)?.entity.name ?? null : null)
+        : `${actorName} made ${name}.` })
   }
   if (event.kind === 'thing_created') return null
   const status = safe(detail.status); const action = safe(detail.action)
@@ -123,7 +132,8 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
   const actorPlacement = context.placementVisibility?.({ type: 'actor', actor: actorName! }, time) ?? 'unknown'
   const thingPlacement = thingId === null ? 'unknown' : context.placementVisibility?.({ type: 'thing', id: thingId }, time, event.kind === 'thing_withdrawn') ?? 'unknown'
   const effectPlacement = validId(detail.effect_id) ? context.placementVisibility?.({ type: 'effect', id: Number(detail.effect_id) }, time) ?? 'unknown' : 'unknown'
-  const placementSensitive = event.kind === 'action' || event.kind === 'resident_edited' || event.kind.startsWith('thing_') || event.kind.startsWith('effect_')
+  const knownKind = knownActivityKind(event.kind)
+  const placementSensitive = !knownKind || event.kind === 'action' || event.kind === 'resident_edited' || event.kind.startsWith('thing_') || event.kind.startsWith('effect_')
   if (thingPlacement === 'hidden' || effectPlacement === 'hidden' || (placementSensitive && actorPlacement === 'hidden')) return null
   const knownThing = thingId === null ? null : context.thing?.(thingId, time) ?? null
   const directRoomId = validId(detail.place_id) ? Number(detail.place_id) : event.kind === 'place_created' && validId(detail.parent_id) ? Number(detail.parent_id) :
@@ -165,12 +175,20 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
       anchorRoomId, actorResidentId: actor?.id ?? null, targetResidentId: target?.id ?? null, thingId, entities: Object.freeze(entities),
       text: `${actorName} ${verbs[action]}${object ? ` ${object}` : ''}${action === 'give' && target ? ` to ${target.name}` : ''}${status === 'noop' ? '; no change' : ''}.` })
   }
+  // A kind this page does not know yet still gets one plain line in its room, never an error.
+  if (!knownKind) return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'event', cue: 'action', roomId: place?.id ?? null, anchorRoomId,
+    actorResidentId: actor?.id ?? null, targetResidentId: target?.id ?? null, thingId, entities: Object.freeze(entities), text: `${actorName} ${unknownKindWords(event.kind)}.` })
   const descriptor = eventKinds[event.kind]; if (!descriptor || (event.kind !== 'effect_resolved' && detail.error != null)) return null
   const required = requiredId[event.kind]; if (required && !validId(detail[required])) return null
   if (event.kind === 'thing_moved' && detail.mode === 'carry' && validId(detail.action_id) && peers.some(row => row.kind === 'action' && row.actor === event.actor &&
     row.detail.action_id === detail.action_id && row.detail.action === 'move' && row.detail.status === 'applied')) return null
   let [words, cue] = descriptor; const thingName = knownThing?.entity.name || name || (thingId ? `thing #${thingId}` : '')
-  if (event.kind.startsWith('thing_')) { if (!thingId || !thingName) return null; words += ` ${thingName}` }
+  if (event.kind.startsWith('thing_')) {
+    if (!thingId || !thingName) return null
+    words = event.kind === 'thing_edited' ? thingEditWords(detail.mode, thingName) ?? `${words} ${thingName}` : `${words} ${thingName}`
+  }
+  else if (event.kind === 'chance_rolled') words = chanceRollWords(detail, knownThing?.entity.name ?? (thingId ? `thing #${thingId}` : ''), place?.name ?? null)
+  else if (event.kind === 'room_settled') { if (!place) return null; words = roomSettleWords(detail, place.name) }
   else if (event.kind.startsWith('place_')) words += ` ${name || place?.name || `place #${detail.place_id}`}`
   else if (event.kind === 'kind_invented') words += ` a kind: ${name || `kind #${detail.kind_id}`}`
   else if (event.kind.startsWith('kind_')) words += ` ${name || `kind #${detail.kind_id}`}`

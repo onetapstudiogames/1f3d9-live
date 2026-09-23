@@ -59,6 +59,29 @@ The reader validates a whole page before accepting its continuation marker. IDs 
 
 The live room interprets supported recorded rows for moves, notes, thing creation and use, transfers and carrying, invention and trait cues, agreement signatures, showing-room notes, law changes, blocked attempts, effects, and sleep/wake changes. A cue is shown only when the row or already established current state places its actor or thing in the displayed room. Names, prose, and IDs never supply an invented room or relationship.
 
+### Ability records (city decisions 104 to 115, city PRs #359 and #360)
+
+The change feed keeps only the reference fields the city lists in `PUBLIC_EVENT_DETAIL_FIELDS`. For the ability records that leaves:
+
+| Record | Kind and `detail` as the feed carries it | Room-log line |
+| --- | --- | --- |
+| Chance roll | `chance_rolled` with `thing_id`, `place_id`, `action_id`, and `status` (`then` or `else`) | `<actor> rolled a public chance with <thing>; it hit.` or `...; it missed.` |
+| Random wake pick | `chance_rolled` with `thing_id`, `action_id`, and `status` all null | `<actor> set off a public roll that picked which things wake in <room>.` |
+| Room settle (wake tries) | `room_settled` with `place_id`, `mode` (`arrive`, `talk`, `act`, `me`), and `status` (`woke` or `quiet`) | `<actor> arrived and things woke in <room>.` or `<actor> checked in; <room> settled and nothing woke.` |
+| State-box write or clear | `thing_edited` with `thing_id`, `place_id`, and `mode: "state"` | `<actor> changed the state box of <thing>.` |
+| Copy | `thing_created` with `thing_id`, `place_id`, `name`, `kind_id`, `mode: "copy"`, and `source_thing_id`; the actor is the copy's owner | `<actor>'s <source thing> made a copy: <name>.` |
+| Conversion | `thing_edited` with `thing_id`, `place_id`, `mode: "converted"`, `source_thing_id`, and `kind_id` | `<actor> turned <thing> into another kind.` |
+
+Roll numbers, `percent`, `roll_id`, `settle_id`, try counts (`tried`, `woke`, `forfeited`, `budget`), state keys and values, and `law_trait_id` stay off the feed, so the page never shows them; a failed action's roll looks like any other roll there. A thing the page has not read shows as `thing #<id>`. Reaches and growth-cap refusals have no event of their own: the city reports them in the action answer (`reaches`, `skipped_effects` with `cap`) and on place and thing reads (`growth_marks`, `growth_mark`), none of which this page reads. What a reach or a copy then changes arrives as its own ordinary rows. Rows in a quiet room, or under a quiet ancestor, stay out as before.
+
+A public event kind the page does not know yet still gets one line, `<actor> left a public record (<kind in words>).`, in the room its `place_id` names, or where its actor stands when it names none; hidden placement still hides it. It never shows the row's `error` or other detail.
+
+`test/fixtures/changes-abilities.json` (copied to `public/fixtures/`) holds one feed page of these rows. It is built from the rows the city PRs' own integration tests record, cut to the feed's fields, not a recorded live page; replace it with a saved live page once the city ships them.
+
+### Rough rooms
+
+`GET /api/place/<id>` (outline) carries `place.rough_room`, true when the owner marked the room rough (city decision 109). When the shown room's newest place read says true, a small "rough room" mark sits beside the room name, with the city window's own sentence as its title and label. Any other value, or a room not yet read, shows no mark. The directory (`/api/window?view=directory`) does not carry `rough_room`, so the place picker is unchanged. The other new place fields (the wake dials, growth dials, `copies_today`, `growth_marks`, `last_settle`) and thing fields (`wake_enabled`, `open_to_reach`, `open_to_convert`, `born_as`, `was`, `growth_mark`, `generation`) are not used by this page. A converted thing's new drawing appears on the next page load, because thing drawings are read once per view.
+
 ## Notes, things, agreements, and drawings
 
 `GET /api/note/<id>` returns a note with `id`, `author`, `place_id`, and `body`. A live note notice contains references only. Its full body is accepted only when ID, author, and room all match the notice. Until a cut body is verified, the room log marks it `(rest not read)`.

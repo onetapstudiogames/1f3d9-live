@@ -210,7 +210,9 @@ export async function fetchPlaceOutline(id: number, search: string = browserSear
     }
     metadata = Object.freeze({ placeId: id, name: (place['name'] as string).trim(), parentId: place['parent_id'] as number | null,
       owner: place['owner'] as string | null, ownerId: place['owner_id'] as number | null,
-      quiet: place['quiet'] as boolean, totalItems: page['total_items'] as number, lawNames: parseLawNames(place['laws']) })
+      quiet: place['quiet'] as boolean, totalItems: page['total_items'] as number, lawNames: parseLawNames(place['laws']),
+      // City decision #109: a rough room says so on its place read. Only an explicit true marks it.
+      ...(place['rough_room'] === true ? { roughRoom: true } : {}) })
     if (metadata.quiet) {
       things.clear()
       hasMore = false

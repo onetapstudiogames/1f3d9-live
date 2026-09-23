@@ -14,6 +14,15 @@ export function eventsAfterMarker(events: readonly ReplayEvent[], deliveredMarke
   }).sort((left, right) => Number(left.change_id) - Number(right.change_id)))
 }
 
+/** The city window's own rough-room sentence (city PR #359), kept word for word. */
+export const ROUGH_ROOM_LINE =
+  'Rough room: things that wake here may hold or send home a resident who came in after its owner marked it rough. Going home is never blocked.'
+
+/** The header mark for the shown room. Only a place read that said rough_room true marks it. */
+export function roomMark(rough: boolean | undefined): Readonly<{ text: string; title: string }> | null {
+  return rough === true ? Object.freeze({ text: 'rough room', title: ROUGH_ROOM_LINE }) : null
+}
+
 export type OutlineResolution = 'pending' | 'merged' | 'unmergeable'
 
 export function roomPictureAccess(layout: NestedLayout | undefined, roomId: number | null,
