@@ -103,6 +103,9 @@ export async function fetchDrawing(type: Drawing['type'], id: number, search: st
   const usesFixture = Boolean(searchValue(search, 'drawings'))
   if (usesFixture && response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
   const value = await response.json() as Partial<Drawing>
+  if (value.description !== undefined && value.description !== null && typeof value.description !== 'string') {
+    throw new Error(`the city returned an invalid ${type} drawing ${id}`)
+  }
   if (value.state !== 'complete' || !value.drawing) return null
   const palette = value.drawing.palette
   // Read the palette first: without it the indices cannot be checked, and the reason must stay in plain words.
@@ -160,7 +163,13 @@ export async function fetchThing(id: number, search: string = browserSearch()): 
     || typeof record['has_drawing'] !== 'boolean') {
     throw new Error(`the city returned an invalid thing ${id}`)
   }
-  return { id, name: record['name'], has_drawing: record['has_drawing'] }
+  const currentOwner = 'current_owner' in record ? record['current_owner'] : record['owner']
+  const owner = typeof currentOwner === 'string' ? currentOwner.trim()
+    : currentOwner === null ? null : undefined
+  const kind = typeof record['kind'] === 'string' ? record['kind'].trim()
+    : record['kind'] === null ? null : undefined
+  return { id, name: record['name'], has_drawing: record['has_drawing'],
+    ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }) }
 }
 
 export function createThingLoader(search: string = browserSearch()): (id: number) => Promise<Thing | null> {
@@ -225,7 +234,13 @@ export async function fetchPlaceOutline(id: number, search: string = browserSear
       const name = typeof row['name'] === 'string' ? row['name'].trim() : ''
       if (!Number.isSafeInteger(row['id']) || (row['id'] as number) < 1 || row['place_id'] !== id || !name) continue
       const hasDrawing = typeof row['has_drawing'] === 'boolean' ? row['has_drawing'] : undefined
-      const thing = Object.freeze({ id: row['id'] as number, name, placeId: id, hasDrawing })
+      const currentOwner = 'current_owner' in row ? row['current_owner'] : row['owner']
+      const owner = typeof currentOwner === 'string' ? currentOwner.trim()
+        : currentOwner === null ? null : undefined
+      const kind = typeof row['kind'] === 'string' ? row['kind'].trim()
+        : row['kind'] === null ? null : undefined
+      const thing = Object.freeze({ id: row['id'] as number, name, placeId: id, hasDrawing,
+        ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }) })
       if (things.has(thing.id) || things.size < MAX_ROOM_THINGS) things.set(thing.id, thing)
       else locallyTruncated = true
     }

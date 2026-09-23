@@ -42,7 +42,7 @@ test('place outline loader reads fresh direct things and preserves drawing flags
     assert.equal((options?.headers as Record<string, string>)['authorization'], undefined)
     return Response.json({ place: { id: 3, name: ' the square ', parent_id: 2, owner: 'founder', owner_id: 1, quiet: false }, things: [
       { id: 9, name: ' parcel ', place_id: 3 },
-      { id: 8, name: 'painted', place_id: 3, has_drawing: true },
+      { id: 8, name: 'painted', place_id: 3, has_drawing: true, owner: 'founder', current_owner: 'northstar', kind: 'painted-thing' },
       { id: 6, name: 'plain', place_id: 3, has_drawing: false },
       { id: 7, name: 'wrong room', place_id: 4, has_drawing: true },
     ], things_page: { total_items: 3, returned_items: 4, has_more: false, next_before_thing_id: null } })
@@ -53,7 +53,7 @@ test('place outline loader reads fresh direct things and preserves drawing flags
   assert.notEqual(first, second)
   assert.deepEqual(first, { placeId: 3, name: 'the square', parentId: 2, owner: 'founder', ownerId: 1, quiet: false, things: [
     { id: 9, name: 'parcel', placeId: 3, hasDrawing: undefined },
-    { id: 8, name: 'painted', placeId: 3, hasDrawing: true },
+    { id: 8, name: 'painted', placeId: 3, hasDrawing: true, owner: 'northstar', kind: 'painted-thing' },
     { id: 6, name: 'plain', placeId: 3, hasDrawing: false },
   ], totalItems: 3, hasMore: false, lawNames: null })
   assert.deepEqual(calls, ['/fixtures/places/place-3.json', '/fixtures/places/place-3.json'])
@@ -306,6 +306,26 @@ test('drawing loader caches complete art and retries absent, pending, or failed 
   assert.deepEqual([...calls.values()], [1, 2, 2, 2])
 })
 
+test('drawing reads preserve the public description alongside complete pixel art', async (t) => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => Response.json({
+    type: 'resident', id: 12, state: 'complete', description: 'A resident portrait.',
+    drawing: { palette: ['#ffffff'], indices: Array(64).fill(0) },
+  })
+  t.after(() => { globalThis.fetch = original })
+  assert.equal((await fetchDrawing('resident', 12, ''))?.description, 'A resident portrait.')
+})
+
+test('drawing reads refuse a non-text description instead of passing it to the panel', async (t) => {
+  const original = globalThis.fetch
+  globalThis.fetch = async () => Response.json({
+    type: 'resident', id: 13, state: 'complete', description: { text: 'not a string' },
+    drawing: { palette: ['#ffffff'], indices: Array(64).fill(0) },
+  })
+  t.after(() => { globalThis.fetch = original })
+  await assert.rejects(fetchDrawing('resident', 13, ''), /invalid resident drawing 13/)
+})
+
 test('drawing loader rejects malformed complete drawing data', async (t) => {
   const original = globalThis.fetch
   globalThis.fetch = async () => Response.json({
@@ -430,13 +450,16 @@ test('a record override saves thing labels, and only ?drawings= saves art', asyn
   globalThis.fetch = async input => {
     const url = String(input)
     urls.push(url)
-    if (url.includes('/things/')) return Response.json({ thing: { id: 7, name: 'small lantern', place_id: 999, has_drawing: true } })
+    if (url.includes('/things/')) return Response.json({ thing: { id: 7, name: 'small lantern', place_id: 999,
+      has_drawing: true, owner: 'founder', current_owner: 'northstar', kind: 'signal-lamp' } })
     const type = /(resident|place|thing)/.exec(url)?.[1]
     return Response.json({ type, id: 7, state: 'complete', drawing: { palette: ['#ffffff'], indices: Array(64).fill(0) } })
   }
   t.after(() => { globalThis.fetch = original })
 
-  assert.deepEqual(await fetchThing(7, '?census=/fixtures/residents-presence-page1.json'), { id: 7, name: 'small lantern', has_drawing: true })
+  assert.deepEqual(await fetchThing(7, '?census=/fixtures/residents-presence-page1.json'), {
+    id: 7, name: 'small lantern', has_drawing: true, owner: 'northstar', kind: 'signal-lamp',
+  })
   assert.equal((await fetchDrawing('thing', 7, '?drawings=/fixtures/drawings'))?.type, 'thing')
   // A record override on its own leaves every drawing with the live city.
   assert.equal((await fetchDrawing('resident', 7, '?census=/fixtures/residents-presence-page1.json'))?.id, 7)
@@ -457,12 +480,12 @@ test('thing loader caches success, absence, and failures and supports an overrid
     calls.set(url, (calls.get(url) ?? 0) + 1)
     if (url.endsWith('thing-2.json')) return new Response('', { status: 404 })
     if (url.endsWith('thing-3.json')) throw new Error('offline')
-    return Response.json({ thing: { id: 1, name: 'cup', place_id: 55, has_drawing: false } })
+  return Response.json({ thing: { id: 1, name: 'cup', place_id: 55, has_drawing: false, owner: 'northstar', kind: 'cup' } })
   }
   t.after(() => { globalThis.fetch = original })
   const load = createThingLoader('?things=/saved/things')
 
-  assert.deepEqual(await load(1), { id: 1, name: 'cup', has_drawing: false })
+  assert.deepEqual(await load(1), { id: 1, name: 'cup', has_drawing: false, owner: 'northstar', kind: 'cup' })
   assert.equal(await load(2), null)
   assert.equal(await load(2), null)
   await assert.rejects(load(3), /offline/)

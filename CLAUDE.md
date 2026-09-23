@@ -1,4 +1,4 @@
-# 1F3D9 live — the city's live view, rebuilt in Phaser
+# 1F3D9 live: the city's live view, rebuilt in Phaser
 
 > Status: current
 
@@ -40,9 +40,11 @@ samples under `test/fixtures/`) before any work.
    after a complete successful refresh.
 
 The current owner contract in docs/PLAN.md defines the page. It has one resident picker and
-one place picker, and runs at wall-clock time. A hidden tab or a frame
-gap longer than 30 seconds discards the backlog, takes a fresh change head, and refreshes
-current presence. It neither plays nor describes the missed interval. Newly witnessed
+one place picker, and runs at wall-clock time. Clicking a visible resident or thing opens a
+cream detail panel over the canvas; a resident click uses the resident picker's focus path,
+and a thing click leaves focus alone. A hidden tab or a frame gap longer than 30 seconds
+discards the backlog, takes a fresh change head, and refreshes current presence. It neither
+plays nor describes the missed interval. Newly witnessed
 moves walk through the room's door at 140 CSS pixels per second; census-only relocations
 snap. Awake bobbing and small safe room steps create no events or Follow trigger.
 Temporary looking presence is read anonymously and shown once per new witnessed burst.

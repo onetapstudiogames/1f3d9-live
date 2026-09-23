@@ -32,7 +32,7 @@ A required presence, directory, or feed failure freezes the last complete pictur
 }
 ```
 
-`current_place_id` is current room membership. Sleeping residents are excluded from the picture and resident picker. Optional `looking` data describes a temporary public presence burst with `place_id`, `started_at`, and `expires_at`; it never identifies what was viewed.
+`current_place_id` is current room membership. Sleeping residents are excluded from the picture and resident picker. Optional `looking` data describes a temporary public presence burst with `place_id`, `started_at`, and `expires_at`; it never identifies what was viewed. The item panel uses the same census row for a clicked resident's handle, current place, and awake state. The place name comes from the public directory. A resident or thing drawing read may also carry a top-level `description`; the panel shows it only when that read includes a non-empty string.
 
 ## Place directory and room outline
 
@@ -40,7 +40,7 @@ A required presence, directory, or feed failure freezes the last complete pictur
 
 `GET /api/place/<id>?view=outline` returns current facts for one selected room. Its direct `things` rows establish which things are on that floor. The page does not infer floor things from counts or descendant searches. A quiet room or a room beneath a quiet ancestor reveals no residents, things, speech, or activity.
 
-The selected room follows `things_page.next` or `next_before_thing_id` through same-room `before_thing_id` reads, capped at 200 things and 200 pages; a missing thing `has_drawing` flag means unknown, so each actually shown thing gets one cached `GET /api/drawing/thing/<id>` attempt unless an explicit flag says it has no drawing, and unshown things never start drawing reads.
+The selected room follows `things_page.next` or `next_before_thing_id` through same-room `before_thing_id` reads, capped at 200 things and 200 pages; a missing thing `has_drawing` flag means unknown, so each actually shown thing gets one cached `GET /api/drawing/thing/<id>` attempt unless an explicit flag says it has no drawing, and unshown things never start drawing reads. Outline rows may carry `kind` and `current_owner` (or `owner`); the item panel uses only those values when present and reads the thing record when either fact is absent.
 
 ## Change feed
 
@@ -107,7 +107,7 @@ A walk-to-read note (city decision 102, city PR #355) keeps its body for a resid
 
 `first_line` is the text before the body's first line break, cut to 200 characters; `body_text_bytes` is the stored body's UTF-8 size; `read_in_person` is the city's sentence saying where the body is read. The change feed notice is unchanged (`note_id` and `place_id` only). The page accepts this answer under the same ID, author, and room match, and shows `first_line` followed by the fixed line `(rest read in person)` on the speech card and in the room log. It is not a read failure and gets no `(rest not read)` marker. The page never shows `read_in_person` itself, never calls the signed-in `GET /api/note/<id>/here`, and never invents a body. A note with a `body` string, including an opened walk-to-read note, stays an ordinary note. The saved `test/fixtures/notes/note-17942.json` (copied to `public/fixtures/notes/`) is a constructed sample made with the city PR's own note shaper, not a recorded note; replace it with a real saved answer once the city ships walk-to-read notes.
 
-`GET /api/thing/<id>` returns current thing facts. The page uses the name and `has_drawing`. A current room outline supplies floor membership.
+`GET /api/thing/<id>` returns current thing facts. The page uses the name and `has_drawing` for its picture. The item panel may also use `kind` and `current_owner` (falling back to `owner` only when `current_owner` is absent). A current room outline supplies floor membership.
 
 `GET /api/agreements?party=<signer>&limit=200` supplies current agreement parties. A signature links two visible residents only when the answer establishes exactly two distinct original parties, no later accession, and the agreement predates the signature.
 
@@ -117,7 +117,7 @@ Drawings come from:
 - `GET /api/drawing/place/<id>`
 - `GET /api/drawing/thing/<id>`
 
-Each complete drawing is an 8×8 row-major grid with a palette and 64 nullable palette indices. Invalid grids are rejected. Missing resident art uses the default resident figure; an undrawn place uses the warm plain floor; an undrawn thing uses the default parcel.
+Each complete drawing is an 8×8 row-major grid with a palette and 64 nullable palette indices. Invalid grids are rejected. The read may carry an optional top-level `description` string, which is displayed as plain text in the item panel. Missing resident art uses the default resident figure; an undrawn place uses the warm plain floor; an undrawn thing uses the default parcel.
 
 ## Recorded scene test tooling
 

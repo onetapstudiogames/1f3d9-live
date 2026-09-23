@@ -87,6 +87,98 @@ body {
   image-rendering: auto;
 }
 
+#item-panel {
+  position: absolute;
+  z-index: 5;
+  width: min(320px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  overflow: auto;
+  padding: 12px;
+  border: 2px solid #6c5838;
+  border-radius: 3px;
+  color: #352d23;
+  background: #fff3d6;
+  box-shadow: 1px 2px 0 2px rgb(35 31 23 / 55%);
+  font: 13px/18px Consolas, "Liberation Mono", monospace;
+  touch-action: auto;
+}
+
+#item-panel[hidden] { display: none; }
+
+.item-panel__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-right: 24px;
+}
+
+#item-panel-image {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  background: #e8dcc1;
+}
+
+.item-panel__title { min-width: 0; overflow-wrap: anywhere; }
+
+#item-panel-title {
+  margin: 0;
+  color: #352d23;
+  font: 600 15px/19px Georgia, serif;
+}
+
+#item-panel-id {
+  margin: 3px 0 0;
+  color: #756447;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+#item-panel-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 11px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid #c9b58d;
+  overflow-wrap: anywhere;
+}
+
+#item-panel-facts dt { color: #756447; }
+#item-panel-facts dd { margin: 0; white-space: pre-wrap; }
+
+#item-panel-record {
+  display: inline-block;
+  margin-top: 10px;
+  color: #574326;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+#item-panel-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #8a7256;
+  border-radius: 2px;
+  color: #352d23;
+  background: #f3e4c3;
+  font: 18px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+
+#item-panel-close:hover { background: #ead5a8; }
+#item-panel a:focus-visible,
+#item-panel button:focus-visible { outline: 2px solid #966c1e; outline-offset: 2px; }
+
 #speech-layer {
   position: absolute;
   z-index: 2;
@@ -232,5 +324,10 @@ select:focus-visible {
   #room-controls select {
     grid-column: 1 / -1;
     width: 100%;
+  }
+
+  #item-panel {
+    width: calc(100% - 16px);
+    max-height: min(44%, 320px);
   }
 }

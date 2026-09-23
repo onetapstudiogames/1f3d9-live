@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
-import { createDrawingLoader, createThingLoader, fetchPlaceOutline } from '../city/api.ts'
-import type { PlaceOutline, ReplayEvent, ReplayPlace, Resident } from '../city/types.ts'
+import { CITY_ORIGIN, createDrawingLoader, createThingLoader, fetchPlaceOutline } from '../city/api.ts'
+import type { PlaceOutline, ReplayEvent, ReplayPlace, Resident, Thing } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
 import { blocksLiveDelivery, createPresentResidents, dropSleepingResidentBubbles, prepareLiveResidents, stepResidents, type Simulation } from '../replay/simulation.ts'
 import { RoomView } from './RoomView.ts'
@@ -53,6 +53,8 @@ import { RoomCanvas } from './RoomCanvas.ts'
 import { RoomMotion } from './RoomMotion.ts'
 import { actionFloorEvents, type HeldActionThingEvent } from '../action-delivery.ts'
 import { positionNameLayer } from './NameReveal.ts'
+import { ItemPanelView, type ItemPanelDetails } from '../item-panel-view.ts'
+import { residentPanelFacts, thingPanelFacts, type ItemPanelRect } from '../item-panel.ts'
 
 export class CityScene extends Phaser.Scene {
   private places: readonly ReplayPlace[] = []
@@ -84,6 +86,7 @@ export class CityScene extends Phaser.Scene {
   private inventions: InventionState = Object.freeze({ moments: [], pending: false, issues: [] }); private inventionLayer?: InventionLayer
   private thingViews = new Map<number, ThingView>()
   private thingNames = new Map<number, string>()
+  private thingFacts = new Map<number, Readonly<{ kind?: string | null; owner?: string | null }>>()
   private thingReads = new Set<number>()
   private thingDrawingReads = new Set<number>()
   private thingDrawingHints = new Map<number, boolean | undefined>()
@@ -130,11 +133,15 @@ export class CityScene extends Phaser.Scene {
   private readIssues: readonly string[] = []
   private lastFigures = ''
   private readonly fixtureMode = fixtureMode()
+  private itemPanel?: ItemPanelView
+  private readonly itemDescriptions = new Map<string, string>()
   constructor() { super('city') }
   create(): void {
     document.body.dataset['liveReady'] = 'loading'
     document.body.dataset['liveFollowing'] = ''
     document.body.dataset['liveMode'] = 'live'
+    this.itemPanel = new ItemPanelView()
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.itemPanel?.destroy())
     this.connectControls()
     this.wasHidden = document.hidden
     const visibility = (): void => {
@@ -268,6 +275,11 @@ export class CityScene extends Phaser.Scene {
         this.residentDrawingRetryAt.delete(id)
         addDrawingTexture(this, `resident-${id}`, art)
         this.figures.get(id)?.sprite.setTexture(`resident-${id}`).clearTint()
+        if (art.description) this.itemDescriptions.set(`resident:${id}`, art.description)
+        const resident = this.census.find(row => row.id === id)
+        if (resident && this.itemPanel?.isOpenFor(`resident:${id}`)) {
+          this.itemPanel.update(this.residentPanelDetails(resident))
+        }
       }, message => this.thingReadIssue(message, cycle), priority)
       for (const id of failed) this.residentDrawingRetryAt.set(id, Date.now() + RESIDENT_DRAWING_RETRY_MS)
     } finally { for (const row of pending) this.residentDrawingLoading.delete(row.id) }
@@ -497,12 +509,17 @@ export class CityScene extends Phaser.Scene {
     const state = this.roomThings
     const zoom = 1 // Room decorations retain their size in CSS pixels.
     for (const [id, view] of this.thingViews) {
-      if (!state[id]) { view.destroy(); this.thingViews.delete(id) }
+      if (!state[id]) {
+        if (this.itemPanel?.isOpenFor(`thing:${id}`)) this.itemPanel.close()
+        view.destroy(); this.thingViews.delete(id)
+      }
     }
     for (const thing of Object.values(state)) {
       let view = this.thingViews.get(thing.id)
       if (!view) {
         view = new ThingView(this)
+        view.sprite.setInteractive({ useHandCursor: true })
+        view.sprite.on('pointerdown', () => this.openThingPanel(thing.id))
         if (this.textures.exists(`thing-${thing.id}`)) view.sprite.setTexture(`thing-${thing.id}`)
         this.thingViews.set(thing.id, view)
       }
@@ -599,6 +616,11 @@ export class CityScene extends Phaser.Scene {
       if (!this.things.things[row.id]) continue
       rememberOutlineThingDetails(row, { namesRead: this.thingReads, drawingHints: this.thingDrawingHints,
         applyName: (id, name) => this.thingNames.set(id, name) })
+      const known = this.thingFacts.get(row.id) ?? {}
+      this.thingFacts.set(row.id, Object.freeze({ ...known,
+        ...(row.kind === undefined ? {} : { kind: row.kind }),
+        ...(row.owner === undefined ? {} : { owner: row.owner }),
+      }))
     }
   }
   private drawHandovers(): void {
@@ -612,9 +634,13 @@ export class CityScene extends Phaser.Scene {
     const reads = { namesRead: this.thingReads, drawingsRead: this.thingDrawingReads, drawingHints: this.thingDrawingHints }
     if (this.readingThings || !this.shownThings().some(thing => thingDetailsPending(thing, reads))) return
     this.readingThings = true
-    try { await readVisibleThingDetails({ ...reads, shown: () => this.shownThings(), readThing: this.readThing, readDrawing: this.readThingDrawing,
+    try { await readVisibleThingDetails({ ...reads, shown: () => this.shownThings(), readThing: id => this.readThingRecord(id), readDrawing: this.readThingDrawing,
       applyName: (id, name) => this.thingNames.set(id, name),
-      applyDrawing: (id, art) => { addThingTexture(this, `thing-${id}`, art); this.thingViews.get(id)?.sprite.setTexture(`thing-${id}`) },
+      applyDrawing: (id, art) => {
+        addThingTexture(this, `thing-${id}`, art); this.thingViews.get(id)?.sprite.setTexture(`thing-${id}`)
+        if (art.description) this.itemDescriptions.set(`thing:${id}`, art.description)
+        if (this.itemPanel?.isOpenFor(`thing:${id}`)) this.itemPanel.update(this.thingPanelDetails(id))
+      },
       issue: message => this.thingReadIssue(message, cycle) }) } finally { this.readingThings = false }
   }
   private shownThings() {
@@ -644,6 +670,7 @@ export class CityScene extends Phaser.Scene {
     const usable = roomViewportUsable(this.viewport.width, this.viewport.height)
     let visibleSpeech: { residentId: number; text: string; shape: string; showing: string } | null = null
     for (const [id, figure] of this.figures) if (!state[id] || this.sleepers.has(id)) {
+      if (this.itemPanel?.isOpenFor(`resident:${id}`)) this.itemPanel.close()
       figure.destroy()
       this.figures.delete(id)
     }
@@ -652,7 +679,8 @@ export class CityScene extends Phaser.Scene {
       let figure = this.figures.get(resident.id)
       if (!figure) {
         figure = new ResidentView(this, resident)
-        figure.sprite.disableInteractive()
+        figure.sprite.setInteractive({ useHandCursor: true })
+        figure.sprite.on('pointerdown', () => this.openResidentPanel(resident.id))
         if (this.textures.exists(`resident-${resident.id}`)) figure.sprite.setTexture(`resident-${resident.id}`)
         this.figures.set(resident.id, figure)
       }
@@ -707,6 +735,127 @@ export class CityScene extends Phaser.Scene {
       ? [{ id, width: figure.sprite.displayWidth * this.cameras.main.zoom / (this.canvas?.frame.zoom ?? 1),
         height: figure.sprite.displayHeight * this.cameras.main.zoom / (this.canvas?.frame.zoom ?? 1) }] : []))
   }
+  private panelAnchor(sprite: Phaser.GameObjects.Image): ItemPanelRect {
+    const canvas = this.game.canvas.getBoundingClientRect()
+    const frame = this.canvas?.frame
+    const scaleX = canvas.width / (frame?.width || canvas.width)
+    const scaleY = canvas.height / (frame?.height || canvas.height)
+    const zoom = frame?.zoom ?? 1
+    const width = sprite.displayWidth * this.cameras.main.zoom / zoom * scaleX
+    const height = sprite.displayHeight * this.cameras.main.zoom / zoom * scaleY
+    const x = canvas.left + sprite.x * scaleX
+    const y = canvas.top + sprite.y * scaleY
+    return { left: x - width / 2, top: y - height / 2, right: x + width / 2, bottom: y + height / 2 }
+  }
+  private panelImageUrl(key: string): string {
+    if (!this.textures.exists(key)) return ''
+    const source = this.textures.get(key).getSourceImage() as CanvasImageSource
+    const canvas = document.createElement('canvas')
+    canvas.width = 8; canvas.height = 8
+    const context = canvas.getContext('2d')
+    if (!context) return ''
+    context.imageSmoothingEnabled = false
+    context.drawImage(source, 0, 0, 8, 8)
+    return canvas.toDataURL('image/png')
+  }
+  private residentPanelDetails(resident: Resident): ItemPanelDetails {
+    const place = resident.current_place_id === null ? undefined
+      : this.places.find(row => row.id === resident.current_place_id)
+    const key = `resident:${resident.id}`
+    const texture = this.textures.exists(`resident-${resident.id}`) ? `resident-${resident.id}` : 'resident-default'
+    return {
+      key, kind: 'resident', id: resident.id, name: resident.handle ?? '',
+      imageUrl: this.panelImageUrl(texture),
+      imageAlt: resident.handle ? `Pixel portrait of ${resident.handle}` : `Resident #${resident.id} pixel portrait`,
+      facts: residentPanelFacts({ placeId: resident.current_place_id, placeName: place?.name,
+        asleep: resident.asleep, description: this.itemDescriptions.get(key) }),
+      recordUrl: `${CITY_ORIGIN}/api/drawing/resident/${resident.id}`, recordLabel: 'See the drawing',
+    }
+  }
+  private thingPanelDetails(id: number): ItemPanelDetails {
+    const thing = this.roomThings[id]
+    const key = `thing:${id}`
+    const texture = this.textures.exists(`thing-${id}`) ? `thing-${id}` : 'thing-default'
+    const facts = this.thingFacts.get(id) ?? {}
+    return {
+      key, kind: 'thing', id, name: thing?.name ?? this.thingNames.get(id) ?? '',
+      imageUrl: this.panelImageUrl(texture),
+      imageAlt: `Pixel drawing of ${thing?.name ?? this.thingNames.get(id) ?? `Thing #${id}`}`,
+      facts: thingPanelFacts({ kind: facts.kind, owner: facts.owner, description: this.itemDescriptions.get(key) }),
+      recordUrl: `${CITY_ORIGIN}/api/thing/${id}`, recordLabel: 'See the record',
+    }
+  }
+  private openResidentPanel(id: number): void {
+    const resident = this.census.find(row => row.id === id)
+    const state = this.roomResidents[id]
+    const figure = this.figures.get(id)
+    if (!resident || !state || !figure || !this.isResidentDrawn(state) || state.placeId !== this.viewPlaceId
+      || !this.followResident(id)) return
+    const details = this.residentPanelDetails(resident)
+    this.itemPanel?.open(details, this.panelAnchor(figure.sprite))
+    if (!resident.has_drawing) return
+    const key = `resident:${id}`
+    const cycle = this.issueCycle
+    void this.readResidentDrawing(id).then(drawing => {
+      if (!drawing) return
+      this.residentDrawingResolved.add(id)
+      addDrawingTexture(this, `resident-${id}`, drawing)
+      figure.sprite.setTexture(`resident-${id}`).clearTint()
+      if (drawing.description) this.itemDescriptions.set(key, drawing.description)
+      const current = this.census.find(row => row.id === id)
+      if (current && this.itemPanel?.isOpenFor(key)) this.itemPanel.update(this.residentPanelDetails(current))
+    }).catch(error => {
+      console.error(error)
+      this.thingReadIssue('This resident drawing could not be read.', cycle)
+    })
+  }
+  private openThingPanel(id: number): void {
+    const thing = this.roomThings[id]
+    const view = this.thingViews.get(id)
+    if (!thing || !view?.sprite.visible || thing.placeId !== this.viewPlaceId || !this.layout
+      || this.contentsHidden.has(thing.placeId) || !roomIsPublic(this.layout, thing.placeId)) return
+    this.itemPanel?.open(this.thingPanelDetails(id), this.panelAnchor(view.sprite))
+    const known = this.thingFacts.get(id) ?? {}
+    const needRecord = known.kind === undefined || known.owner === undefined || !this.thingDrawingHints.has(id)
+    if (needRecord) {
+      void this.readThingRecord(id).then(() => {
+        if (this.itemPanel?.isOpenFor(`thing:${id}`)) this.itemPanel.update(this.thingPanelDetails(id))
+        this.readPanelThingDrawing(id)
+      }).catch(error => {
+        console.error(error)
+        this.thingReadIssue('This thing record could not be read.')
+        this.readPanelThingDrawing(id)
+      })
+    } else this.readPanelThingDrawing(id)
+  }
+  private readPanelThingDrawing(id: number): void {
+    if (this.thingDrawingHints.get(id) === false) return
+    const key = `thing:${id}`
+    this.thingDrawingReads.add(id)
+    void this.readThingDrawing(id).then(drawing => {
+      if (!drawing) return
+      addThingTexture(this, `thing-${id}`, drawing)
+      this.thingViews.get(id)?.sprite.setTexture(`thing-${id}`)
+      if (drawing.description) this.itemDescriptions.set(key, drawing.description)
+      if (this.itemPanel?.isOpenFor(key)) this.itemPanel.update(this.thingPanelDetails(id))
+    }).catch(error => {
+      console.error(error)
+      this.thingReadIssue('This thing drawing could not be read.')
+    })
+  }
+  private async readThingRecord(id: number): Promise<Thing | null> {
+    const detail = await this.readThing(id)
+    if (!detail) return null
+    this.thingNames.set(id, detail.name)
+    this.thingReads.add(id)
+    this.thingDrawingHints.set(id, detail.has_drawing)
+    const existing = this.thingFacts.get(id) ?? {}
+    this.thingFacts.set(id, Object.freeze({ ...existing,
+      ...(detail.kind === undefined ? {} : { kind: detail.kind }),
+      ...(detail.owner === undefined ? {} : { owner: detail.owner }),
+    }))
+    return detail
+  }
   private connectControls(): void {
     const resident = document.querySelector<HTMLSelectElement>('#follow-picker')!
     const place = document.querySelector<HTMLSelectElement>('#place-picker')!
@@ -715,20 +864,18 @@ export class CityScene extends Phaser.Scene {
       replaceRoomLink(window.history, window.location.href, selection)
     }
     const clear = (): void => {
+      this.itemPanel?.close()
       if (this.following !== null) this.activity?.reset()
       this.following = null; link({ kind: 'none' }); this.updateHud()
     }
     const follow = (): void => {
+      this.itemPanel?.close()
       if (!resident.value) { clear(); return }
       const id = Number(resident.value)
-      if (!Number.isSafeInteger(id) || !this.residents?.residents[id] || this.sleepers.has(id)) return
-      if (this.following !== id) this.activity?.reset()
-      this.following = id
-      link({ kind: 'resident', handle: this.residents.residents[id].handle })
-      this.updateFollowRoom()
-      this.updateHud()
+      this.followResident(id)
     }
     const stay = (): void => {
+      this.itemPanel?.close()
       if (!place.value) { clear(); return }
       const id = Number(place.value)
       if (!Number.isSafeInteger(id) || !this.layout?.rooms[id]) return
@@ -742,9 +889,23 @@ export class CityScene extends Phaser.Scene {
       resident.removeEventListener('change', follow); place.removeEventListener('change', stay)
     })
   }
+  private followResident(id: number): boolean {
+    const selected = this.residents?.residents[id]
+    if (!Number.isSafeInteger(id) || !selected || this.sleepers.has(id)) return false
+    if (this.following !== id) this.activity?.reset()
+    this.following = id
+    replaceRoomLink(window.history, window.location.href, { kind: 'resident', handle: selected.handle })
+    this.openingNotice = null
+    this.updateFollowRoom()
+    this.updateHud()
+    return true
+  }
   private showRoom(id: number | null): void {
     if (id === null || !this.layout?.rooms[id]) return
-    if (this.viewPlaceId !== id) { this.outlineReads.delete(id); this.activity?.resetPresentation() }
+    if (this.viewPlaceId !== id) {
+      this.itemPanel?.close()
+      this.outlineReads.delete(id); this.activity?.resetPresentation()
+    }
     this.viewPlaceId = id
     this.activityLog?.selectRoom(id)
     if (!roomViewportUsable(this.viewport.width, this.viewport.height)) { this.updateHud(); return }
