@@ -67,10 +67,13 @@ async function checkUntil(page: Page, read: () => Promise<string | null>, expect
   }, { timeout: 30_000, intervals: [10] }).toBe(expected)
 }
 
+// The clock is installed a minute before it pauses, as the other specs do: pausing at the
+// install time itself fails whenever a millisecond passes between the two calls.
+function installTime(): Date { return new Date('2026-09-07T13:53:04.254Z') }
 function talkTime(): Date { return new Date('2026-09-07T13:54:04.254Z') }
 
 test('a line said in the shown room shows on a small card and in the log', async ({ page }) => {
-  await page.clock.install({ time: talkTime() })
+  await page.clock.install({ time: installTime() })
   await page.clock.pauseAt(talkTime())
   const diagnostics = await keepTalkFixtureOffline(page)
   const reads = { count: 0 }
@@ -92,7 +95,7 @@ test('a line said in the shown room shows on a small card and in the log', async
 })
 
 test('a line both loops read is logged once', async ({ page }) => {
-  await page.clock.install({ time: talkTime() })
+  await page.clock.install({ time: installTime() })
   await page.clock.pauseAt(talkTime())
   const diagnostics = await keepTalkFixtureOffline(page)
   const reads = { count: 0 }
@@ -131,7 +134,7 @@ test('a line both loops read is logged once', async ({ page }) => {
 })
 
 test('a hidden page makes no talk check, and a return starts from now', async ({ page }) => {
-  await page.clock.install({ time: talkTime() })
+  await page.clock.install({ time: installTime() })
   await page.clock.pauseAt(talkTime())
   const diagnostics = await keepTalkFixtureOffline(page)
   const reads = { count: 0 }
