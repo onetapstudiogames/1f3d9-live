@@ -153,7 +153,14 @@ test('a hidden page makes no talk check, and a return starts from now', async ({
       get: () => state.fixtureHidden ? 'hidden' : 'visible' })
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  for (let step = 0; step < 5; step += 1) await page.clock.runFor(2_000)
+  // Five check intervals pass while hidden. Each jump fires every timer due in it once, so a
+  // talk check that kept rescheduling itself would read the head once per jump. The jumps skip
+  // the frames between: a hidden tab draws none, and runFor(2_000) would draw 125 each, which a
+  // slow runner cannot finish inside the test's minute.
+  for (let step = 0; step < 5; step += 1) {
+    await page.clock.fastForward(2_000)
+    await page.clock.runFor(32)
+  }
   expect(reads.count).toBe(1)
 
   await page.evaluate(() => {
