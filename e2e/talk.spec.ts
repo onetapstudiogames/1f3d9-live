@@ -4,10 +4,10 @@ import { advanceToLivePoll, fixtureDirectory, json, liveFixtureUrl } from './liv
 
 type Diagnostics = { external: string[]; errors: string[]; requests: string[] }
 
-async function keepTalkFixtureOffline(page: Page): Promise<Diagnostics> {
+async function keepTalkFixtureOffline(page: Page, directoryOverride?: Record<string, unknown>): Promise<Diagnostics> {
   const external: string[] = []; const errors: string[] = []; const requests: string[] = []
   const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
-  const directory = await fixtureDirectory()
+  const directory = directoryOverride ?? await fixtureDirectory()
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/*', async route => {
     const url = new URL(route.request().url())
@@ -72,6 +72,23 @@ async function checkUntil(page: Page, read: () => Promise<string | null>, expect
 function installTime(): Date { return new Date('2026-09-07T13:53:04.254Z') }
 function talkTime(): Date { return new Date('2026-09-07T13:54:04.254Z') }
 
+const emptyTalkHead = { line_marker: '0', check_interval_ms: 2_000, listening: [],
+  listening_page: { total_items: 0, returned_items: 0, has_more: false } }
+
+async function makeIdle(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const idleTime = Date.now() + 30 * 60_000 + 1
+    Date.now = () => idleTime
+  })
+  await page.clock.runFor(32)
+}
+
+async function quietParentDirectory(): Promise<Record<string, unknown>> {
+  const directory = await fixtureDirectory()
+  const places = directory['places'] as Array<Record<string, unknown>>
+  return { ...directory, places: places.map(place => place['id'] === 731 ? { ...place, quiet: true } : place) }
+}
+
 test('a line said in the shown room shows on a small card and in the log', async ({ page }) => {
   await page.clock.install({ time: installTime() })
   await page.clock.pauseAt(talkTime())
@@ -90,6 +107,159 @@ test('a line said in the shown room shows on a small card and in the log', async
   await expect(page.locator('#room-activity')).toContainText('buzz: A line from the talk fixture.')
   expect(diagnostics.requests.filter(url => url === '/fixtures/room-lines/lines-731-100297.json')).toHaveLength(1)
   expect(diagnostics.requests.filter(url => url === '/fixtures/room-lines/lines-731-100299.json')).toHaveLength(1)
+  expect(diagnostics.external).toEqual([])
+  expect(diagnostics.errors).toEqual([])
+})
+
+test('wheel input does not postpone a talk check that is almost due', async ({ page }) => {
+  await page.clock.install({ time: installTime() })
+  await page.clock.pauseAt(talkTime())
+  const diagnostics = await keepTalkFixtureOffline(page)
+  const reads = { count: 0 }
+  await page.route('**/fixtures/talk-now-line.json', route => serveTalkHead(route, reads))
+  await page.goto(talkUrl())
+  await ready(page)
+  await page.locator('#place-picker').selectOption('731')
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '731')
+  await checkUntil(page, async () => String(reads.count), '1')
+  await expect(page.locator('body')).toHaveAttribute('data-live-talk-marker', '100297')
+
+  await page.clock.fastForward(1_500)
+  await page.clock.runFor(32)
+  await page.evaluate(() => window.dispatchEvent(new WheelEvent('wheel')))
+  await page.clock.fastForward(500)
+  await page.clock.runFor(32)
+  await expect.poll(() => reads.count, { timeout: 1_000 }).toBe(2)
+  expect(diagnostics.external).toEqual([])
+  expect(diagnostics.errors).toEqual([])
+})
+
+test('steady wheel input does not starve the talk check loop', async ({ page }) => {
+  await page.clock.install({ time: installTime() })
+  await page.clock.pauseAt(talkTime())
+  const diagnostics = await keepTalkFixtureOffline(page)
+  const reads = { count: 0 }
+  await page.route('**/fixtures/talk-now-line.json', route => serveTalkHead(route, reads))
+  await page.goto(talkUrl())
+  await ready(page)
+  await page.locator('#place-picker').selectOption('731')
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '731')
+  await checkUntil(page, async () => String(reads.count), '1')
+  const firstRead = reads.count
+
+  for (let index = 0; index < 24; index += 1) {
+    await page.evaluate(() => window.dispatchEvent(new WheelEvent('wheel')))
+    await page.clock.fastForward(500)
+    await page.clock.runFor(32)
+  }
+
+  expect(reads.count).toBeGreaterThanOrEqual(firstRead + 4)
+  expect(diagnostics.external).toEqual([])
+  expect(diagnostics.errors).toEqual([])
+})
+
+test('a talk check keeps the refresh cycle outline issue visible', async ({ page }) => {
+  await page.clock.install({ time: installTime() })
+  await page.clock.pauseAt(talkTime())
+  const diagnostics = await keepTalkFixtureOffline(page)
+  let talkReads = 0
+  let successfulTalkReads = 0
+  let allowTalkSuccess = true
+  await page.route('**/fixtures/talk-now-line.json', async route => {
+    talkReads += 1
+    if (!allowTalkSuccess) { await json(route, {}, 503); return }
+    await json(route, emptyTalkHead)
+    successfulTalkReads += 1
+  })
+  await page.goto(talkUrl())
+  await ready(page)
+  await checkUntil(page, async () => String(talkReads), '1')
+  await expect(page.locator('body')).toHaveAttribute('data-live-talk-marker', '0')
+  const roomId = await page.locator('body').getAttribute('data-live-room')
+  expect(roomId).toBeTruthy()
+  const outline = JSON.parse(await readFile(`public/fixtures/places/place-${roomId}.json`, 'utf8')) as Record<string, unknown>
+  let outlineReads = 0
+  await page.route(`**/fixtures/places/place-${roomId}.json`, async route => {
+    outlineReads += 1
+    if (outlineReads === 1) { await json(route, {}, 503); return }
+    await json(route, outline)
+  })
+  allowTalkSuccess = false
+
+  await advanceToLivePoll(page)
+  await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
+  expect(outlineReads).toBe(1)
+  await expect(page.locator('#live-status')).toContainText('This room outline could not be read; its floor is kept.')
+  allowTalkSuccess = true
+  await makeIdle(page)
+  await page.evaluate(() => window.dispatchEvent(new WheelEvent('wheel')))
+  await page.clock.fastForward(2_100)
+  await page.clock.runFor(32)
+  await expect.poll(() => successfulTalkReads).toBe(2)
+  expect(outlineReads).toBe(1)
+  await expect(page.locator('#live-status')).toContainText('This room outline could not be read; its floor is kept.')
+  expect(diagnostics.external).toEqual([])
+  expect(diagnostics.errors).toEqual([])
+})
+
+test('a quiet ancestor hides listening resident ids from the page', async ({ page }) => {
+  await page.clock.install({ time: installTime() })
+  await page.clock.pauseAt(talkTime())
+  const diagnostics = await keepTalkFixtureOffline(page, await quietParentDirectory())
+  const reads = { count: 0 }
+  await page.route('**/fixtures/talk-now-line.json', async route => {
+    reads.count += 1
+    await json(route, { ...emptyTalkHead, listening: [{ place_id: 732, resident_id: 316,
+      handle: 'buzz', listening_until: '2026-09-07T13:54:35.000Z' }] })
+  })
+  await page.goto(talkUrl())
+  await ready(page)
+  await page.locator('#place-picker').selectOption('732')
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '732')
+  await checkUntil(page, async () => String(reads.count), '1')
+
+  await expect(page.locator('body')).not.toHaveAttribute('data-live-talk-listeners')
+  await expect(page.locator('body')).toHaveAttribute('data-live-listening', '')
+  expect(diagnostics.external).toEqual([])
+  expect(diagnostics.errors).toEqual([])
+})
+
+test('idle status keeps a required read failure sentence visible', async ({ page }) => {
+  await page.clock.install({ time: installTime() })
+  await page.clock.pauseAt(talkTime())
+  const diagnostics = await keepTalkFixtureOffline(page)
+  let feedReads = 0
+  await page.route('**/fixtures/changes-live.json', async route => {
+    feedReads += 1
+    await json(route, {}, 503)
+  })
+  await page.route('**/fixtures/talk-now-line.json', route => json(route, { ...emptyTalkHead, check_interval_ms: 600_000 }))
+  await page.goto(talkUrl())
+  await ready(page)
+  await makeIdle(page)
+  await advanceToLivePoll(page)
+
+  await expect.poll(() => feedReads).toBe(1)
+  await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'true')
+  await expect(page.locator('#live-status')).toContainText('The public record could not be read. Keeping the last picture and retrying.')
+  await expect(page.locator('#live-status')).toContainText('After 30 idle minutes')
+  expect(diagnostics.external).toEqual([])
+  expect(diagnostics.errors).toEqual([])
+})
+
+test('idle status keeps the quiet room owner sentence visible', async ({ page }) => {
+  await page.clock.install({ time: installTime() })
+  await page.clock.pauseAt(talkTime())
+  const diagnostics = await keepTalkFixtureOffline(page, await quietParentDirectory())
+  await page.route('**/fixtures/talk-now-line.json', route => json(route, { ...emptyTalkHead, check_interval_ms: 600_000 }))
+  await page.goto(talkUrl())
+  await ready(page)
+  await page.locator('#place-picker').selectOption('731')
+  await expect(page.locator('body')).toHaveAttribute('data-live-room', '731')
+  await makeIdle(page)
+
+  await expect(page.locator('#live-status')).toContainText('thehivequeenbeeatrix prefers to keep this room private.')
+  await expect(page.locator('#live-status')).toContainText('After 30 idle minutes')
   expect(diagnostics.external).toEqual([])
   expect(diagnostics.errors).toEqual([])
 })

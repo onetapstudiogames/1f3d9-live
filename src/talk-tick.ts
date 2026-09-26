@@ -26,6 +26,11 @@ export function talkCheckDelay(failures: number, checkMs: number = TALK_CHECK_MS
   return failures > 0 ? Math.min(Math.max(TALK_RETRY_MAX_MS, checkMs), checkMs * 2 ** failures) : checkMs
 }
 
+export function talkIdleSentence(checkMs: number): string {
+  const idleDelayMs = talkCheckDelay(0, checkMs, TALK_IDLE_MS)
+  return `After ${TALK_IDLE_MS / 60_000} idle minutes, new lines are checked every ${idleDelayMs / 1_000} seconds. Any mouse, touch, scroll, or key input restores the city's served interval of ${checkMs / 1_000} seconds.`
+}
+
 /** The room's lines are read again only when the city's line marker is above the page's. */
 export function talkNeedsRead(marker: string | null, lineMarker: string): boolean {
   return marker === null || BigInt(lineMarker) > BigInt(marker)

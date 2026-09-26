@@ -7,6 +7,8 @@ Live means now: the page opens from current presence and the displayed room's ou
 then watches new changes every 30 seconds and, while the tab is visible, checks for new lines as often as the city allows, now every 2 seconds. It never loads a replay or fills in older notes.
 Residents and floors use their own pixel drawings.
 
+After 30 minutes with no mouse, touch, scroll, or key input, new lines are checked every 30 seconds, or at the longer served interval; any mouse, touch, scroll, or key input restores the city's served interval.
+
 This repo never holds a key and never writes to the city. All reads are anonymous.
 
 - The page rules: [docs/PLAN.md](docs/PLAN.md)

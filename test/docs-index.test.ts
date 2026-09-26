@@ -54,6 +54,14 @@ test('the docs index lists every Markdown document with its matching status', as
   }
 })
 
+test('the live docs explain the idle talk interval and how activity restores it', async () => {
+  const idleRule = /After 30 minutes with no mouse, touch, scroll, or key input, new lines are checked every 30 seconds, or at the longer served interval; any mouse, touch, scroll, or key input restores the city's served interval\./u
+  for (const file of ['README.md', 'docs/PLAN.md', 'docs/CITY-API.md']) {
+    const text = await readFile(path.join(repoRoot, file), 'utf8')
+    assert.match(text, idleRule, `${file} explains the idle check and activity reset`)
+  }
+})
+
 test('archived and historical docs live under docs/archive', async () => {
   const files = await markdownFiles(repoRoot)
   for (const file of files) {

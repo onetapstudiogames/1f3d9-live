@@ -60,7 +60,7 @@ import { fetchTalkNow, type TalkNow } from '../city/talk-now.ts'
 import { LINE_READ_ISSUE, lineEvent } from '../talk-words.ts'
 import { withLineBubble } from '../line-speech.ts'
 import { anchorsAfter, newRoomLines, talkCheckDelay, talkNeedsRead, TALK_CHECK_MS, TALK_IDLE_MS,
-  listeningIds, withoutMovesBehindLines, withoutTalkLines, type LineAnchor } from '../talk-tick.ts'
+  listeningIds, talkIdleSentence, withoutMovesBehindLines, withoutTalkLines, type LineAnchor } from '../talk-tick.ts'
 
 export class CityScene extends Phaser.Scene {
   private places: readonly ReplayPlace[] = []
@@ -75,11 +75,13 @@ export class CityScene extends Phaser.Scene {
   private pollGeneration = 0
   private pollTimer?: number
   private talkTimer?: number
+  private talkTimerDueAt: number | null = null
   private talkChecking = false
   private talkFailures = 0
   private talkCheckMs = TALK_CHECK_MS
   private talkHead: TalkNow | null = null
   private talkHeadAt = 0
+  private talkReadIssue: string | null = null
   private talkLineMarker: string | null = null
   private talkRoomId: number | null = null
   private talkSeen: ReadonlySet<number> | null = null
@@ -174,8 +176,10 @@ export class CityScene extends Phaser.Scene {
     document.addEventListener('visibilitychange', visibility)
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => document.removeEventListener('visibilitychange', visibility))
     const input = (): void => {
-      this.lastInputAt = Date.now()
-      this.scheduleTalkCheck(this.talkCheckMs)
+      const now = Date.now()
+      const wasIdle = now - this.lastInputAt >= TALK_IDLE_MS
+      this.lastInputAt = now
+      if (wasIdle) this.restoreTalkCheck(now)
       this.updateHud()
     }
     for (const name of ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const) {
@@ -263,14 +267,24 @@ export class CityScene extends Phaser.Scene {
   }
   private scheduleTalkCheck(delay: number): void {
     window.clearTimeout(this.talkTimer)
+    this.talkTimerDueAt = null
     if (document.hidden) return
-    this.talkTimer = window.setTimeout(() => void this.checkTalk(), delay)
+    this.talkTimerDueAt = Date.now() + delay
+    this.talkTimer = window.setTimeout(() => {
+      this.talkTimerDueAt = null
+      void this.checkTalk()
+    }, delay)
+  }
+  private restoreTalkCheck(now: number): void {
+    const restoredDueAt = now + this.talkCheckMs
+    const dueAt = this.talkTimerDueAt === null ? restoredDueAt : Math.min(this.talkTimerDueAt, restoredDueAt)
+    this.scheduleTalkCheck(Math.max(0, dueAt - now))
   }
   private async checkTalk(): Promise<void> {
     if (this.talkChecking || !this.liveState || !this.layout) return
     this.talkChecking = true
     const generation = this.pollGeneration
-    const issues: string[] = []
+    let talkIssue: string | null = null
     try {
       const head = await fetchTalkNow()
       if (generation !== this.pollGeneration) return
@@ -288,7 +302,7 @@ export class CityScene extends Phaser.Scene {
           const page = await fetchRoomLines(room, head.lineMarker)
           if (generation !== this.pollGeneration) return
           seen = newRoomLines(page, new Set()).seen
-          if (page.dropped > 0) issues.push(LINE_READ_ISSUE)
+          if (page.dropped > 0) talkIssue = LINE_READ_ISSUE
         }
         this.talkRoomId = room
         this.talkSeen = seen
@@ -297,7 +311,7 @@ export class CityScene extends Phaser.Scene {
         const page = await fetchRoomLines(room, head.lineMarker)
         if (generation !== this.pollGeneration) return
         const next = newRoomLines(page, this.talkSeen)
-        if (page.dropped > 0) issues.push(LINE_READ_ISSUE)
+        if (page.dropped > 0) talkIssue = LINE_READ_ISSUE
         for (const row of next.fresh) {
           const line = lineEvent(row, head.lineMarker)
           const now = Date.now()
@@ -326,7 +340,7 @@ export class CityScene extends Phaser.Scene {
         this.talkLineMarker = head.lineMarker
       }
       this.talkFailures = 0
-      this.commitIssues(issues)
+      this.talkReadIssue = talkIssue
     } catch (error) {
       if (generation !== this.pollGeneration) return
       console.error(error)
@@ -1092,8 +1106,6 @@ export class CityScene extends Phaser.Scene {
     document.body.dataset['liveFollowing'] = this.following === null ? '' : String(this.following)
     document.body.dataset['liveRoom'] = this.viewPlaceId === null ? '' : String(this.viewPlaceId)
     document.body.dataset['liveReadError'] = String(failed)
-    document.body.dataset['liveTalkListeners'] = [...listeningIds(this.talkHead, this.viewPlaceId,
-      this.talkHeadAt, Date.now())].join(',')
     if (this.fixtureMode) {
       document.body.dataset['liveDeliveredMarker'] = String(this.liveDeliveredMarker)
       document.body.dataset['liveElapsed'] = String(this.elapsed)
@@ -1122,11 +1134,12 @@ export class CityScene extends Phaser.Scene {
       else { markNode.removeAttribute('title'); markNode.removeAttribute('aria-label') }
     }
     const idleTalk = Date.now() - this.lastInputAt >= TALK_IDLE_MS
-    document.getElementById('live-status')!.textContent = idleTalk
-      ? 'Idle for 30 minutes: new lines are checked every 30 seconds. Touch the page to check every 2 seconds again.'
-      : roomStatus({ tooSmall: !roomViewportUsable(this.viewport.width, this.viewport.height), readFailed: failed,
+    const status = roomStatus({ tooSmall: !roomViewportUsable(this.viewport.width, this.viewport.height), readFailed: failed,
         quiet, quietOwner: quietRoomOwner(this.places, room?.id ?? null),
-        openingNotice: this.openingNotice, readIssue: this.readIssues[0] })
+        openingNotice: this.openingNotice, readIssue: this.readIssues[0] ?? this.talkReadIssue ?? undefined })
+    document.getElementById('live-status')!.textContent = idleTalk
+      ? [status, talkIdleSentence(this.talkCheckMs)].filter(Boolean).join(' ')
+      : status
     const picker = document.querySelector<HTMLSelectElement>('#place-picker')!
     const places = this.places
     const signature = JSON.stringify(places.map(place => [place.id, place.name]))

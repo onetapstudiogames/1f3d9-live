@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { RoomLine, RoomLinesPage } from '../src/city/changes.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { anchorsAfter, listeningIds, newRoomLines, talkCheckDelay, talkCheckMs, talkNeedsRead,
+import { anchorsAfter, listeningIds, newRoomLines, talkCheckDelay, talkCheckMs, talkIdleSentence, talkNeedsRead,
   withoutMovesBehindLines, withoutTalkLines, TALK_IDLE_CHECK_MS, TALK_IDLE_MS } from '../src/talk-tick.ts'
 
 const line = (id: number): RoomLine => ({ id, placeId: 731, author: 'buzz', body: `line ${id}`,
@@ -28,6 +28,12 @@ test('backs off failed checks and slows an idle page after thirty minutes', () =
   assert.equal(talkCheckDelay(0, 2_000, TALK_IDLE_MS), 30_000)
   assert.equal(talkCheckDelay(0, 60_000, TALK_IDLE_MS), 60_000)
   assert.equal(talkCheckDelay(1, 2_000, TALK_IDLE_MS), 4_000)
+})
+
+test('states the idle delay and the served interval in the idle sentence', () => {
+  assert.equal(talkIdleSentence(2_000), 'After 30 idle minutes, new lines are checked every 30 seconds. Any mouse, touch, scroll, or key input restores the city\'s served interval of 2 seconds.')
+  assert.equal(talkIdleSentence(4_000), 'After 30 idle minutes, new lines are checked every 30 seconds. Any mouse, touch, scroll, or key input restores the city\'s served interval of 4 seconds.')
+  assert.equal(talkIdleSentence(60_000), 'After 30 idle minutes, new lines are checked every 60 seconds. Any mouse, touch, scroll, or key input restores the city\'s served interval of 60 seconds.')
 })
 
 test('compares decimal line markers exactly, including markers beyond number precision', () => {
