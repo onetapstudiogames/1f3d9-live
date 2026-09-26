@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { RESIDENT_BULB_RECTS, RESIDENT_HAND_RECTS, RESIDENT_LOCK_RECTS,
   THING_HEART_RECTS, activityCueRects, residentBulbAnchor,
-  followMarkRects, residentGlyphDistance, thingOverlayAnchor, residentOverlayDistance, residentOverlayRects } from '../src/resident-overlays.ts'
+  followMarkRects, listeningMarkRects, residentGlyphDistance, thingOverlayAnchor, residentOverlayDistance,
+  residentOverlayRects } from '../src/resident-overlays.ts'
 import { cueFrame, emptyCueState, stepActivityCues } from '../src/activity-cues.ts'
 import { ROOM_RESIDENT_SIZE } from '../src/room-appearance.ts'
 
@@ -105,4 +106,20 @@ test('the follow mark is a quiet cream chevron above only a visible followed res
   ])
   assert.deepEqual(followMarkRects(false, true), [])
   assert.deepEqual(followMarkRects(true, false), [])
+})
+
+test('the listening mark scales beside the head and stays separate from the follow mark', () => {
+  const mark = listeningMarkRects(true, true)
+  assert.deepEqual(mark, [
+    { x: 15.75, y: -36.75, width: 3.5, height: 7, color: 0x94c7bc, alpha: 0.9 },
+    { x: 21, y: -40.25, width: 3.5, height: 14, color: 0x94c7bc, alpha: 0.9 },
+    { x: 26.25, y: -36.75, width: 3.5, height: 7, color: 0x94c7bc, alpha: 0.9 },
+  ])
+  assert.deepEqual(listeningMarkRects(false, true), [])
+  assert.deepEqual(listeningMarkRects(true, false), [])
+
+  const follow = followMarkRects(true, true)
+  assert.ok(mark.every(listening => follow.every(following =>
+    listening.x >= following.x + following.width || following.x >= listening.x + listening.width
+    || listening.y >= following.y + following.height || following.y >= listening.y + listening.height)))
 })

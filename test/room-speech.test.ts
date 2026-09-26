@@ -4,7 +4,7 @@ import { hiddenRoomSpeech, type RoomSpeechResident } from '../src/room-speech.ts
 import type { NestedLayout, Room } from '../src/ground/nested.ts'
 
 const resident = (id: number, handle: string, startedAt: number, placeId = 2): RoomSpeechResident => ({
-  id, handle, placeId, bubble: { text: `words ${id}`, cut: false, placeId, startedAt, charInterval: 34,
+  id, handle, placeId, bubble: { text: `words ${id}`, cut: false, placeId, size: 'note', startedAt, charInterval: 34,
     expiresAt: startedAt + 100, noteId: id },
 })
 const room = (id: number, quiet = false, parentId: number | null = null): Room => ({

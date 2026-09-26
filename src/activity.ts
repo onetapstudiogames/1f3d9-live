@@ -1,6 +1,7 @@
 import type { ReplayEvent, ReplayPlace, Resident } from './city/types.ts'
 import { chanceRollWords, copyLine, copySkippedWords, roomReachedWords, roomSettleWords, thingEditWords, unknownKindWords } from './ability-events.ts'
 import { noteWords } from './note-words.ts'
+import { answerLogText, lineLogText, pingLogText } from './talk-words.ts'
 import { appliedMove } from './replay/index.ts'
 
 export type ActivityEntityType = 'resident' | 'place' | 'thing'
@@ -9,7 +10,7 @@ export type ActivityCue = 'note' | 'move' | 'change' | 'make' | 'home' | 'agreem
   'effect' | 'wait' | 'failed' | 'departure' | 'arrival' | 'action' | 'use' | 'consume' | 'give' | 'looking'
 export type ActivityEntry = Readonly<{ key: string; changeId: number; time: number; kind: 'chat' | 'move' | 'thing-made' | 'event';
   text: string; entities: readonly ActivityEntity[]; cue?: ActivityCue; roomId?: number | null; anchorRoomId?: number | null;
-  actorResidentId?: number | null; targetResidentId?: number | null; thingId?: number | null }>
+  actorResidentId?: number | null; targetResidentId?: number | null; thingId?: number | null; lineId?: number; pingId?: number }>
 export type ActivityPlace = Readonly<{ id: number; name: string; parentId: number | null; quiet: boolean; hasDrawing: boolean }>
 export type ActivityPlacementSubject = Readonly<{ type: 'actor'; actor: string } | { type: 'thing' | 'effect'; id: number }>
 export type ActivityPlacementVisibility = 'public' | 'hidden' | 'unknown'
@@ -52,7 +53,8 @@ const requiredId: Readonly<Record<string, string>> = {
 
 /** True for every public kind this page has its own words for; any other kind gets one plain line. */
 export function knownActivityKind(kind: string): boolean {
-  return kind === 'action' || kind === 'note' || Object.hasOwn(eventKinds, kind)
+  return kind === 'action' || kind === 'note' || kind === 'line_said' || kind === 'ping_sent' || kind === 'ping_answered'
+    || Object.hasOwn(eventKinds, kind)
 }
 
 export function emptyActivity(): ActivityState {
@@ -104,9 +106,32 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
     const place = placeEntity(event.detail.place_id, time, context)
     if (!place) return null
     const line = typeof event.line === 'string' ? event.line : ''
-    const text = line.length ? `${actorName} in ${place.name}: ${noteWords(line, event.line_cut === true)}` : `${actorName} posted a note in ${place.name}.`
+    const text = event.note_removed === true ? `${actorName} posted a note in ${place.name}; the maintainer removed it.`
+      : line.length ? `${actorName} in ${place.name}: ${noteWords(line, event.line_cut === true)}` : `${actorName} posted a note in ${place.name}.`
     return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'chat', text,
       entities: Object.freeze(actor ? [actor, place] : [place]), cue: 'note', roomId: place.id, anchorRoomId: place.id, actorResidentId: actor?.id ?? null })
+  }
+  if (event.kind === 'line_said') {
+    if (!validId(event.detail.line_id) || !validId(event.detail.place_id) || typeof event.line !== 'string' || !event.line.length) return null
+    const place = placeEntity(event.detail.place_id, time, context)
+    if (!place) return null
+    return Object.freeze({ key: `line:${event.detail.line_id}`, changeId: id, time, kind: 'chat', text: lineLogText(actorName!, event.line),
+      entities: Object.freeze(actor ? [actor, place] : [place]), cue: 'note', roomId: place.id, anchorRoomId: place.id,
+      actorResidentId: actor?.id ?? null, lineId: event.detail.line_id })
+  }
+  if (event.kind === 'ping_sent' || event.kind === 'ping_answered') {
+    if (!validId(event.detail.ping_id) || !validId(event.detail.place_id) || !validId(event.detail.target_id)) return null
+    const place = placeEntity(event.detail.place_id, time, context)
+    if (!place) return null
+    const found = context.residentById?.(event.detail.target_id) ?? null
+    const target = found?.type === 'resident' ? found : null
+    const other = target?.name ?? `resident #${event.detail.target_id}`
+    const text = event.kind === 'ping_sent' ? pingLogText(actorName!, other) : answerLogText(actorName!, other, event.detail.answer)
+    if (!text) return null
+    const entities = actor ? [actor, place, ...(target ? [target] : [])] : [place, ...(target ? [target] : [])]
+    return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'event', cue: 'action', roomId: place.id, anchorRoomId: place.id,
+      actorResidentId: actor?.id ?? null, targetResidentId: target?.id ?? null, pingId: event.detail.ping_id,
+      entities: Object.freeze(entities), text })
   }
   const move = appliedMove(event)
   if (move) {

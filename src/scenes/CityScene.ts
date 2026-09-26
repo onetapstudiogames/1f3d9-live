@@ -13,7 +13,7 @@ import { ThingView, addThingTexture } from './ThingView.ts'
 import { blocksLiveHandoverDelivery, createHandovers, stepHandovers, type HandoverState } from '../handovers.ts'
 import { HandoverLayer } from './HandoverView.ts'
 import { contentHiddenRooms, placeAnimation, stepPlaceAnimations, type PlaceAnimation } from '../place-animation.ts'
-import { createNoteExcerptLoader, fetchChanges } from '../city/changes.ts'
+import { createNoteExcerptLoader, fetchChanges, fetchRoomLines } from '../city/changes.ts'
 import { liveReadFailed, type LiveReadState } from '../live.ts'
 import { readCurrentStart, readCurrentUpdate } from '../current-read.ts'
 import { readCurrentSnapshot } from '../city/current-snapshot.ts'
@@ -40,9 +40,10 @@ import { placesAfterOutline } from '../current-room.ts'
 import { awakeRoomChoices, followRoomState } from '../room-follow.ts'
 import { parseRoomLink, resolveRoomLink, replaceRoomLink, type RoomLinkSelection } from '../room-links.ts'
 
-import { singleRoomLayout, roomViewportUsable, roomIsPublic } from '../room-view.ts'
+import { singleRoomLayout, roomViewportUsable, roomIsPublic, quietRoomOwner } from '../room-view.ts'
 import { RoomActivityLine } from './RoomActivityLine.ts'
 import { animationDelta, eventsAfterMarker, roomMark, roomPictureSettled, roomPictureAccess, roomStatus, type OutlineResolution } from '../live-presentation.ts'
+import { removedTalkIds, withoutLineBubbles } from '../talk-removal.ts'
 import { presentRoom, roomFigurePriority, roomNameLabelPriority } from '../room-presentation.ts'
 import { roomLabelFitsViewport, visibleRoomLabels, type RoomCrowdingState } from '../room-crowding.ts'
 import { projectRoomHandovers, roomAnchorPair } from '../room-anchors.ts'
@@ -55,6 +56,11 @@ import { actionFloorEvents, type HeldActionThingEvent } from '../action-delivery
 import { positionNameLayer } from './NameReveal.ts'
 import { ItemPanelView, type ItemPanelDetails } from '../item-panel-view.ts'
 import { residentPanelFacts, thingPanelFacts, type ItemPanelRect } from '../item-panel.ts'
+import { fetchTalkNow, type TalkNow } from '../city/talk-now.ts'
+import { LINE_READ_ISSUE, lineEvent } from '../talk-words.ts'
+import { withLineBubble } from '../line-speech.ts'
+import { anchorsAfter, newRoomLines, talkCheckDelay, talkNeedsRead, TALK_CHECK_MS, TALK_IDLE_MS,
+  listeningIds, talkIdleSentence, withoutMovesBehindLines, withoutTalkLines, type LineAnchor } from '../talk-tick.ts'
 
 export class CityScene extends Phaser.Scene {
   private places: readonly ReplayPlace[] = []
@@ -68,6 +74,20 @@ export class CityScene extends Phaser.Scene {
   private liveDeliveryCounts: Readonly<Record<string, number>> = {}
   private pollGeneration = 0
   private pollTimer?: number
+  private talkTimer?: number
+  private talkTimerDueAt: number | null = null
+  private talkChecking = false
+  private talkFailures = 0
+  private talkCheckMs = TALK_CHECK_MS
+  private talkHead: TalkNow | null = null
+  private talkHeadAt = 0
+  private talkReadIssue: string | null = null
+  private talkLineMarker: string | null = null
+  private talkRoomId: number | null = null
+  private talkSeen: ReadonlySet<number> | null = null
+  private lineAnchors: ReadonlyMap<string, LineAnchor> = new Map()
+  private liveRefreshes = 0
+  private lastInputAt = Date.now()
   private returnReason: LiveReturnReason | null = null
   private lastFrameAt: number | null = null
   private wasHidden = false
@@ -147,12 +167,32 @@ export class CityScene extends Phaser.Scene {
     const visibility = (): void => {
       const reason = liveReturnReason({ kind: 'visibility', wasHidden: this.wasHidden, hidden: document.hidden })
       this.wasHidden = document.hidden
-      if (document.hidden) this.requestCurrentReturn('visibility')
+      if (document.hidden) {
+        window.clearTimeout(this.talkTimer)
+        this.requestCurrentReturn('visibility')
+      }
       else if (reason) this.requestCurrentReturn(reason)
     }
     document.addEventListener('visibilitychange', visibility)
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => document.removeEventListener('visibilitychange', visibility))
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.pollGeneration += 1; window.clearTimeout(this.pollTimer) })
+    const input = (): void => {
+      const now = Date.now()
+      const wasIdle = now - this.lastInputAt >= TALK_IDLE_MS
+      this.lastInputAt = now
+      if (wasIdle) this.restoreTalkCheck(now)
+      this.updateHud()
+    }
+    for (const name of ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const) {
+      window.addEventListener(name, input, { passive: true })
+    }
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      for (const name of ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const) window.removeEventListener(name, input)
+    })
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.pollGeneration += 1
+      window.clearTimeout(this.pollTimer)
+      window.clearTimeout(this.talkTimer)
+    })
     this.canvas = new RoomCanvas(this, () => this.showRoom(this.viewPlaceId))
     void this.loadCity()
   }
@@ -188,6 +228,7 @@ export class CityScene extends Phaser.Scene {
       this.lastFrameAt = performance.now()
       this.updateHud()
       this.pollTimer = window.setTimeout(() => void this.pollLive(), 30_000)
+      this.scheduleTalkCheck(TALK_CHECK_MS)
     } catch (error) {
       console.error(error)
       this.liveReadError = true
@@ -219,7 +260,104 @@ export class CityScene extends Phaser.Scene {
     this.returnReason = next.state.returnReason; this.liveQueue = next.state.liveQueue
     this.pollGeneration = next.state.pollGeneration; this.polling = next.state.polling
     window.clearTimeout(this.pollTimer)
+    this.talkSeen = null
+    this.lineAnchors = new Map()
+    this.scheduleTalkCheck(0)
     if (next.readNow) void this.pollLive()
+  }
+  private scheduleTalkCheck(delay: number): void {
+    window.clearTimeout(this.talkTimer)
+    this.talkTimerDueAt = null
+    if (document.hidden) return
+    this.talkTimerDueAt = Date.now() + delay
+    this.talkTimer = window.setTimeout(() => {
+      this.talkTimerDueAt = null
+      void this.checkTalk()
+    }, delay)
+  }
+  private restoreTalkCheck(now: number): void {
+    const restoredDueAt = now + this.talkCheckMs
+    const dueAt = this.talkTimerDueAt === null ? restoredDueAt : Math.min(this.talkTimerDueAt, restoredDueAt)
+    this.scheduleTalkCheck(Math.max(0, dueAt - now))
+  }
+  private async checkTalk(): Promise<void> {
+    if (this.talkChecking || !this.liveState || !this.layout) return
+    this.talkChecking = true
+    const generation = this.pollGeneration
+    let talkIssue: string | null = null
+    try {
+      const head = await fetchTalkNow()
+      if (generation !== this.pollGeneration) return
+      this.talkHead = head
+      this.talkHeadAt = Date.now()
+      this.talkCheckMs = head.checkMs
+      const room = this.viewPlaceId !== null && roomIsPublic(this.layout, this.viewPlaceId) ? this.viewPlaceId : null
+      if (room === null) {
+        this.talkRoomId = null
+        this.talkSeen = null
+        this.talkLineMarker = head.lineMarker
+      } else if (this.talkSeen === null || this.talkRoomId !== room) {
+        let seen: ReadonlySet<number> = new Set()
+        if (head.lineMarker !== '0') {
+          const page = await fetchRoomLines(room, head.lineMarker)
+          if (generation !== this.pollGeneration) return
+          seen = newRoomLines(page, new Set()).seen
+          if (page.dropped > 0) talkIssue = LINE_READ_ISSUE
+        }
+        this.talkRoomId = room
+        this.talkSeen = seen
+        this.talkLineMarker = head.lineMarker
+      } else if (talkNeedsRead(this.talkLineMarker, head.lineMarker)) {
+        const page = await fetchRoomLines(room, head.lineMarker)
+        if (generation !== this.pollGeneration) return
+        const next = newRoomLines(page, this.talkSeen)
+        if (page.dropped > 0) talkIssue = LINE_READ_ISSUE
+        for (const row of next.fresh) {
+          const line = lineEvent(row, head.lineMarker)
+          const now = Date.now()
+          this.activity?.witness([line], now, this.activityBase, this.elapsed)
+          const shown = withLineBubble(this.residents!, line, now, this.viewPlaceId, this.sleepers, this.layout!)
+          const speakerId = shown.state.actors.get(row.author.trim())
+          const speaker = speakerId === undefined ? undefined : shown.state.residents[speakerId]
+          if (shown.shown && speaker?.bubble?.lineId === row.id) {
+            const duration = speaker.bubble.expiresAt - speaker.bubble.startedAt
+            const presented = Object.freeze({ ...speaker,
+              ...(shown.relocated ? { relocatedAt: this.elapsed } : {}),
+              bubble: Object.freeze({ ...speaker.bubble, startedAt: this.elapsed, expiresAt: this.elapsed + duration }),
+            })
+            this.residents = Object.freeze({ ...shown.state,
+              residents: Object.freeze({ ...shown.state.residents, [speaker.id]: presented }) })
+          } else this.residents = shown.state
+          if (shown.relocated) {
+            this.lineAnchors = new Map(this.lineAnchors).set(row.author, {
+              placeId: row.placeId, at: line.at, refresh: this.liveRefreshes,
+            })
+          }
+          this.prepareRoomPresentation()
+          this.drawResidents()
+        }
+        this.talkSeen = next.seen
+        this.talkLineMarker = head.lineMarker
+      }
+      this.talkFailures = 0
+      this.talkReadIssue = talkIssue
+    } catch (error) {
+      if (generation !== this.pollGeneration) return
+      console.error(error)
+      this.talkFailures += 1
+    } finally {
+      this.talkChecking = false
+      document.body.dataset['liveTalkMarker'] = this.talkLineMarker ?? ''
+      const shownPublic = Boolean(this.layout && this.viewPlaceId !== null
+        && roomIsPublic(this.layout, this.viewPlaceId))
+      document.body.dataset['liveListening'] = [...listeningIds(this.talkHead,
+        shownPublic ? this.viewPlaceId : null, this.talkHeadAt, Date.now())]
+        .sort((left, right) => left - right).join(',')
+      this.updateHud()
+      if (generation === this.pollGeneration) {
+        this.scheduleTalkCheck(talkCheckDelay(this.talkFailures, this.talkCheckMs, Date.now() - this.lastInputAt))
+      } else if (!document.hidden) this.scheduleTalkCheck(0)
+    }
   }
   private connectActivityLine(): void {
     if (!this.layout) return
@@ -337,6 +475,8 @@ export class CityScene extends Phaser.Scene {
     if (document.hidden) {
       this.pollTimer = window.setTimeout(() => void this.pollLive(), 30_000); return
     }
+    const refresh = this.liveRefreshes + 1
+    this.liveRefreshes = refresh
     this.polling = true
     const generation = this.pollGeneration
     const returning = this.returnReason
@@ -365,7 +505,8 @@ export class CityScene extends Phaser.Scene {
           return id == null ? 'unknown' : roomIsPublic(visibleLayout, id) ? 'public' : 'hidden'
         },
       }
-      const enriched = await readWitnessedRoom(events, context, () => this.viewPlaceId, async seen => {
+      const talkFiltered = withoutTalkLines(events)
+      const enriched = await readWitnessedRoom(talkFiltered, context, () => this.viewPlaceId, async seen => {
         const rows = await readNoteWords(seen, visibleLayout, this.readNote, message => issues.push(message))
         const pairs = await readAgreementPairs(rows, this.readAgreement, this.agreementPairs)
         this.agreementPairs = pairs.pairs
@@ -374,9 +515,15 @@ export class CityScene extends Phaser.Scene {
       }, () => generation !== this.pollGeneration)
       if (generation !== this.pollGeneration) return
       this.activity?.witness(enriched, Date.now(), context, this.elapsed)
+      const removedTalk = removedTalkIds(events)
+      if (removedTalk.lineIds.size > 0 || removedTalk.pingIds.size > 0) {
+        this.activityLog?.forgetTalk(removedTalk)
+        this.residents = withoutLineBubbles(this.residents!, removedTalk.lineIds)
+      }
       this.commitIssues(issues)
       this.liveState = nextState; this.liveReadError = false
-      const visual = filterCurrentVisualEvents(this.residents, this.liveQueue, enriched)
+      const visual = filterCurrentVisualEvents(this.residents, this.liveQueue,
+        withoutMovesBehindLines(withoutTalkLines(enriched), this.lineAnchors))
       // A refresh can report a destination before its witnessed walk has played.
       const protectedIds = new Set(Object.values(this.residents.residents).filter(row => row.walking || row.actionUntil != null || row.queue.some(item => item.event.kind !== 'note')).map(row => row.id))
       for (const event of [...this.liveQueue, ...visual]) if (event.kind === 'action' && event.detail.status === 'applied'
@@ -405,6 +552,7 @@ export class CityScene extends Phaser.Scene {
       }
       this.updateFollowRoom(); this.showRoom(this.viewPlaceId)
       this.prepareRoomPresentation(); this.drawThings(); this.drawResidents()
+      this.lineAnchors = anchorsAfter(this.lineAnchors, refresh)
       if (this.fixtureMode) document.body.dataset['livePoll'] = 'true'
     } catch (error) {
       if (generation !== this.pollGeneration) return
@@ -668,6 +816,10 @@ export class CityScene extends Phaser.Scene {
   private drawResidents(): void {
     const state = this.roomResidents
     const usable = roomViewportUsable(this.viewport.width, this.viewport.height)
+    const shownPublic = Boolean(this.layout && this.viewPlaceId !== null
+      && roomIsPublic(this.layout, this.viewPlaceId))
+    const listeningResidents = listeningIds(this.talkHead,
+      shownPublic ? this.viewPlaceId : null, this.talkHeadAt, Date.now())
     let visibleSpeech: { residentId: number; text: string; shape: string; showing: string } | null = null
     for (const [id, figure] of this.figures) if (!state[id] || this.sleepers.has(id)) {
       if (this.itemPanel?.isOpenFor(`resident:${id}`)) this.itemPanel.close()
@@ -691,7 +843,8 @@ export class CityScene extends Phaser.Scene {
       const hidden = !usable || !this.isResidentDrawn(resident) || resident.placeId !== this.viewPlaceId
       const speech = figure.update(hidden ? { ...resident, visible: false } : resident, this.elapsed,
         this.places, this.viewport, this.following === resident.id,
-        this.roomMotion.actionFrames().find(frame => frame.residentId === resident.id)?.offsetX ?? 0)
+        this.roomMotion.actionFrames().find(frame => frame.residentId === resident.id)?.offsetX ?? 0,
+        listeningResidents.has(resident.id))
       if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
     const actionOffsets = new Map(this.roomMotion.actionFrames().map(frame => [frame.residentId, frame.offsetX]))
@@ -980,10 +1133,13 @@ export class CityScene extends Phaser.Scene {
       if (mark) { markNode.title = mark.title; markNode.setAttribute('aria-label', mark.title) }
       else { markNode.removeAttribute('title'); markNode.removeAttribute('aria-label') }
     }
-    document.getElementById('live-status')!.textContent = roomStatus({
-      tooSmall: !roomViewportUsable(this.viewport.width, this.viewport.height), readFailed: failed,
-      quiet, openingNotice: this.openingNotice, readIssue: this.readIssues[0],
-    })
+    const idleTalk = Date.now() - this.lastInputAt >= TALK_IDLE_MS
+    const status = roomStatus({ tooSmall: !roomViewportUsable(this.viewport.width, this.viewport.height), readFailed: failed,
+        quiet, quietOwner: quietRoomOwner(this.places, room?.id ?? null),
+        openingNotice: this.openingNotice, readIssue: this.readIssues[0] ?? this.talkReadIssue ?? undefined })
+    document.getElementById('live-status')!.textContent = idleTalk
+      ? [status, talkIdleSentence(this.talkCheckMs)].filter(Boolean).join(' ')
+      : status
     const picker = document.querySelector<HTMLSelectElement>('#place-picker')!
     const places = this.places
     const signature = JSON.stringify(places.map(place => [place.id, place.name]))

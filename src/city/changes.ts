@@ -5,7 +5,10 @@ export type ChangesPage = Readonly<{
   marker: string; nextSince: string; hasMore: boolean; unchanged: boolean; events: readonly ReplayEvent[]
 }>
 // `readInPerson` marks a walk-to-read note whose `text` is only its public first line.
-export type NoteExcerpt = Readonly<{ id: number; author: string; placeId: number; text: string; cut: boolean; readInPerson?: true }>
+export type NoteExcerpt = Readonly<{ id: number; author: string; placeId: number; text: string; cut: boolean; readInPerson?: true; removed?: true }>
+export type RoomLine = Readonly<{ id: number; placeId: number; author: string; body: string; createdAt: string }>
+export type RoomLinesPage = Readonly<{ lines: readonly RoomLine[]; removedIds: readonly number[]; dropped: number }>
+export const ROOM_LINES_LIMIT = 50
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -73,6 +76,7 @@ export function parseNoteExcerpt(value: unknown, id: number): NoteExcerpt {
     throw new Error('The public note answer is incomplete or names a different note.')
   }
   const common = { id, author: note['author'], placeId: note['place_id'] }
+  if (note['moderated'] === true) return Object.freeze({ ...common, text: '', cut: false, removed: true })
   if (typeof note['body'] === 'string') return Object.freeze({ ...common, text: note['body'], cut: false })
   // A walk-to-read note read from afar has no body: only its first line and the city's
   // read_in_person sentence. Keep the first line; never guess at the rest.
@@ -103,4 +107,38 @@ export function createNoteExcerptLoader(search: string = browserSearch()): (id: 
     cache.set(id, pending)
     return pending
   }
+}
+
+export function parseRoomLines(value: unknown, roomId: number): RoomLinesPage {
+  if (!object(value) || !Array.isArray(value['lines'])) throw new Error('The room lines answer is incomplete.')
+  const lines: RoomLine[] = []
+  const removedIds: number[] = []
+  let dropped = 0
+  for (const row of value['lines']) {
+    if (object(row) && row['moderated'] === true && Number.isSafeInteger(row['id']) && (row['id'] as number) > 0) {
+      removedIds.push(row['id'] as number)
+      continue
+    }
+    if (!object(row) || !Number.isSafeInteger(row['id']) || (row['id'] as number) < 1
+      || row['place_id'] !== roomId || typeof row['author'] !== 'string' || !/^[a-z0-9][a-z0-9-]{2,31}$/.test(row['author'])
+      || typeof row['body'] !== 'string' || !row['body'].length || /[\r\n]/.test(row['body'])
+      || typeof row['created_at'] !== 'string' || !Number.isFinite(Date.parse(row['created_at']))) {
+      dropped += 1
+      continue
+    }
+    lines.push(Object.freeze({ id: row['id'] as number, placeId: roomId, author: row['author'], body: row['body'], createdAt: row['created_at'] }))
+  }
+  lines.sort((a, b) => a.id - b.id)
+  removedIds.sort((a, b) => a - b)
+  return Object.freeze({ lines: Object.freeze(lines), removedIds: Object.freeze(removedIds), dropped })
+}
+
+export async function fetchRoomLines(roomId: number, lineMarker: string, search: string = browserSearch()): Promise<RoomLinesPage> {
+  const params = new URLSearchParams(search)
+  const root = params.get('roomlines') || (fixture(params) ? 'fixtures/room-lines' : null)
+  const url = root ? `${root.replace(/\/$/, '')}/lines-${roomId}-${lineMarker}.json`
+    : `${CITY_ORIGIN}/api/window?collection=lines&place_id=${roomId}&limit=${ROOM_LINES_LIMIT}&after_change_marker=${lineMarker}`
+  const response = await fetch(url, readOptions())
+  if (!response.ok) throw new Error(`The city answered ${response.status} for the room's lines.`)
+  return parseRoomLines(await response.json(), roomId)
 }

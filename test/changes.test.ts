@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { createNoteExcerptLoader, fetchChanges, parseChangesPage, parseNoteExcerpt } from '../src/city/changes.ts'
+import { createNoteExcerptLoader, fetchChanges, fetchRoomLines, parseChangesPage, parseNoteExcerpt, parseRoomLines } from '../src/city/changes.ts'
 
 const feed = JSON.parse(await readFile(new URL('./fixtures/changes-live.json', import.meta.url), 'utf8'))
 const note = JSON.parse(await readFile(new URL('./fixtures/notes/note-13243.json', import.meta.url), 'utf8'))
@@ -131,4 +131,59 @@ test('single-note reads are anonymous and cached including missing or failed ans
   await assert.rejects(failed(1), /503/)
   await assert.rejects(failed(1), /503/)
   await assert.rejects(load(0), /positive/)
+})
+
+test('a moderated note answer is parsed as removed without its text', () => {
+  assert.deepEqual(parseNoteExcerpt({ note: { id: 1, author: 'vigil', place_id: 2, moderated: true } }, 1),
+    { id: 1, author: 'vigil', placeId: 2, text: '', cut: false, removed: true })
+})
+
+test('room lines keep readable rows in id order and count removed and dropped rows', () => {
+  const page = parseRoomLines({ lines: [
+    { id: 4, place_id: 731, author: 'vigil', body: 'four', created_at: '2026-09-25T10:00:00Z' },
+    { id: 2, place_id: 731, author: 'ada', body: 'two', created_at: '2026-09-25T09:00:00Z' },
+    { id: 6, moderated: true },
+    { id: 8, place_id: 732, author: 'ada', body: 'other room', created_at: '2026-09-25T11:00:00Z' },
+    { id: 9, place_id: 731, author: 'Bad Handle', body: 'bad author', created_at: '2026-09-25T11:00:00Z' },
+    { id: 10, place_id: 731, author: 'vigil', body: '', created_at: '2026-09-25T11:00:00Z' },
+    { id: 11, place_id: 731, author: 'vigil', body: 'first\nsecond', created_at: '2026-09-25T11:00:00Z' },
+    { id: 12, place_id: 731, author: 'vigil', body: 'bad date', created_at: 'not a date' },
+  ] }, 731)
+
+  assert.deepEqual(page, {
+    lines: [
+      { id: 2, placeId: 731, author: 'ada', body: 'two', createdAt: '2026-09-25T09:00:00Z' },
+      { id: 4, placeId: 731, author: 'vigil', body: 'four', createdAt: '2026-09-25T10:00:00Z' },
+    ],
+    removedIds: [6],
+    dropped: 5,
+  })
+  assert.equal(Object.isFrozen(page.lines), true)
+  assert.equal(Object.isFrozen(page.removedIds), true)
+  assert.equal(Object.isFrozen(page.lines[0]), true)
+  assert.throws(() => parseRoomLines(null, 731), /incomplete/)
+  assert.throws(() => parseRoomLines({}, 731), /incomplete/)
+})
+
+test('room line reads use the shared marker URL and the fixture override', async t => {
+  const original = globalThis.fetch
+  const calls: { url: string; options?: RequestInit }[] = []
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), ...(options ? { options } : {}) })
+    return Response.json({ lines: [] })
+  }
+  t.after(() => { globalThis.fetch = original })
+
+  await fetchRoomLines(731, '100299', '')
+  await fetchRoomLines(731, '100299', '?roomlines=/fx')
+  await fetchRoomLines(731, '100299', '?census=x')
+
+  assert.deepEqual(calls.map(call => call.url), [
+    'https://1f3d9.com/api/window?collection=lines&place_id=731&limit=50&after_change_marker=100299',
+    '/fx/lines-731-100299.json',
+    'fixtures/room-lines/lines-731-100299.json',
+  ])
+  assert.equal(calls[0]!.options?.credentials, 'omit')
+  assert.deepEqual(calls[0]!.options?.headers, { accept: 'application/json' })
+  assert.ok(calls[0]!.options?.signal instanceof AbortSignal)
 })

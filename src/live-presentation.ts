@@ -47,9 +47,14 @@ export function animationDelta(delta: number, state: {
 }
 
 export function roomStatus(state: { tooSmall: boolean; readFailed: boolean; quiet: boolean;
+  quietOwner?: { name: string; owner: string | null; self: boolean } | null;
   openingNotice?: string | null; readIssue?: string }): string {
   const status = state.tooSmall ? 'This window is too small to draw the room.'
     : state.readFailed ? 'The public record could not be read. Keeping the last picture and retrying.'
-    : state.quiet ? 'This is a quiet place; its occupants are not shown.' : state.readIssue ?? ''
+    : state.quiet ? state.quietOwner
+      ? state.quietOwner.self
+        ? `${state.quietOwner.owner ?? 'The owner'} prefers to keep this room private.`
+        : `This place is inside ${state.quietOwner.name}, which ${state.quietOwner.owner ?? 'its owner'} prefers to keep private.`
+      : 'This is a quiet place; its occupants are not shown.' : state.readIssue ?? ''
   return [state.openingNotice, status].filter(Boolean).join(' ')
 }

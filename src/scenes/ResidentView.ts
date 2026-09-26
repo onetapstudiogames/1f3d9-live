@@ -9,7 +9,8 @@ import { BubbleView } from './BubbleView.ts'
 import { residentBobOffset } from '../resident-bob.ts'
 import { ballotCells, confettiCells, showingFor, showingFrame, spotlightCells } from '../showing.ts'
 import { ROOM_RESIDENT_SIZE, roomFigureStyle } from '../room-appearance.ts'
-import { RESIDENT_LOCK_RECTS, followMarkRects, residentOverlayDistance, residentOverlayRects } from '../resident-overlays.ts'
+import { RESIDENT_LOCK_RECTS, followMarkRects, listeningMarkRects, residentOverlayDistance,
+  residentOverlayRects } from '../resident-overlays.ts'
 import { NameLabel, type NameLabelBounds } from './NameLabel.ts'
 
 export type VisibleSpeech = Readonly<{ residentId: number; text: string; shape: string; showing: string }>
@@ -28,6 +29,7 @@ export class ResidentView {
   private readonly bubble: BubbleView
   private readonly sparkle: Phaser.GameObjects.Graphics
   private readonly followMark: Phaser.GameObjects.Graphics
+  private readonly listeningMark: Phaser.GameObjects.Graphics
   private showing: Phaser.GameObjects.Graphics | null = null
   private contest: Phaser.GameObjects.Graphics | null = null
   private lock: Phaser.GameObjects.Graphics | null = null
@@ -48,13 +50,16 @@ export class ResidentView {
     this.followMark = scene.add.graphics().setDepth(103).setVisible(false)
     for (const cell of followMarkRects(true, true)) this.followMark.fillStyle(cell.color, cell.alpha)
       .fillRect(cell.x, cell.y, cell.width, cell.height)
+    this.listeningMark = scene.add.graphics().setDepth(103).setVisible(false)
+    for (const cell of listeningMarkRects(true, true)) this.listeningMark.fillStyle(cell.color, cell.alpha)
+      .fillRect(cell.x, cell.y, cell.width, cell.height)
     this.bubble = new BubbleView(resident.id)
 
   }
 
   update(resident: ResidentState, now: number, places: readonly ReplayPlace[] = [],
     viewport: Readonly<{ width: number; height: number }> = { width: 0, height: 0 }, followed = false,
-    shakeOffset = 0): VisibleSpeech | null {
+    shakeOffset = 0, listening = false): VisibleSpeech | null {
     const bob = residentBobOffset(resident.id, now, resident.walking)
     const x = resident.x + shakeOffset
     const projectedResident = shakeOffset === 0 ? resident : Object.freeze({ ...resident, x })
@@ -71,6 +76,8 @@ export class ResidentView {
     this.sparkle.setPosition(x, resident.y).setAlpha(alpha).setVisible(resident.visible && alpha > 0)
     this.followMark.setPosition(x, resident.y + bob).setAlpha(appearance)
       .setVisible(followMarkRects(resident.visible, followed).length > 0)
+    this.listeningMark.setPosition(x, resident.y + bob).setAlpha(appearance)
+      .setVisible(listeningMarkRects(resident.visible, listening).length > 0)
     const blocked = resident.visible ? resident.blockedAttempt : null
     if (blocked) {
       this.lock ??= this.sprite.scene.add.graphics().setDepth(204)
@@ -123,6 +130,7 @@ export class ResidentView {
     this.bubble.destroy()
     this.sparkle.destroy()
     this.followMark.destroy()
+    this.listeningMark.destroy()
     this.showing?.destroy()
     this.contest?.destroy()
     this.lock?.destroy()

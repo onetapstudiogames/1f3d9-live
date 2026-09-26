@@ -8,7 +8,7 @@ import type { ReplayFile, Resident } from '../src/city/types.ts'
 import { createResidents, stepResidents } from '../src/replay/simulation.ts'
 
 const places = [{ id: 438, name: 'the showing room', quiet: false }] as ReplayPlace[]
-const bubble = (text: string, placeId = 438, noteId?: number): SpeechBubble => ({ text, cut: false, placeId, noteId, startedAt: 100,
+const bubble = (text: string, placeId = 438, noteId?: number): SpeechBubble => ({ text, cut: false, placeId, size: 'note', noteId, startedAt: 100,
   charInterval: 20, expiresAt: 1_100 })
 
 test('every exact showing-room note gets a spotlight, while only first-word VOTE gets a ballot', () => {

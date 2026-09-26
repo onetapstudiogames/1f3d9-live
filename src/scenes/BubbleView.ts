@@ -1,18 +1,19 @@
 import { positionBubbleCard, type BubblePoint, type BubbleSize } from '../bubble-position.ts'
 import { ROOM_RESIDENT_SIZE } from '../room-appearance.ts'
-import { speechCardFrame, speechCardPlan, speechScrollTop, type BubbleShape, type SpeechBubble, type SpeechCardFrame,
+import { LINE_CARD, speechCardFrame, speechCardPlan, speechScrollTop, type BubbleShape, type SpeechBubble, type SpeechCardFrame,
   type SpeechCardPlan } from '../speech.ts'
 import type { SpeechRect } from '../action-captions.ts'
 
 const FONT = '14px Consolas, "Liberation Mono", monospace'
 let measurementContext: CanvasRenderingContext2D | null | undefined
 
-function measureText(text: string): number {
+function measureText(text: string, size: SpeechBubble['size'] = 'note'): number {
   if (measurementContext === undefined) {
     const canvas = document.createElement('canvas')
     measurementContext = canvas.getContext('2d')
-    if (measurementContext) measurementContext.font = FONT
   }
+  const font = size === 'line' ? `${LINE_CARD.fontSize}px Consolas, "Liberation Mono", monospace` : FONT
+  if (measurementContext && measurementContext.font !== font) measurementContext.font = font
   return measurementContext?.measureText(text).width ?? text.length * 8
 }
 
@@ -46,26 +47,34 @@ export class BubbleView {
     if (!bubble) {
       setStyle(this.card, 'display', 'none')
       if (this.words.textContent) this.words.textContent = ''
-      for (const key of ['side', 'shape', 'complete', 'revealed', 'noteId']) deleteDataset(this.card, key)
+      for (const key of ['side', 'shape', 'complete', 'revealed', 'noteId', 'kind', 'lineId']) deleteDataset(this.card, key)
       this.lastBubble = null
       this.lastFrame = null
       this.lastPlan = null
       return null
     }
-    const availableWidth = Math.min(240, Math.max(1, viewport.width - 16))
+    const maxWidth = bubble.size === 'line' ? LINE_CARD.maxWidth : 240
+    const availableWidth = Math.min(maxWidth, Math.max(1, viewport.width - 16))
     const availableHeight = Math.max(40, viewport.height - 16)
+    const font = bubble.size === 'line' ? `${LINE_CARD.fontSize}px Consolas, "Liberation Mono", monospace` : FONT
+    const lineHeight = bubble.size === 'line' ? LINE_CARD.lineHeight : 20
+    setStyle(this.card, 'font', font)
+    setStyle(this.card, 'lineHeight', `${lineHeight}px`)
+    setDataset(this.card, 'kind', bubble.size)
+    if (bubble.lineId === undefined) deleteDataset(this.card, 'lineId')
+    else setDataset(this.card, 'lineId', String(bubble.lineId))
     if (this.lastBubble !== bubble || this.lastWidth !== availableWidth || this.lastHeight !== availableHeight || !this.lastPlan) {
       setStyle(this.card, 'display', '')
       setStyle(this.card, 'width', `${availableWidth}px`)
       // The reserved scrollbar gutter is part of the actual text width.
-      this.lastPlan = speechCardPlan(bubble, availableWidth, measureText, this.words.clientWidth)
+      this.lastPlan = speechCardPlan(bubble, availableWidth, text => measureText(text, bubble.size), this.words.clientWidth)
       this.lastWidth = availableWidth; this.lastHeight = availableHeight
     }
-    const frame = speechCardFrame(bubble, now, availableWidth, availableHeight, measureText, this.lastPlan)
+    const frame = speechCardFrame(bubble, now, availableWidth, availableHeight, text => measureText(text, bubble.size), this.lastPlan)
     if (!frame.revealed) {
       setStyle(this.card, 'display', 'none')
       if (this.words.textContent) this.words.textContent = ''
-      for (const key of ['side', 'shape', 'complete', 'revealed', 'noteId']) deleteDataset(this.card, key)
+      for (const key of ['side', 'shape', 'complete', 'revealed', 'noteId', 'kind', 'lineId']) deleteDataset(this.card, key)
       this.lastBubble = bubble; this.lastFrame = frame
       return null
     }

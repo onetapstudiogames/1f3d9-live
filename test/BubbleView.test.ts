@@ -81,6 +81,7 @@ test('BubbleView reuses safe DOM text and keeps scrolling speech in the room', t
   assert.equal(card.children[0]!.textContent, frame.text)
   assert.equal(card.children[0]!.children.length, 0)
   assert.equal(card.dataset['residentId'], '4')
+  assert.equal(card.dataset['kind'], 'note')
   assert.equal(card.dataset['noteId'], '7')
   assert.equal(card.dataset['complete'], 'true')
   assert.equal(card.dataset['revealed'], frame.revealed)
@@ -110,12 +111,25 @@ test('BubbleView reuses safe DOM text and keeps scrolling speech in the room', t
   assert.equal(card.dataset['revealed'], undefined)
   assert.equal(card.dataset['complete'], undefined)
   assert.equal(card.dataset['noteId'], undefined)
+  assert.equal(card.dataset['kind'], undefined)
+  assert.equal(card.dataset['lineId'], undefined)
+  const lineEvent: ReplayEvent = { actor: 'ada', at: '2026-01-01T00:00:00Z', change_id: '3', event_id: 9,
+    kind: 'line_said', detail: { place_id: 3, line_id: 9 }, line: 'a short line' }
+  const lineBubble = bubbleFor(lineEvent, 0)!
+  view.update(lineBubble, { x: 100, y: 40 }, { width: 240, height: 100 }, 'plain', lineBubble.startedAt)
+  assert.equal(card.dataset['kind'], 'line')
+  assert.equal(card.dataset['lineId'], '9')
+  assert.equal(card.style.font, '13px Consolas, "Liberation Mono", monospace')
+  assert.equal(card.style.lineHeight, '18px')
+  assert.ok(Number.parseFloat(card.style.width) <= 200)
   view.update(null, { x: 0, y: 0 }, { width: 200, height: 100 }, 'plain', 0)
   assert.equal(card.style.display, 'none')
   assert.equal(card.children[0]!.textContent, '')
   assert.equal(card.dataset['revealed'], undefined)
   assert.equal(card.dataset['complete'], undefined)
   assert.equal(card.dataset['noteId'], undefined)
+  assert.equal(card.dataset['kind'], undefined)
+  assert.equal(card.dataset['lineId'], undefined)
   layer.style.left = 'unchanged'
   assert.equal(positionSpeechLayer(), false)
   assert.equal(layer.style.left, 'unchanged')

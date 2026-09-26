@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ReplayEvent } from '../src/city/types.ts'
-import { activityEntry, activityReduce, createActivityContext, emptyActivity, type ActivityContext, type ActivityPlace } from '../src/activity.ts'
+import { activityEntry, activityReduce, createActivityContext, emptyActivity, knownActivityKind, type ActivityContext, type ActivityPlace } from '../src/activity.ts'
 
 const places = new Map<number, ActivityPlace>([
   [1, { id: 1, name: 'the world', parentId: null, quiet: false, hasDrawing: true }],
@@ -125,6 +125,58 @@ test('explicit quiet and unknown rooms suppress their event and thing facts befo
   assert.equal(activityEntry(row(21, 'thing_edited', { thing_id: 22, place_id: 99 }), anchored), null)
   assert.equal(activityEntry(row(22, 'thing_edited', { thing_id: 22 }), anchored), null)
   assert.equal(activityEntry(row(23, 'rotate', {}), { ...context, actorRoom: () => 3 })?.anchorRoomId, null)
+})
+
+test('a removed note names its author and room without showing note text', () => {
+  const removed = { ...row(1, 'note', { note_id: 9, place_id: 2 }), note_removed: true as const }
+  assert.equal(activityEntry(removed, context)?.text,
+    'vigil posted a note in the old square; the maintainer removed it.')
+})
+
+test('talk rows read as lines, pings, and answers; quiet rooms and removed talk show nothing', () => {
+  const talkContext: ActivityContext = {
+    ...context,
+    residentById: id => id === 8 ? { type: 'resident', id: 8, name: 'ada', hasDrawing: false } : null,
+  }
+  const line = { ...row(40, 'line_said', { line_id: 500, place_id: 2 }), line: 'hello' }
+  const lineEntry = activityEntry(line, talkContext)!
+  assert.equal(lineEntry.kind, 'chat')
+  assert.equal(lineEntry.text, 'vigil: hello')
+  assert.equal(lineEntry.lineId, 500)
+  assert.equal(lineEntry.key, 'line:500')
+  assert.equal(activityEntry(row(40, 'line_said', { line_id: 500, place_id: 2 }), talkContext), null)
+  assert.notEqual(
+    activityEntry({ ...line, detail: { line_id: 501, place_id: 2 } }, talkContext)?.key,
+    activityEntry({ ...line, detail: { line_id: 502, place_id: 2 } }, talkContext)?.key,
+  )
+
+  const ping = activityEntry(row(41, 'ping_sent', { ping_id: 600, place_id: 2, target_id: 8 }), talkContext)!
+  assert.equal(ping.kind, 'event')
+  assert.equal(ping.cue, 'action')
+  assert.equal(ping.text, 'vigil pinged ada.')
+  assert.equal(ping.pingId, 600)
+  assert.equal(ping.targetResidentId, 8)
+  assert.equal(activityEntry(row(42, 'ping_sent', { ping_id: 601, place_id: 2, target_id: 99 }), talkContext)?.text,
+    'vigil pinged resident #99.')
+
+  for (const [answer, expected] of [
+    ['yes', "vigil answered ada's ping: yes."],
+    ['no', "vigil answered ada's ping: no."],
+    ['in_a_moment', "vigil answered ada's ping: in a moment."],
+  ] as const) {
+    const entry = activityEntry(row(43, 'ping_answered', { ping_id: 602, place_id: 2, target_id: 8, answer }), talkContext)!
+    assert.equal(entry.text, expected)
+    assert.equal(entry.pingId, 602)
+  }
+  assert.equal(activityEntry(row(44, 'ping_answered', { ping_id: 602, place_id: 2, target_id: 8, answer: 'maybe' }), talkContext), null)
+
+  for (const kind of ['line_said', 'ping_sent', 'ping_answered']) {
+    const detail: ReplayEvent['detail'] = { line_id: 700, ping_id: 700, place_id: 4, target_id: 8, answer: 'yes' }
+    const event = { ...row(45, kind, detail), line: 'hello' }
+    assert.equal(activityEntry(event, talkContext), null, kind)
+    assert.equal(activityEntry({ ...event, actor: '' }, talkContext), null, kind)
+    assert.equal(knownActivityKind(kind), true, kind)
+  }
 })
 
 test('rejects malformed typed rows, error-bearing moves, and richer paired duplicates', () => {

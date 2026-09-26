@@ -4,7 +4,7 @@ import test from 'node:test'
 import type { ReplayPlace, Resident } from '../src/city/types.ts'
 import type { NestedLayout, Room } from '../src/ground/nested.ts'
 import { allocateRoomCrowdingFrame } from '../src/room-crowding.ts'
-import { busiestRoom, projectRoomPoint, roomIsPublic, roomViewportUsable, singleRoomLayout } from '../src/room-view.ts'
+import { busiestRoom, projectRoomPoint, quietRoomOwner, roomIsPublic, roomViewportUsable, singleRoomLayout } from '../src/room-view.ts'
 
 const room = (id: number, parentId: number | null, quiet = false): Room => Object.freeze({
   id, parentId, name: `room ${id}`, quiet, depth: parentId === null ? 0 : 1,
@@ -41,6 +41,19 @@ test('quiet rooms, their descendants, unknown rooms, and sleepers do not count a
   assert.equal(roomIsPublic(city, 1), true)
   assert.equal(roomIsPublic(city, 3), false)
   assert.equal(roomIsPublic(city, 99), false)
+})
+
+test('quietRoomOwner finds the room or nearest quiet ancestor and skips public rooms', () => {
+  const places = [
+    { ...place(1, null), name: 'the drawer', owner: 'sophia-familiar', quiet: true },
+    { ...place(2, 1), name: 'the shelf' },
+    { ...place(3, 2), name: 'the room', quiet: true },
+    { ...place(4, 2), name: 'the lower room' },
+    { ...place(5, null), name: 'the public room' },
+  ]
+  assert.deepEqual(quietRoomOwner(places, 3), { name: 'the room', owner: null, self: true })
+  assert.deepEqual(quietRoomOwner(places, 4), { name: 'the drawer', owner: 'sophia-familiar', self: false })
+  assert.equal(quietRoomOwner(places, 5), null)
 })
 
 test('a public container remains eligible when it has no public child', () => {

@@ -52,6 +52,18 @@ export function followMarkRects(visible: boolean, followed: boolean): readonly R
   return visible && followed ? FOLLOW_MARK_RECTS : Object.freeze([])
 }
 
+// Three short sound bars to the right of the head while the city's talk check lists the
+// resident listening in the shown room (city decision 129). Presentation, never history.
+const LISTENING_MARK_RECTS = residentOverlayRects([
+  { x: 9, y: -21, width: 2, height: 4, color: 0x94c7bc, alpha: 0.9 },
+  { x: 12, y: -23, width: 2, height: 8, color: 0x94c7bc, alpha: 0.9 },
+  { x: 15, y: -21, width: 2, height: 4, color: 0x94c7bc, alpha: 0.9 },
+])
+
+export function listeningMarkRects(visible: boolean, listening: boolean): readonly ResidentOverlayRect[] {
+  return visible && listening ? LISTENING_MARK_RECTS : Object.freeze([])
+}
+
 function scaledRects(cells: readonly ResidentOverlayRect[], scale: (distance: number) => number): readonly ResidentOverlayRect[] {
   return Object.freeze(cells.map(cell => Object.freeze({ ...cell,
     x: scale(cell.x), y: scale(cell.y), width: scale(cell.width), height: scale(cell.height),
