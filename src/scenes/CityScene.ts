@@ -333,6 +333,11 @@ export class CityScene extends Phaser.Scene {
     } finally {
       this.talkChecking = false
       document.body.dataset['liveTalkMarker'] = this.talkLineMarker ?? ''
+      const shownPublic = Boolean(this.layout && this.viewPlaceId !== null
+        && roomIsPublic(this.layout, this.viewPlaceId))
+      document.body.dataset['liveListening'] = [...listeningIds(this.talkHead,
+        shownPublic ? this.viewPlaceId : null, this.talkHeadAt, Date.now())]
+        .sort((left, right) => left - right).join(',')
       this.updateHud()
       if (generation === this.pollGeneration) {
         this.scheduleTalkCheck(talkCheckDelay(this.talkFailures, this.talkCheckMs, Date.now() - this.lastInputAt))
@@ -791,6 +796,10 @@ export class CityScene extends Phaser.Scene {
   private drawResidents(): void {
     const state = this.roomResidents
     const usable = roomViewportUsable(this.viewport.width, this.viewport.height)
+    const shownPublic = Boolean(this.layout && this.viewPlaceId !== null
+      && roomIsPublic(this.layout, this.viewPlaceId))
+    const listeningResidents = listeningIds(this.talkHead,
+      shownPublic ? this.viewPlaceId : null, this.talkHeadAt, Date.now())
     let visibleSpeech: { residentId: number; text: string; shape: string; showing: string } | null = null
     for (const [id, figure] of this.figures) if (!state[id] || this.sleepers.has(id)) {
       if (this.itemPanel?.isOpenFor(`resident:${id}`)) this.itemPanel.close()
@@ -814,7 +823,8 @@ export class CityScene extends Phaser.Scene {
       const hidden = !usable || !this.isResidentDrawn(resident) || resident.placeId !== this.viewPlaceId
       const speech = figure.update(hidden ? { ...resident, visible: false } : resident, this.elapsed,
         this.places, this.viewport, this.following === resident.id,
-        this.roomMotion.actionFrames().find(frame => frame.residentId === resident.id)?.offsetX ?? 0)
+        this.roomMotion.actionFrames().find(frame => frame.residentId === resident.id)?.offsetX ?? 0,
+        listeningResidents.has(resident.id))
       if (speech && (visibleSpeech === null || speech.residentId === this.following)) visibleSpeech = speech
     }
     const actionOffsets = new Map(this.roomMotion.actionFrames().map(frame => [frame.residentId, frame.offsetX]))

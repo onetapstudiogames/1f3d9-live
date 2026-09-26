@@ -82,6 +82,7 @@ test('a line said in the shown room shows on a small card and in the log', async
 
   const card = page.locator('.room-speech-card[data-kind="line"][data-line-id="9001"]')
   await checkUntil(page, async () => String(await card.count()), '1')
+  await expect(page.locator('body')).toHaveAttribute('data-live-listening', '302')
   await stepUntil(page, () => card.getAttribute('data-revealed'), 'A line from the talk fixture.')
   await expect(page.locator('#room-activity')).toContainText('buzz: A line from the talk fixture.')
   expect(diagnostics.requests.filter(url => url === '/fixtures/room-lines/lines-731-100297.json')).toHaveLength(1)
