@@ -228,7 +228,7 @@ export class CityScene extends Phaser.Scene {
       this.lastFrameAt = performance.now()
       this.updateHud()
       this.pollTimer = window.setTimeout(() => void this.pollLive(), 30_000)
-      this.scheduleTalkCheck(TALK_CHECK_MS)
+      this.scheduleTalkCheck(talkCheckDelay(0, TALK_CHECK_MS, 0, Math.random()))
     } catch (error) {
       console.error(error)
       this.liveReadError = true
@@ -276,7 +276,7 @@ export class CityScene extends Phaser.Scene {
     }, delay)
   }
   private restoreTalkCheck(now: number): void {
-    const restoredDueAt = now + this.talkCheckMs
+    const restoredDueAt = now + talkCheckDelay(0, this.talkCheckMs, 0, Math.random())
     const dueAt = this.talkTimerDueAt === null ? restoredDueAt : Math.min(this.talkTimerDueAt, restoredDueAt)
     this.scheduleTalkCheck(Math.max(0, dueAt - now))
   }
@@ -355,7 +355,7 @@ export class CityScene extends Phaser.Scene {
         .sort((left, right) => left - right).join(',')
       this.updateHud()
       if (generation === this.pollGeneration) {
-        this.scheduleTalkCheck(talkCheckDelay(this.talkFailures, this.talkCheckMs, Date.now() - this.lastInputAt))
+        this.scheduleTalkCheck(talkCheckDelay(this.talkFailures, this.talkCheckMs, Date.now() - this.lastInputAt, Math.random()))
       } else if (!document.hidden) this.scheduleTalkCheck(0)
     }
   }

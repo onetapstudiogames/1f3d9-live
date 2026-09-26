@@ -11,6 +11,11 @@ export const TALK_RETRY_MAX_MS = 30_000
 export const TALK_HEAD_STALE_MS = 10_000
 export const TALK_IDLE_MS = 30 * 60_000
 export const TALK_IDLE_CHECK_MS = 30_000
+/** Every wait of the served interval also waits a fresh random 0 to this many milliseconds, so
+ * pages that opened together or fell into step spread out and share the city's cached talk check
+ * instead of each missing it together. A failed check and an idle page keep their exact waits,
+ * and a check that runs at once stays at once. */
+export const TALK_CHECK_JITTER_MS = 500
 
 export type LineAnchor = Readonly<{ placeId: number; at: string; refresh: number }>
 
@@ -21,9 +26,11 @@ export function talkCheckMs(value: unknown): number {
     : TALK_CHECK_MS
 }
 
-export function talkCheckDelay(failures: number, checkMs: number = TALK_CHECK_MS, idleMs = 0): number {
+export function talkCheckDelay(failures: number, checkMs: number = TALK_CHECK_MS, idleMs = 0, random = 0): number {
   if (failures === 0 && idleMs >= TALK_IDLE_MS) return Math.max(TALK_IDLE_CHECK_MS, checkMs)
-  return failures > 0 ? Math.min(Math.max(TALK_RETRY_MAX_MS, checkMs), checkMs * 2 ** failures) : checkMs
+  if (failures > 0) return Math.min(Math.max(TALK_RETRY_MAX_MS, checkMs), checkMs * 2 ** failures)
+  const extraMs = Number.isFinite(random) ? Math.floor(Math.min(Math.max(random, 0), 1) * (TALK_CHECK_JITTER_MS + 1)) : 0
+  return checkMs + Math.min(TALK_CHECK_JITTER_MS, extraMs)
 }
 
 export function talkIdleSentence(checkMs: number): string {
