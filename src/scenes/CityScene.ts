@@ -40,9 +40,10 @@ import { placesAfterOutline } from '../current-room.ts'
 import { awakeRoomChoices, followRoomState } from '../room-follow.ts'
 import { parseRoomLink, resolveRoomLink, replaceRoomLink, type RoomLinkSelection } from '../room-links.ts'
 
-import { singleRoomLayout, roomViewportUsable, roomIsPublic } from '../room-view.ts'
+import { singleRoomLayout, roomViewportUsable, roomIsPublic, quietRoomOwner } from '../room-view.ts'
 import { RoomActivityLine } from './RoomActivityLine.ts'
 import { animationDelta, eventsAfterMarker, roomMark, roomPictureSettled, roomPictureAccess, roomStatus, type OutlineResolution } from '../live-presentation.ts'
+import { removedTalkIds, withoutLineBubbles } from '../talk-removal.ts'
 import { presentRoom, roomFigurePriority, roomNameLabelPriority } from '../room-presentation.ts'
 import { roomLabelFitsViewport, visibleRoomLabels, type RoomCrowdingState } from '../room-crowding.ts'
 import { projectRoomHandovers, roomAnchorPair } from '../room-anchors.ts'
@@ -500,6 +501,11 @@ export class CityScene extends Phaser.Scene {
       }, () => generation !== this.pollGeneration)
       if (generation !== this.pollGeneration) return
       this.activity?.witness(enriched, Date.now(), context, this.elapsed)
+      const removedTalk = removedTalkIds(events)
+      if (removedTalk.lineIds.size > 0 || removedTalk.pingIds.size > 0) {
+        this.activityLog?.forgetTalk(removedTalk)
+        this.residents = withoutLineBubbles(this.residents!, removedTalk.lineIds)
+      }
       this.commitIssues(issues)
       this.liveState = nextState; this.liveReadError = false
       const visual = filterCurrentVisualEvents(this.residents, this.liveQueue,
@@ -1119,7 +1125,8 @@ export class CityScene extends Phaser.Scene {
     document.getElementById('live-status')!.textContent = idleTalk
       ? 'Idle for 30 minutes: new lines are checked every 30 seconds. Touch the page to check every 2 seconds again.'
       : roomStatus({ tooSmall: !roomViewportUsable(this.viewport.width, this.viewport.height), readFailed: failed,
-        quiet, openingNotice: this.openingNotice, readIssue: this.readIssues[0] })
+        quiet, quietOwner: quietRoomOwner(this.places, room?.id ?? null),
+        openingNotice: this.openingNotice, readIssue: this.readIssues[0] })
     const picker = document.querySelector<HTMLSelectElement>('#place-picker')!
     const places = this.places
     const signature = JSON.stringify(places.map(place => [place.id, place.name]))

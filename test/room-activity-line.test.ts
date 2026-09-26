@@ -92,6 +92,25 @@ test('keeps keyed DOM nodes while appending and trimming', () => { const line = 
   log.selectRoom(2); log.appendEntries([entry('1', 2), entry('2', 2)]); const second = line.children[1]
   log.appendEntries(Array.from({ length: 199 }, (_, i) => entry(String(i + 3), 2))); assert.equal(line.children.length, 200); assert.equal(line.children[0], second) })
 
+test('forgetTalk removes witnessed line and ping entries and their keyed nodes', () => {
+  const line = new FakeElement()
+  const log = new RoomActivityLine(line as unknown as HTMLElement, context)
+  log.selectRoom(2)
+  const lineRow: ReplayEvent = { actor: 'author', at: new Date(1).toISOString(), change_id: '101', event_id: 101,
+    kind: 'line_said', detail: { line_id: 12, place_id: 2 }, line: 'hello' }
+  const pingRow: ReplayEvent = { actor: 'author', at: new Date(2).toISOString(), change_id: '102', event_id: 102,
+    kind: 'ping_sent', detail: { ping_id: 23, place_id: 2, target_id: 8 } }
+  log.witness([lineRow, pingRow], 10)
+  log.appendEntries([entry('keep', 2)])
+  const removedLineNode = line.children.find(node => node.dataset['activityKey'] === 'line:12')
+  const removedPingNode = line.children.find(node => node.dataset['activityKey'] === '102')
+  log.forgetTalk({ lineIds: new Set([12]), pingIds: new Set([23]) })
+  assert.equal(line.textContent, 'event keep')
+  assert.deepEqual(line.children.map(node => node.dataset['activityKey']), ['keep'])
+  assert.equal(removedLineNode?.parentNode, null)
+  assert.equal(removedPingNode?.parentNode, null)
+})
+
 test('move is witnessed from either endpoint and sorted by event time', () => { const move = Object.freeze({ ...entry('2', 3, 2), kind: 'move' as const,
   entities: Object.freeze([{ type: 'place' as const, id: 2, name: 'two', hasDrawing: false }, { type: 'place' as const, id: 3, name: 'three', hasDrawing: false }]) })
   assert.deepEqual(activityEntriesWitnessedInRoom([entry('3', 2, 3), move, entry('1', 4, 1)], 2).map(row => row.key), ['2', '3']) })

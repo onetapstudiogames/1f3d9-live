@@ -25,6 +25,15 @@ test('a witnessed note accepts only its complete matching public body', () => {
   assert.deepEqual(verifiedNoteEvent(event, body), { ...event, line: body.text, line_cut: false })
 })
 
+test('a matching removed note is marked without keeping its line', () => {
+  const event: ReplayEvent = { actor: 'Ada', at: new Date(0).toISOString(), change_id: '7', event_id: 7,
+    kind: 'note', detail: { note_id: 3, place_id: 2 }, line: 'removed text', line_cut: false }
+  const removed = verifiedNoteEvent(event, { author: 'Ada', placeId: 2, text: '', cut: false, removed: true })
+  assert.deepEqual(removed, { actor: 'Ada', at: event.at, change_id: '7', event_id: 7,
+    kind: 'note', detail: { note_id: 3, place_id: 2 }, note_removed: true })
+  assert.equal(verifiedNoteEvent(event, { author: 'Bea', placeId: 2, text: '', cut: false, removed: true }), null)
+})
+
 test('a walk-to-read card shows the public first line, then one fixed line, and never a body', () => {
   assert.equal(WALK_TO_READ_LINE, '(rest read in person)')
   assert.equal(walkToReadWords('Field note, east wall'), 'Field note, east wall\n(rest read in person)')

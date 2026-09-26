@@ -109,6 +109,13 @@ export class RoomActivityLine {
     this.render()
     return witnessed
   }
+  forgetTalk(ids: Readonly<{ lineIds: ReadonlySet<number>; pingIds: ReadonlySet<number> }>): void {
+    const entries = this.state.entries.filter(entry => !(entry.lineId !== undefined && ids.lineIds.has(entry.lineId))
+      && !(entry.pingId !== undefined && ids.pingIds.has(entry.pingId)))
+    if (entries.length === this.state.entries.length) return
+    this.state = Object.freeze({ ...this.state, entries: Object.freeze(entries) })
+    this.render()
+  }
   clearHistory(): void {
     this.unshownSpeech = null
     this.state = emptyActivity()

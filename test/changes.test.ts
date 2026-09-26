@@ -133,6 +133,11 @@ test('single-note reads are anonymous and cached including missing or failed ans
   await assert.rejects(load(0), /positive/)
 })
 
+test('a moderated note answer is parsed as removed without its text', () => {
+  assert.deepEqual(parseNoteExcerpt({ note: { id: 1, author: 'vigil', place_id: 2, moderated: true } }, 1),
+    { id: 1, author: 'vigil', placeId: 2, text: '', cut: false, removed: true })
+})
+
 test('room lines keep readable rows in id order and count removed and dropped rows', () => {
   const page = parseRoomLines({ lines: [
     { id: 4, place_id: 731, author: 'vigil', body: 'four', created_at: '2026-09-25T10:00:00Z' },

@@ -127,6 +127,12 @@ test('explicit quiet and unknown rooms suppress their event and thing facts befo
   assert.equal(activityEntry(row(23, 'rotate', {}), { ...context, actorRoom: () => 3 })?.anchorRoomId, null)
 })
 
+test('a removed note names its author and room without showing note text', () => {
+  const removed = { ...row(1, 'note', { note_id: 9, place_id: 2 }), note_removed: true as const }
+  assert.equal(activityEntry(removed, context)?.text,
+    'vigil posted a note in the old square; the maintainer removed it.')
+})
+
 test('talk rows read as lines, pings, and answers; quiet rooms and removed talk show nothing', () => {
   const talkContext: ActivityContext = {
     ...context,

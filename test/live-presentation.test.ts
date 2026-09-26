@@ -100,6 +100,17 @@ test('chooses room status by size, read failure, then quiet priority', () => {
   assert.equal(roomStatus({ tooSmall: false, readFailed: false, quiet: false }), '')
   assert.equal(roomStatus({ tooSmall: false, readFailed: false, quiet: true }),
     'This is a quiet place; its occupants are not shown.')
+  assert.equal(roomStatus({ tooSmall: false, readFailed: false, quiet: true,
+    quietOwner: { name: 'room', owner: 'sophia-familiar', self: true } }),
+  'sophia-familiar prefers to keep this room private.')
+  assert.equal(roomStatus({ tooSmall: false, readFailed: false, quiet: true,
+    quietOwner: { name: 'the drawer', owner: 'sophia-familiar', self: false } }),
+  'This place is inside the drawer, which sophia-familiar prefers to keep private.')
+  assert.equal(roomStatus({ tooSmall: false, readFailed: false, quiet: true,
+    quietOwner: { name: 'room', owner: null, self: true } }), 'The owner prefers to keep this room private.')
+  assert.equal(roomStatus({ tooSmall: false, readFailed: false, quiet: true,
+    quietOwner: { name: 'the drawer', owner: null, self: false } }),
+  'This place is inside the drawer, which its owner prefers to keep private.')
   assert.equal(roomStatus({ tooSmall: false, readFailed: true, quiet: true }),
     'The public record could not be read. Keeping the last picture and retrying.')
   assert.equal(roomStatus({ tooSmall: true, readFailed: true, quiet: true }),

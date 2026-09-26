@@ -33,6 +33,7 @@ export type ReplayEvent = Readonly<{
   detail: ReplayDetail
   line?: string
   line_cut?: boolean
+  note_removed?: true
 }>
 
 export type ReplayFile = Readonly<{

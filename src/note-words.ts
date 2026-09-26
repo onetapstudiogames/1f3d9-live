@@ -15,11 +15,16 @@ export function walkToReadWords(firstLine: string): string {
   return firstLine.trim().length ? `${firstLine}\n${WALK_TO_READ_LINE}` : WALK_TO_READ_LINE
 }
 
-export type NoteBody = Readonly<{ author: string; placeId: number; text: string; cut: boolean; readInPerson?: true }>
+export type NoteBody = Readonly<{ author: string; placeId: number; text: string; cut: boolean; readInPerson?: true; removed?: true }>
 export const NOTE_READ_ISSUE = 'Some note bodies could not be read; incomplete text is marked (rest not read).'
 
 export function verifiedNoteEvent(event: ReplayEvent, note: NoteBody | null): ReplayEvent | null {
-  if (!note || note.cut || note.author.trim() !== event.actor?.trim() || note.placeId !== event.detail.place_id) return null
+  if (!note || note.author.trim() !== event.actor?.trim() || note.placeId !== event.detail.place_id) return null
+  if (note.removed === true) {
+    const publicEvent = Object.fromEntries(Object.entries(event).filter(([key]) => key !== 'line' && key !== 'line_cut')) as ReplayEvent
+    return Object.freeze({ ...publicEvent, note_removed: true })
+  }
+  if (note.cut) return null
   const line = note.readInPerson === true ? walkToReadWords(note.text) : note.text
   return Object.freeze({ ...event, line, line_cut: false })
 }

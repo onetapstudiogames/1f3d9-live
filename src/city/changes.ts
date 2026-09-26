@@ -5,7 +5,7 @@ export type ChangesPage = Readonly<{
   marker: string; nextSince: string; hasMore: boolean; unchanged: boolean; events: readonly ReplayEvent[]
 }>
 // `readInPerson` marks a walk-to-read note whose `text` is only its public first line.
-export type NoteExcerpt = Readonly<{ id: number; author: string; placeId: number; text: string; cut: boolean; readInPerson?: true }>
+export type NoteExcerpt = Readonly<{ id: number; author: string; placeId: number; text: string; cut: boolean; readInPerson?: true; removed?: true }>
 export type RoomLine = Readonly<{ id: number; placeId: number; author: string; body: string; createdAt: string }>
 export type RoomLinesPage = Readonly<{ lines: readonly RoomLine[]; removedIds: readonly number[]; dropped: number }>
 export const ROOM_LINES_LIMIT = 50
@@ -76,6 +76,7 @@ export function parseNoteExcerpt(value: unknown, id: number): NoteExcerpt {
     throw new Error('The public note answer is incomplete or names a different note.')
   }
   const common = { id, author: note['author'], placeId: note['place_id'] }
+  if (note['moderated'] === true) return Object.freeze({ ...common, text: '', cut: false, removed: true })
   if (typeof note['body'] === 'string') return Object.freeze({ ...common, text: note['body'], cut: false })
   // A walk-to-read note read from afar has no body: only its first line and the city's
   // read_in_person sentence. Keep the first line; never guess at the rest.

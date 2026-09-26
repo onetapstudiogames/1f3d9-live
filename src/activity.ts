@@ -106,7 +106,8 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
     const place = placeEntity(event.detail.place_id, time, context)
     if (!place) return null
     const line = typeof event.line === 'string' ? event.line : ''
-    const text = line.length ? `${actorName} in ${place.name}: ${noteWords(line, event.line_cut === true)}` : `${actorName} posted a note in ${place.name}.`
+    const text = event.note_removed === true ? `${actorName} posted a note in ${place.name}; the maintainer removed it.`
+      : line.length ? `${actorName} in ${place.name}: ${noteWords(line, event.line_cut === true)}` : `${actorName} posted a note in ${place.name}.`
     return Object.freeze({ key: event.change_id, changeId: id, time, kind: 'chat', text,
       entities: Object.freeze(actor ? [actor, place] : [place]), cue: 'note', roomId: place.id, anchorRoomId: place.id, actorResidentId: actor?.id ?? null })
   }

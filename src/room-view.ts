@@ -51,6 +51,21 @@ export function roomIsPublic(layout: NestedLayout, id: number): boolean {
   return false
 }
 
+export function quietRoomOwner(places: readonly ReplayPlace[], roomId: number | null): Readonly<{
+  name: string; owner: string | null; self: boolean
+}> | null {
+  if (roomId === null) return null
+  const byId = new Map(places.map(place => [place.id, place]))
+  const seen = new Set<number>()
+  let current = byId.get(roomId)
+  while (current && !seen.has(current.id)) {
+    if (current.quiet) return Object.freeze({ name: current.name, owner: current.owner, self: current.id === roomId })
+    seen.add(current.id)
+    current = current.parent_id === null ? undefined : byId.get(current.parent_id)
+  }
+  return null
+}
+
 function projectAxis(value: number, source: readonly [number, number, number, number],
   target: readonly [number, number, number, number]): number {
   const segment = value <= source[1] ? 0 : value <= source[2] ? 1 : 2
