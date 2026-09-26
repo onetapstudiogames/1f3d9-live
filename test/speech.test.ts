@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { bubbleDuration, bubbleFor, bubbleShape, speechCardFrame, speechCardPlan, speechScrollTop, splitGraphemes, typingInterval } from '../src/speech.ts'
+import { bubbleDuration, bubbleFor, bubbleShape, lineBubbleDuration, speechCardFrame, speechCardPlan, speechScrollTop, splitGraphemes, typingInterval } from '../src/speech.ts'
 import type { ReplayEvent, ReplayPlace } from '../src/city/types.ts'
 const note = (line: string, placeId = 3, cut = false): ReplayEvent => ({ actor: 'ada', at: '2026-01-01T00:00:00Z', change_id: '1', event_id: 1, kind: 'note', detail: { place_id: placeId }, line, line_cut: cut })
 const measured = (text: string): number => splitGraphemes(text).length * 8
 
 test('card wrapping uses the measured text width after the scrollbar gutter', () => {
   const bubble = bubbleFor(note('one two three four five six'), 0)!
+  assert.equal(bubble.size, 'note')
   const plan = speechCardPlan(bubble, 320, measured, 80)
   assert.equal(plan.lineWidth, 80)
   assert.ok(plan.lines.every(line => measured(line.trimEnd()) <= 80))
@@ -104,4 +105,39 @@ test('asking and telling shapes require the verified id and name', () => {
   const places: ReplayPlace[] = [{ id: 249, name: 'the asking room', parent_id: 2, owner: null, owner_id: null, quiet: false, has_drawing: false }, { id: 422, name: 'the telling room', parent_id: 2, owner: null, owner_id: null, quiet: false, has_drawing: false }]
   assert.equal(bubbleShape(249, places), 'asking'); assert.equal(bubbleShape(422, places), 'telling')
   assert.equal(bubbleShape(249, [{ ...places[0]!, name: 'renamed' }]), 'plain')
+})
+
+test('line cards use the smaller two-line shape and a short or capped lifetime', () => {
+  const line: ReplayEvent = { actor: 'ada', at: '2026-01-01T00:00:00Z', change_id: '2', event_id: 22,
+    kind: 'line_said', detail: { place_id: 3, line_id: 22 }, line: 'hello', line_cut: true }
+  const bubble = bubbleFor(line, 1_000)!
+  assert.equal(bubble.size, 'line')
+  assert.equal(bubble.lineId, 22)
+  assert.equal(bubble.cut, false)
+  assert.equal(bubble.charInterval, typingInterval())
+  assert.equal(bubble.expiresAt, 7_000)
+  assert.equal(lineBubbleDuration(5), 6_000)
+  assert.equal(lineBubbleDuration(50_000), 10_000)
+  const frame = speechCardFrame(bubble, bubble.expiresAt - 1, 320, 600, measured)
+  assert.ok(frame.width <= 200)
+  assert.ok(frame.height <= 6 * 2 + 2 * 18)
+  assert.equal(frame.fontSize, 13)
+  assert.equal(frame.lineHeight, 18)
+})
+
+test('a 240-byte line keeps its whole text and scrolls through the smaller card', () => {
+  const text = 'a'.repeat(240)
+  const line: ReplayEvent = { actor: 'ada', at: '2026-01-01T00:00:00Z', change_id: '2', event_id: 23,
+    kind: 'line_said', detail: { place_id: 3, line_id: 23 }, line: text }
+  const bubble = bubbleFor(line, 0)!
+  const plan = speechCardPlan(bubble, 320, measured)
+  const frame = speechCardFrame(bubble, bubble.expiresAt - 1, 320, 600, measured, plan)
+  assert.equal(Buffer.byteLength(text, 'utf8'), 240)
+  assert.equal(frame.revealed, text)
+  assert.equal(frame.lines.join(''), text)
+  assert.ok(frame.width <= 200)
+  assert.equal(frame.height, 6 * 2 + 2 * 18)
+  assert.ok(frame.contentHeight > frame.height)
+  assert.ok(frame.scrollTop > 0)
+  assert.equal(bubble.expiresAt, 10_000)
 })

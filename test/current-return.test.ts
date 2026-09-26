@@ -75,7 +75,7 @@ test('returning to current truth drops old walks, queues, and temporary floats w
 
 test('returning after an absence always discards the visible card and its waiting notes', () => {
   const initial = createPresentResidents([censusResident(2)], layout)
-  const bubble = { text: 'still reading', cut: false, placeId: 2, startedAt: 0, charInterval: 1, expiresAt: 9_999 }
+  const bubble = { text: 'still reading', cut: false, placeId: 2, size: 'note' as const, startedAt: 0, charInterval: 1, expiresAt: 9_999 }
   const old = { ...initial.residents[1]!, bubble, queue: [{ event: note('7', 2) }] }
   const state: Simulation = Object.freeze({ ...initial, pending: true, residents: Object.freeze({ 1: Object.freeze(old) }) })
 

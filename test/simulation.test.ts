@@ -135,7 +135,7 @@ test('inventions take their actor queue turn between walks and words, one at a t
   const noteAt = secondAt + inventionDuration()
   state = stepResidents(state, [], 0, noteAt, layout)
   assert.deepEqual(state.residents[7]!.bubble, { text: 'done', cut: false, placeId: 1,
-    startedAt: noteAt, charInterval: 68, expiresAt: noteAt + 10_000 })
+    size: 'note', startedAt: noteAt, charInterval: 68, expiresAt: noteAt + 10_000 })
 })
 
 test('a full destination reports no free spot rather than no path', () => {

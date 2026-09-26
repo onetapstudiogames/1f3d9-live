@@ -82,7 +82,7 @@ test('bubble keeps the recorded note line, cut flag, start, and room for its rea
   const bubble = bubbleFor(note, 10_000)
 
   assert.deepEqual(bubble, { text: 'first line\nsecond line', cut: true, placeId: null,
-    startedAt: 10_000, charInterval: 68, expiresAt: 20_000 })
+    size: 'note', startedAt: 10_000, charInterval: 68, expiresAt: 20_000 })
   assert.equal(bubbleFor(event({ kind: 'note', line: '' }), 0), null)
   assert.equal(bubbleFor(event({ kind: 'action', line: 'not a note' }), 0), null)
 })

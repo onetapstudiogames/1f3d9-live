@@ -64,7 +64,7 @@ test('refresh preserves a standing presentation in the same room and clears a sl
   const initial = createPresentResidents([resident(1, 2)], layout)
   const old = initial.residents[1]!
   const presentation = Object.freeze({ ...old, x: old.x + 7,
-    bubble: { text: 'hello', cut: false, placeId: 2, startedAt: 0, charInterval: 1, expiresAt: 99_999 },
+    bubble: { text: 'hello', cut: false, placeId: 2, size: 'note' as const, startedAt: 0, charInterval: 1, expiresAt: 99_999 },
     queue: [{ event: event('11', 'note', { note_id: 11, place_id: 2 }) }] })
   const state = Object.freeze({ ...initial, residents: Object.freeze({ 1: presentation }) })
   const awake = refreshPresentResidents(state, [resident(1, 2)], layout)

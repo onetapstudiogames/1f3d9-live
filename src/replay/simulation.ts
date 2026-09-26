@@ -471,7 +471,7 @@ function advanceWalk(resident: ResidentState, deltaMs: number, layout: NestedLay
   return { ...resident, placeId, x: sampled.x, y: sampled.y, flipX: sampled.flipX, walking: false, visible: placeId !== null && placeVisible(layout, placeId), path: [], walkElapsed: 0, walkDuration: 0, destinationId: null, destination: null, walkEventId: null }
 }
 
-function freeDestination(id: number, placeId: number, all: Readonly<Record<number, ResidentState>>, layout: NestedLayout, reservations: ThingReservations): Point | null {
+export function freeDestination(id: number, placeId: number, all: Readonly<Record<number, ResidentState>>, layout: NestedLayout, reservations: ThingReservations): Point | null {
   const room = layout.rooms[placeId]
   if (!room) return null
   // A figure that is walking away has left; it holds a spot only in the room it walks to,
@@ -516,7 +516,7 @@ function visibleAt(point: Point, layout: NestedLayout): boolean {
   return containing ? placeVisible(layout, containing.id) : true
 }
 
-function placeVisible(layout: NestedLayout, placeId: number): boolean {
+export function placeVisible(layout: NestedLayout, placeId: number): boolean {
   const visited = new Set<number>()
   let room = layout.rooms[placeId]
   while (room && !visited.has(room.id)) {

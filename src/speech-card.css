@@ -15,6 +15,11 @@
   display: none;
 }
 
+.room-speech-card[data-kind="line"] {
+  padding: 6px 9px;
+  font: 13px/18px Consolas, "Liberation Mono", monospace;
+}
+
 .room-speech-words {
   height: 100%;
   min-height: 20px;
@@ -25,6 +30,10 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   tab-size: 1;
+}
+
+.room-speech-card[data-kind="line"] .room-speech-words {
+  min-height: 18px;
 }
 
 .room-speech-card::after {
