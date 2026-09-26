@@ -227,15 +227,32 @@ test('a quiet ancestor hides listening resident ids from the page', async ({ pag
   expect(diagnostics.errors).toEqual([])
 })
 
+type TalkTimer = { at: number; delay: number; startedCheck: boolean }
+type TalkTimes = { started: number[]; ended: number[]; next: Array<TalkTimer | null> }
+
 test('thirty steady talk checks each wait the served interval plus a fresh random wait of up to half a second', async ({ page }) => {
-  test.setTimeout(120_000)
+  const servedMs = emptyTalkHead.check_interval_ms
   await page.clock.install({ time: installTime() })
   await page.clock.pauseAt(talkTime())
-  // Record, on the page's own clock, when each talk check starts (its talk head read) and when it
-  // ends and picks its next wait (data-live-talk-marker is set at the end of every check).
+  // Record, on the page's own clock, when each talk check starts (its talk head read), when it ends
+  // (data-live-talk-marker is set at the end of every check), and the wait it then asks its timer
+  // for: the last timer set before the marker's mutation record is delivered, which is the one
+  // scheduleTalkCheck sets as the check's last step. The timer notes whether it started a check.
   await page.addInitScript(() => {
-    const times = { started: [] as number[], ended: [] as number[] }
+    const times = { started: [] as number[], ended: [] as number[], next: [] as Array<TalkTimer | null> }
     Object.defineProperty(window, 'talkTimes', { value: times })
+    let lastTimer: TalkTimer | null = null
+    const pageSetTimeout = window.setTimeout.bind(window)
+    window.setTimeout = ((handler: TimerHandler, delay?: number, ...rest: unknown[]) => {
+      if (typeof handler !== 'function') return pageSetTimeout(handler, delay, ...rest)
+      const timer: TalkTimer = { at: Date.now(), delay: Number(delay) || 0, startedCheck: false }
+      lastTimer = timer
+      return pageSetTimeout((...args: unknown[]) => {
+        const before = times.started.length
+        handler(...args)
+        if (times.started.length > before) timer.startedCheck = true
+      }, delay, ...rest)
+    }) as typeof window.setTimeout
     const originalFetch = window.fetch.bind(window)
     window.fetch = (input, init) => {
       if (String(input).includes('talk-now-line.json')) times.started.push(Date.now())
@@ -244,7 +261,9 @@ test('thirty steady talk checks each wait the served interval plus a fresh rando
     document.addEventListener('DOMContentLoaded', () => {
       new MutationObserver(records => {
         for (const record of records) {
-          if (record.attributeName === 'data-live-talk-marker') times.ended.push(Date.now())
+          if (record.attributeName !== 'data-live-talk-marker') continue
+          times.ended.push(Date.now())
+          times.next.push(lastTimer)
         }
       }).observe(document.body, { attributes: true, attributeFilter: ['data-live-talk-marker'] })
     })
@@ -253,25 +272,36 @@ test('thirty steady talk checks each wait the served interval plus a fresh rando
   await page.route('**/fixtures/talk-now-line.json', route => json(route, emptyTalkHead))
   await page.goto(talkUrl())
   await ready(page)
-  const readTimes = () => page.evaluate(() =>
-    (window as unknown as { talkTimes: { started: number[]; ended: number[] } }).talkTimes)
-  // Short jumps with one frame each, as the other tests here step. A check due inside a jump starts
-  // at the jump's end, so a gap may run up to one jump (100 ms) past its wait.
+  const readTimes = () => page.evaluate(() => (window as unknown as { talkTimes: TalkTimes }).talkTimes)
+  // The first check was set at load; jump while none is in flight until it has ended.
   await expect.poll(async () => {
-    await page.clock.fastForward(100)
-    await page.clock.runFor(16)
     const { started, ended } = await readTimes()
-    return Math.min(started.length - 1, ended.length)
-  }, { timeout: 100_000, intervals: [10] }).toBeGreaterThanOrEqual(30)
+    if (started.length === 0) await page.clock.fastForward(500)
+    return ended.length
+  }, { timeout: 30_000, intervals: [10] }).toBe(1)
+  // Then one jump per check, straight to the moment the wait the page picked runs out. A jump fires
+  // what is due at its end on time and draws one frame, where a long runFor would draw a frame
+  // every 16 ms: this keeps thirty checks to seconds on a slow runner, and every gap exact.
+  for (let check = 1; check <= 30; check += 1) {
+    const { ended, next } = await readTimes()
+    const now = await page.evaluate(() => Date.now())
+    await page.clock.fastForward(Math.max(0, ended[check - 1]! + (next[check - 1]?.delay ?? 0) - now))
+    await expect.poll(async () => (await readTimes()).ended.length, { timeout: 10_000, intervals: [10] }).toBe(check + 1)
+  }
 
-  const { started, ended } = await readTimes()
+  const { started, ended, next } = await readTimes()
   const gaps = started.slice(1, 31).map((at, index) => at - ended[index]!)
   expect(gaps).toHaveLength(30)
-  for (const gap of gaps) {
-    expect(gap).toBeGreaterThanOrEqual(2_000)
-    expect(gap).toBeLessThanOrEqual(2_600)
+  for (const [index, gap] of gaps.entries()) {
+    // Each wait was set as its check ended, started the next check, and is the gap measured.
+    expect(next[index]).toEqual({ at: ended[index], delay: gap, startedCheck: true })
+    expect(gap).toBeGreaterThanOrEqual(servedMs)
+    expect(gap).toBeLessThanOrEqual(servedMs + 500)
   }
+  // Every wait draws afresh. Thirty uniform draws from 0 to 500 ms fall inside a 250 ms band
+  // fewer than once in 30 million runs, while a fixed wait gives thirty equal gaps every time.
   expect(new Set(gaps).size).toBeGreaterThan(1)
+  expect(Math.max(...gaps) - Math.min(...gaps)).toBeGreaterThanOrEqual(250)
   expect(diagnostics.external).toEqual([])
   expect(diagnostics.errors).toEqual([])
 })
