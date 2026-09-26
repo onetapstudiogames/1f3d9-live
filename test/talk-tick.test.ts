@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
 import type { RoomLine, RoomLinesPage } from '../src/city/changes.ts'
 import type { ReplayEvent } from '../src/city/types.ts'
 import { anchorsAfter, listeningIds, newRoomLines, talkCheckDelay, talkCheckMs, talkIdleSentence, talkNeedsRead,
-  withoutMovesBehindLines, withoutTalkLines, TALK_IDLE_CHECK_MS, TALK_IDLE_MS } from '../src/talk-tick.ts'
+  withoutMovesBehindLines, withoutTalkLines, TALK_CHECK_JITTER_MS, TALK_CHECK_MS, TALK_IDLE_CHECK_MS, TALK_IDLE_MS } from '../src/talk-tick.ts'
 
 const line = (id: number): RoomLine => ({ id, placeId: 731, author: 'buzz', body: `line ${id}`,
   createdAt: '2026-09-07T13:54:05.000Z' })
@@ -28,6 +29,36 @@ test('backs off failed checks and slows an idle page after thirty minutes', () =
   assert.equal(talkCheckDelay(0, 2_000, TALK_IDLE_MS), 30_000)
   assert.equal(talkCheckDelay(0, 60_000, TALK_IDLE_MS), 60_000)
   assert.equal(talkCheckDelay(1, 2_000, TALK_IDLE_MS), 4_000)
+})
+
+test('a steady talk check waits the served interval plus a fresh random 0 to 500 ms, never less', () => {
+  assert.equal(TALK_CHECK_JITTER_MS, 500)
+  for (const checkMs of [TALK_CHECK_MS, 4_000, 60_000]) {
+    assert.equal(talkCheckDelay(0, checkMs, 0, 0), checkMs)
+    assert.equal(talkCheckDelay(0, checkMs, 0, 0.5), checkMs + 250)
+    assert.equal(talkCheckDelay(0, checkMs, 0, 0.999_999), checkMs + 500)
+    for (const random of [Number.NaN, -1, 1, 2, Number.POSITIVE_INFINITY]) {
+      const delay = talkCheckDelay(0, checkMs, 0, random)
+      assert.ok(delay >= checkMs && delay <= checkMs + 500, `random ${random} gave ${delay}`)
+    }
+    const delays = Array.from({ length: 1_000 }, () => talkCheckDelay(0, checkMs, 0, Math.random()))
+    assert.ok(delays.every(delay => Number.isInteger(delay) && delay >= checkMs && delay <= checkMs + 500))
+    assert.ok(new Set(delays).size > 1, 'every check draws its own wait')
+  }
+  assert.ok(talkCheckDelay(0, talkCheckMs(500), 0, 0) >= 2_000)
+  assert.equal(talkCheckDelay(1, 2_000, 0, 0.999_999), 4_000)
+  assert.equal(talkCheckDelay(0, 2_000, TALK_IDLE_MS, 0.999_999), 30_000)
+})
+
+test('every talk check the page schedules at the served interval draws a fresh random wait', () => {
+  const scene = readFileSync(new URL('../src/scenes/CityScene.ts', import.meta.url), 'utf8')
+  for (const call of [
+    'this.scheduleTalkCheck(talkCheckDelay(0, TALK_CHECK_MS, 0, Math.random()))',
+    'const restoredDueAt = now + talkCheckDelay(0, this.talkCheckMs, 0, Math.random())',
+    'this.scheduleTalkCheck(talkCheckDelay(this.talkFailures, this.talkCheckMs, Date.now() - this.lastInputAt, Math.random()))',
+  ]) assert.ok(scene.includes(call), call)
+  assert.equal((scene.match(/Math\.random\(\)/gu) ?? []).length, 3)
+  assert.doesNotMatch(scene, /scheduleTalkCheck\(TALK_CHECK_MS\)/u)
 })
 
 test('states the idle delay and the served interval in the idle sentence', () => {
