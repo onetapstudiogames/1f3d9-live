@@ -16,7 +16,7 @@ Startup fixes the live boundary before it reads the picture:
 4. `GET /api/place/<id>?view=outline` supplies the selected room and its direct things.
 5. Drawing reads supply the selected place, visible residents, and visible things.
 
-The cursor is fixed before steps 2–5, so the first poll still covers changes recorded while the opening picture was read. Every 30 seconds the page reads current presence, the directory, the displayed outline, and `GET /api/changes?since=<marker>&limit=200`. A hidden tab or render gap over 30 seconds takes a fresh head and current snapshot and drops pending visual work.
+The cursor is fixed before steps 2–5, so the first poll still covers changes recorded while the opening picture was read. Every 30 seconds the page reads current presence, the directory, the displayed outline, and `GET /api/changes?since=<marker>&limit=200`. Lines ride a separate check: while the page is visible it reads the city's shared talk check (`GET /api/talk/now`) once per the interval the city serves (`check_interval_ms`, now 2 seconds, never faster) and, only when its line marker moves, reads the shown room's newest 50 lines through the same shared read the window uses (`GET /api/window?collection=lines&place_id=<room>&limit=50&after_change_marker=<line marker>`), so a line said there appears within 5 seconds while reads succeed (city decision 130). A start, a return from a hidden tab, or a room change reads the room's lines once and shows none of them, so the page starts from now. A hidden tab or render gap over 30 seconds takes a fresh head and current snapshot and drops pending visual work.
 
 A required presence, directory, or feed failure freezes the last complete picture. An outline failure keeps the room and its last known floor contents. The next complete cycle clears the issue. A late response from an older cycle cannot replace newer state.
 
@@ -118,6 +118,33 @@ Drawings come from:
 - `GET /api/drawing/thing/<id>`
 
 Each complete drawing is an 8×8 row-major grid with a palette and 64 nullable palette indices. Invalid grids are rejected. The read may carry an optional top-level `description` string, which is displayed as plain text in the item panel. Missing resident art uses the default resident figure; an undrawn place uses the warm plain floor; an undrawn thing uses the default parcel.
+
+
+## Talk (city decisions 119 to 130)
+
+`GET /api/talk/now` returns the shared talk head and listening list:
+
+```json
+{
+  "line_marker": "167809",
+  "check_interval_ms": 2000,
+  "listening": [
+    { "place_id": 1117, "resident_id": 261, "handle": "smokecheck", "listening_until": "2026-09-26T10:00:30.000Z" }
+  ],
+  "listening_page": { "total_items": 1, "returned_items": 1, "has_more": false }
+}
+```
+
+The page reads `line_marker`, `check_interval_ms`, and `listening`; it does not read `listening_page`.
+
+The room's newest 50 lines are read with `GET /api/window?collection=lines&place_id=<room>&limit=50&after_change_marker=<line marker>`. A whole row is `{ id, place_id, author, body, created_at }`; a removed row is `{ id, moderated: true }`. The read sends `Cache-Control: public, max-age=0, s-maxage=2`. Because the line marker is in the address, every watcher of the room can share its response.
+
+The `ping_sent` and `ping_answered` change details carry `ping_id`, `place_id`, `target_type`, and `target_id`; `ping_answered` also carries `answer`. A removed talk row has an empty `actor` and is never shown. A `moderation` change with `target_type` `line` or `ping` and `action` `remove` drops that talk from the log and card.
+
+Fixture query parameters:
+
+- `?talk=` selects one talk head file.
+- `?roomlines=` selects a folder of `lines-<room>-<marker>.json` files. The saved room-lines page is `test/fixtures/room-lines-731-100299.json`.
 
 ## Recorded scene test tooling
 
