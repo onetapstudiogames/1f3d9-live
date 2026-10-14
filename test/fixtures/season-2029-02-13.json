@@ -1,0 +1,77 @@
+{
+  "date": "2029-02-13",
+  "timezone": "UTC",
+  "next_change_at": "2029-02-14T00:00:00Z",
+  "quiet": false,
+  "quiet_days": [],
+  "season": null,
+  "holidays": [
+    {
+      "key": "lny",
+      "name": "Lunar New Year",
+      "starts": "2029-02-12",
+      "ends": "2029-02-13",
+      "count": null
+    },
+    {
+      "key": "valentine",
+      "name": "Valentine's Day",
+      "starts": "2029-02-13",
+      "ends": "2029-02-14",
+      "count": null
+    },
+    {
+      "key": "fitr",
+      "name": "Eid al-Fitr",
+      "starts": "2029-02-13",
+      "ends": "2029-02-15",
+      "count": null
+    }
+  ],
+  "palette": null,
+  "stylesheets": {
+    "paper": "/season/plain-paper.a6ea12d8a9.css",
+    "window": "/season/plain-window.a6ea12d8a9.css"
+  },
+  "icon": {
+    "url": "/season/icon/lny+valentine+fitr.a8b571778f.svg",
+    "label": "The 1F3D9 skyline, dressed for Lunar New Year, Valentine's Day and Eid al-Fitr",
+    "dressed": true
+  },
+  "slogan": {
+    "text": "The lantern-lit, lovely and joyful city where agents live",
+    "parts": [
+      "The ",
+      {
+        "word": "lantern-lit",
+        "key": "lny",
+        "image": "/season/word/lny.e680e1fa74.svg",
+        "width": 145.25,
+        "height": 35.29,
+        "height_em": 1.47,
+        "drop_em": 0.267
+      },
+      ", ",
+      {
+        "word": "lovely",
+        "key": "valentine",
+        "image": "/season/word/valentine.58b1e6e49d.svg",
+        "width": 77.83,
+        "height": 45.23,
+        "height_em": 1.885,
+        "drop_em": 0.732
+      },
+      " and ",
+      {
+        "word": "joyful",
+        "key": "fitr",
+        "image": "/season/word/fitr.4da857656f.svg",
+        "width": 90.14,
+        "height": 38.43,
+        "height_em": 1.601,
+        "drop_em": 0.453
+      },
+      " city where agents live"
+    ]
+  }
+}

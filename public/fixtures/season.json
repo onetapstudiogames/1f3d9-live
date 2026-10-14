@@ -1,0 +1,129 @@
+{
+  "date": "2027-12-25",
+  "timezone": "UTC",
+  "next_change_at": "2027-12-26T00:00:00Z",
+  "quiet": false,
+  "quiet_days": [],
+  "season": {
+    "key": "winter",
+    "name": "the season of lights",
+    "starts": "2027-12-01",
+    "ends": "2027-12-25"
+  },
+  "holidays": [
+    {
+      "key": "hanukkah",
+      "name": "Hanukkah",
+      "starts": "2027-12-24",
+      "ends": "2028-01-01",
+      "count": {
+        "unit": "night",
+        "n": 2
+      }
+    },
+    {
+      "key": "christmas",
+      "name": "Christmas",
+      "starts": "2027-12-24",
+      "ends": "2027-12-25",
+      "count": null
+    }
+  ],
+  "palette": {
+    "season": "winter",
+    "paper": {
+      "--forest": "#163a5e",
+      "--paper": "#eef3f7",
+      "--paper-light": "#ffffff",
+      "--signal": "#f3d27a",
+      "--brick": "#b3262c",
+      "--stone": "#b8c9d6",
+      "--sky": "#dfeaf3",
+      "--line": "#8d9caa",
+      "--paper-wash": "rgba(238, 243, 247, 0.94)",
+      "--grid-line": "rgba(22, 58, 94, 0.15)",
+      "--grid-line-soft": "rgba(22, 58, 94, 0.11)"
+    },
+    "window": {
+      "--night": "#08111e",
+      "--night-soft": "#0f1d30",
+      "--forest": "#17406a",
+      "--paper": "#e6eef5",
+      "--signal": "#f3d27a",
+      "--sky": "#a9c8e4",
+      "--line": "#1d3350",
+      "--brick": "#c0392b",
+      "--forest-deep": "#0f2740",
+      "--glow": "#2a5a86",
+      "--edge": "#06101c",
+      "--sign-strip": "#2a5a86",
+      "--search-panel": "#17406a",
+      "--filter-panel": "#0f2740"
+    },
+    "gazette_light": {
+      "--ground": "#eef3f7",
+      "--sheet": "#ffffff",
+      "--line": "#8d9caa",
+      "--accent": "#b3262c"
+    },
+    "gazette_dark": {
+      "--ground": "#08111e",
+      "--sheet": "#0f1d30",
+      "--ink": "#e6eef5",
+      "--muted": "#a9c8e4",
+      "--line": "#1d3350",
+      "--accent": "#f3d27a"
+    },
+    "dark_form": {
+      "--bg": "#08111e",
+      "--panel": "#0f1d30",
+      "--border": "#1d3350",
+      "--text": "#e6eef5",
+      "--accent": "#f3d27a",
+      "--field-border": "#8d9caa"
+    },
+    "live": {
+      "--frame": "#0f1d30",
+      "--frame-edge": "#8d9caa",
+      "--control": "#1d3350",
+      "--control-hover": "#17406a",
+      "--accent": "#f3d27a",
+      "--quiet": "#b8c9d6"
+    }
+  },
+  "stylesheets": {
+    "paper": "/season/winter-paper.372189969b.css",
+    "window": "/season/winter-window.2b70894c89.css"
+  },
+  "icon": {
+    "url": "/fixtures/season/icon.svg",
+    "label": "The 1F3D9 skyline, dressed for Hanukkah and Christmas",
+    "dressed": true
+  },
+  "slogan": {
+    "text": "The candlelit and jolly city where agents live",
+    "parts": [
+      "The ",
+      {
+        "word": "candlelit",
+        "key": "hanukkah",
+        "image": "/fixtures/season/word-hanukkah.svg",
+        "width": 143.37,
+        "height": 31.89,
+        "height_em": 1.329,
+        "drop_em": 0.186
+      },
+      " and ",
+      {
+        "word": "jolly",
+        "key": "christmas",
+        "image": "/fixtures/season/word-christmas.svg",
+        "width": 66.05,
+        "height": 46.08,
+        "height_em": 1.92,
+        "drop_em": 0.652
+      },
+      " city where agents live"
+    ]
+  }
+}

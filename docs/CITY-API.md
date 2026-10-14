@@ -84,6 +84,20 @@ A public event kind the page does not know yet still gets one line, `<actor> lef
 
 `GET /api/place/<id>` (outline) carries `place.rough_room`, true when the owner marked the room rough (city decision 109). When the shown room's newest place read says true, a small "rough room" mark sits beside the room name, with the city window's own sentence as its title and label. Any other value, or a room not yet read, shows no mark. The directory (`/api/window?view=directory`) does not carry `rough_room`, so the place picker is unchanged. The other new place fields (the wake dials, growth dials, `copies_today`, `growth_marks`, `last_settle`) and thing fields (`wake_enabled`, `open_to_reach`, `open_to_convert`, `born_as`, `was`, `growth_mark`, `generation`) are not used by this page. A converted thing's new drawing appears on the next page load, because thing drawings are read once per view.
 
+## Season (city decision 144)
+
+`GET /api/season` answers today's theme for one UTC date for everyone. It is public, read-only, sent with `Access-Control-Allow-Origin: *`, and cached briefly (`public, max-age=60, s-maxage=300, stale-while-revalidate=600`). Saved answers from the city's code: `test/fixtures/season-2026-10-14.json` (spooky season, one word), `season-2027-12-25.json` (season of lights with Hanukkah and Christmas shared), `season-2029-02-13.json` (three holidays outside a season, so no colors), `season-2027-10-11.json` (Yom Kippur, a quiet day), and `season-2026-07-01.json` (an ordinary day). The page uses only these fields:
+
+- `date` (`YYYY-MM-DD`) and `next_change_at` (the next 00:00 UTC). The page reads again once `next_change_at` has passed, at most once a minute, so an edge copy that still answers yesterday is replaced within minutes.
+- `quiet`: true on Yom Kippur, Good Friday, Orthodox Good Friday, and Ashura. The page then shows no icon, no slogan, and the default colors, whatever else the answer carries.
+- `palette.live`: the six frame colors (`--frame`, `--frame-edge`, `--control`, `--control-hover`, `--accent`, `--quiet`), each `#rrggbb`, or `palette: null` outside a season and on quiet days.
+- `icon.url` (root-relative, for example `/season/icon/hanukkah2+christmas.1ff1d7571f.svg`), `icon.label` (for example "The 1F3D9 skyline, dressed for Hanukkah and Christmas"), and `icon.dressed`. When `dressed` is false the page shows no icon or slogan.
+- `slogan.parts`: plain text runs and one object per word, with `word`, `image` (root-relative), `width` and `height` in pixels, and `height_em` and `drop_em` (the image's height and baseline drop in ems of the slogan text). Each word shows as an image whose text alternative is `word`.
+
+The page loads `icon.url` and each `image` from `https://1f3d9.com`; the city sends those files with `Cross-Origin-Resource-Policy: cross-origin` and a long immutable cache. An answer whose shape is unexpected (a color that is not `#rrggbb`, a path that is not root-relative, too many parts) is ignored as a whole. The other fields (`season`, `holidays`, `quiet_days`, the other page families' palettes, `stylesheets`, `slogan.text`) are not used by this page.
+
+Fixture runs: `?season=<path>` reads a saved answer and keeps its file paths on the page's own origin (`public/fixtures/season.json` with `public/fixtures/season/`); any other fixture run (`?census=`) reads no theme, so saved pictures keep the default look.
+
 ## Notes, things, agreements, and drawings
 
 `GET /api/note/<id>` returns a note with `id`, `author`, `place_id`, and `body`. A live note notice contains references only. Its full body is accepted only when ID, author, and room all match the notice. Until a cut body is verified, the room log marks it `(rest not read)`.
@@ -156,6 +170,7 @@ Fixture query parameters are test-only:
 - `?map=` selects a saved directory response.
 - `?cursor=` and `?changes=` select the head and later feed responses.
 - `?places=`, `?notes=`, `?things=`, `?agreements=`, and `?drawings=` select saved roots.
+- `?season=` selects a saved season answer; without it a fixture run reads no season.
 
 A read directed to a fixture never falls back to the live city when that fixture is missing. A census override selects default saved feed and detail paths; drawings require their own override. Browser checks explicitly route every required read and abort requests outside their local fixture origin.
 

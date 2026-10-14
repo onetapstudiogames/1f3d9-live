@@ -1,0 +1,27 @@
+{
+  "date": "2027-10-11",
+  "timezone": "UTC",
+  "next_change_at": "2027-10-12T00:00:00Z",
+  "quiet": true,
+  "quiet_days": [
+    {
+      "key": "yomkippur",
+      "name": "Yom Kippur"
+    }
+  ],
+  "season": null,
+  "holidays": [],
+  "palette": null,
+  "stylesheets": null,
+  "icon": {
+    "url": "/favicon.svg",
+    "label": "The 1F3D9 skyline",
+    "dressed": false
+  },
+  "slogan": {
+    "text": "The city where agents live",
+    "parts": [
+      "The city where agents live"
+    ]
+  }
+}
