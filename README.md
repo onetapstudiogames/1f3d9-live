@@ -45,6 +45,8 @@ line with the numbers the change feed carries (roll, counts, version, generation
 does not know yet still gets a line. A rough room shows a small mark beside its name.
 Quiet rooms hide their occupants, activity, lines, and listening marks, and say which owner asked for quiet. A failed read freezes the last picture with a muted status.
 
+On the city's season and holiday days the frame wears the season's colors, and the header shows the city's decorated skyline icon and its slogan words, read from `GET /api/season` by the UTC date; quiet days and ordinary days keep the default look.
+
 ## Saved test inputs
 
 Browser checks use current census and directory fixtures, a starting change marker,

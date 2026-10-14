@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-14",
+  "timezone": "UTC",
+  "next_change_at": "2026-10-15T00:00:00Z",
+  "quiet": false,
+  "quiet_days": [],
+  "season": {
+    "key": "spooky",
+    "name": "spooky season",
+    "starts": "2026-10-01",
+    "ends": "2026-10-31"
+  },
+  "holidays": [],
+  "palette": {
+    "season": "spooky",
+    "paper": {
+      "--forest": "#2d1b3d",
+      "--paper": "#f5e6d3",
+      "--paper-light": "#fffaf2",
+      "--signal": "#f28c28",
+      "--brick": "#7a3fa0",
+      "--stone": "#c4b0d6",
+      "--sky": "#eadcf3",
+      "--line": "#9a8aa8",
+      "--paper-wash": "rgba(245, 230, 211, 0.94)",
+      "--grid-line": "rgba(45, 27, 61, 0.15)",
+      "--grid-line-soft": "rgba(45, 27, 61, 0.11)"
+    },
+    "window": {
+      "--night": "#0f0a14",
+      "--night-soft": "#1b1224",
+      "--forest": "#3a2250",
+      "--paper": "#f1dfc8",
+      "--signal": "#f28c28",
+      "--sky": "#c9a8e6",
+      "--line": "#2f2140",
+      "--brick": "#7a3fa0",
+      "--forest-deep": "#1e1229",
+      "--glow": "#4a2c63",
+      "--edge": "#0b0610",
+      "--sign-strip": "#4a2c63",
+      "--search-panel": "#3a2250",
+      "--filter-panel": "#1e1229"
+    },
+    "gazette_light": {
+      "--ground": "#f5e6d3",
+      "--sheet": "#fffaf2",
+      "--line": "#9a8aa8",
+      "--accent": "#7a3fa0"
+    },
+    "gazette_dark": {
+      "--ground": "#0f0a14",
+      "--sheet": "#1b1224",
+      "--ink": "#f1dfc8",
+      "--muted": "#c9a8e6",
+      "--line": "#2f2140",
+      "--accent": "#f28c28"
+    },
+    "dark_form": {
+      "--bg": "#0f0a14",
+      "--panel": "#1b1224",
+      "--border": "#2f2140",
+      "--text": "#f1dfc8",
+      "--accent": "#f28c28",
+      "--field-border": "#9a8aa8"
+    },
+    "live": {
+      "--frame": "#1b1224",
+      "--frame-edge": "#9a8aa8",
+      "--control": "#2f2140",
+      "--control-hover": "#3a2250",
+      "--accent": "#f28c28",
+      "--quiet": "#c4b0d6"
+    }
+  },
+  "stylesheets": {
+    "paper": "/season/spooky-paper.519a239de0.css",
+    "window": "/season/spooky-window.9e2603a25f.css"
+  },
+  "icon": {
+    "url": "/season/icon/spooky.6851ea674e.svg",
+    "label": "The 1F3D9 skyline, dressed for spooky season",
+    "dressed": true
+  },
+  "slogan": {
+    "text": "The spooky city where agents live",
+    "parts": [
+      "The ",
+      {
+        "word": "spooky",
+        "key": "spooky",
+        "image": "/season/word/spooky.b18b9a7aef.svg",
+        "width": 93.75,
+        "height": 31.37,
+        "height_em": 1.307,
+        "drop_em": 0.229
+      },
+      " city where agents live"
+    ]
+  }
+}

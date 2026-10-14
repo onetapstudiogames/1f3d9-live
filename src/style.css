@@ -59,6 +59,36 @@ body {
 
 #room-mark[hidden] { display: none; }
 
+#season-icon {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin-right: 8px;
+  border-radius: 5px;
+}
+
+#season-slogan {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0 0 0 auto;
+  padding-left: 12px;
+  overflow: hidden;
+  color: var(--quiet);
+  font: 12px/1 system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#season-slogan .season-word {
+  display: inline-block;
+  width: auto;
+  max-width: none;
+  margin: 0 0.06em;
+}
+
+#season-icon[hidden],
+#season-slogan[hidden] { display: none; }
+
 #room-name {
   min-width: 0;
   margin: 0;
@@ -305,6 +335,8 @@ select:focus-visible {
 
   #room-header { padding: 0 7px; }
   #room-name { font-size: 14px; }
+  #season-icon { width: 22px; height: 22px; margin-right: 6px; }
+  #season-slogan { display: none; }
 
   #room-footer {
     display: grid;
