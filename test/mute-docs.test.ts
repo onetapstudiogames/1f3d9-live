@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { compileMutes, FOUNDER_RESIDENT_ID, hiddenByMutes, hiddenPlaces } from '../src/browser-mutes.ts'
+import { compileMutes, FOUNDER_RESIDENT_IDS, hiddenByMutes, hiddenPlaces } from '../src/browser-mutes.ts'
 import { hiddenResidents } from '../src/live-mutes.ts'
 import { roomDrawingHidden } from '../src/mute-view.ts'
 
@@ -10,22 +10,27 @@ import { roomDrawingHidden } from '../src/mute-view.ts'
 const doc = async (file: string): Promise<string> =>
   (await readFile(new URL(`../${file}`, import.meta.url), 'utf8')).replace(/\s+/gu, ' ')
 
-const FOUNDER_PLACE_RULE = 'a mute on a place the founder owns keeps the place, its drawing, and the founder, and hides only the others inside it'
+const FOUNDER_PLACE_RULE = 'a mute on a place a founder owns keeps the place, its drawing, and both founders, and hides only the others inside it'
+const BOTH_FOUNDERS = 'Both founder accounts, residents #1 and #2, cannot be muted and are never hidden'
 
-test('a mute on a founder-owned place hides the others inside it and keeps the founder and the drawing', () => {
+test('a mute on a founder-owned place hides the others inside it and keeps both founders and the drawing', () => {
   const rules = compileMutes([{ type: 'place', id: 3, choice: 'mute' }])
   const rooms = hiddenPlaces(rules, [{ id: 2, parent_id: null }, { id: 3, parent_id: 2 }])
-  const hidden = hiddenResidents(rules, rooms, [{ id: FOUNDER_RESIDENT_ID, placeId: 3 }, { id: 34, placeId: 3 }])
+  const hidden = hiddenResidents(rules, rooms, [...FOUNDER_RESIDENT_IDS.map(id => ({ id, placeId: 3 })), { id: 34, placeId: 3 }])
   assert.deepEqual([...hidden], [34])
   assert.equal(hiddenByMutes({ type: 'note', id: 7, author_id: 34, place_id: 3 }, rules, rooms), true)
-  assert.equal(hiddenByMutes({ type: 'note', id: 8, author_id: FOUNDER_RESIDENT_ID, place_id: 3 }, rules, rooms), false)
-  assert.equal(roomDrawingHidden(rules, rooms, { id: 3, owner_id: FOUNDER_RESIDENT_ID }), false)
+  for (const founder of FOUNDER_RESIDENT_IDS) {
+    assert.equal(hiddenByMutes({ type: 'note', id: 8, author_id: founder, place_id: 3 }, rules, rooms), false)
+    assert.equal(roomDrawingHidden(rules, rooms, { id: 3, owner_id: founder }), false)
+  }
 })
 
 for (const file of ['README.md', 'docs/PLAN.md']) {
   test(`${file} states the founder-owned place rule the code follows`, async () => {
     const text = await doc(file)
     assert.ok(text.includes(FOUNDER_PLACE_RULE), `${file} should say: ${FOUNDER_PLACE_RULE}`)
+    assert.ok(text.includes(BOTH_FOUNDERS), `${file} should say: ${BOTH_FOUNDERS}`)
+    assert.ok(!text.includes('The founder, resident #1,'), `${file} must not name only resident #1 as never hidden`)
     assert.ok(!/founder[^.]*changes nothing/u.test(text), `${file} must not say a mute on what the founder owns changes nothing`)
   })
 }

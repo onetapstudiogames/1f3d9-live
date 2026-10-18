@@ -21,7 +21,7 @@ export function eventSubject(event: ReplayEvent, actorId: number | null, actorPl
 type PlacedResident = Readonly<{ id: number; placeId: number | null }>
 
 /**
- * Residents the list hides right now: each one it mutes, and everyone but the founder
+ * Residents the list hides right now: each one it mutes, and everyone but the two founders
  * standing in a place it hides. `rooms` is hiddenPlaces() for the list.
  */
 export function hiddenResidents(rules: MuteRules, rooms: ReadonlySet<number>, residents: readonly PlacedResident[]): ReadonlySet<number> {
@@ -69,7 +69,7 @@ export class LiveMutes {
     return this.placesHidden
   }
 
-  /** Residents the list mutes by number, wherever they stand. The founder is never among them. */
+  /** Residents the list mutes by number, wherever they stand. Neither founder is ever among them. */
   residents(): ReadonlySet<number> { return this.compiled.residents }
 
   thingHidden(thing: Readonly<{ id: number; placeId: number }>, ids: ThingIds | undefined, places: readonly MutePlace[]): boolean {

@@ -22,7 +22,7 @@ type ShownPlace = Readonly<{ id: number; owner_id: number | null }>
 
 /**
  * Whether the list hides the shown room's own drawing. A hidden place is still drawn as a
- * room, so the founder and anything allowed can stand in it; only a place the founder
+ * room, so both founders and anything allowed can stand in it; only a place a founder
  * owns keeps its drawing under a mute.
  */
 export function roomDrawingHidden(rules: MuteRules, rooms: ReadonlySet<number>, place: ShownPlace | undefined): boolean {

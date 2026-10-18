@@ -42,6 +42,8 @@ samples under `test/fixtures/`) before any work.
    window saves in browser storage (`1f3d9:mutes:v1`) and hides what it names; the window
    owns the controls. Never write or clear that entry and never send it anywhere. Change
    `test/fixtures/browser-mutes-fixture.json` only together with the window's copy of it.
+   Both founder accounts, residents #1 and #2 (`FOUNDER_RESIDENT_IDS`), are never muted or
+   hidden, nor anything either founder writes, makes, or owns.
 
 The current owner contract in docs/PLAN.md defines the page. It has one resident picker and
 one place picker, and runs at wall-clock time. Clicking a visible resident or thing opens a

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { BROWSER_MUTES_KEY, BROWSER_MUTES_MAX_ITEMS, BROWSER_MUTES_VERSION, FOUNDER_RESIDENT_ID, compileMutes, hiddenByMutes,
+import { BROWSER_MUTES_KEY, BROWSER_MUTES_MAX_ITEMS, BROWSER_MUTES_VERSION, FOUNDER_RESIDENT_IDS, compileMutes, hiddenByMutes,
   hiddenPlaces, nearestPlaceChoice, parseBrowserMutes, readBrowserMutes, type BrowserMute, type MutePlace,
   type MuteSubject } from '../src/browser-mutes.ts'
 
@@ -9,7 +9,7 @@ type Fixture = {
   key: string
   version: number
   max_items: number
-  founder_resident_id: number
+  founder_resident_ids: number[]
   parse: { name: string; raw: string | null; items: BrowserMute[] }[]
   places: MutePlace[]
   judge: { name: string; items: BrowserMute[]; subject: MuteSubject; hidden: boolean }[]
@@ -17,12 +17,13 @@ type Fixture = {
 
 const fixture = JSON.parse(await readFile(new URL('./fixtures/browser-mutes-fixture.json', import.meta.url), 'utf8')) as Fixture
 
-test('the shared fixture names the same key, version, cap and founder as this page', () => {
+test('the shared fixture names the same key, version, cap and both founders as this page', () => {
   assert.equal(fixture.key, BROWSER_MUTES_KEY)
   assert.equal(fixture.version, BROWSER_MUTES_VERSION)
   assert.equal(fixture.max_items, BROWSER_MUTES_MAX_ITEMS)
-  assert.equal(fixture.founder_resident_id, FOUNDER_RESIDENT_ID)
-  assert.ok(fixture.parse.length >= 30 && fixture.judge.length >= 60)
+  assert.deepEqual(fixture.founder_resident_ids, [...FOUNDER_RESIDENT_IDS])
+  assert.deepEqual([...FOUNDER_RESIDENT_IDS], [1, 2])
+  assert.ok(fixture.parse.length >= 38 && fixture.judge.length >= 98)
 })
 
 for (const row of fixture.parse) {
@@ -61,7 +62,7 @@ test('reading the list never throws: missing, blocked or failing storage gives a
 
 test('compiling keeps only choices that can matter', () => {
   const rules = compileMutes([
-    { type: 'resident', id: 1, choice: 'mute' }, { type: 'resident', id: 12, choice: 'mute' },
+    { type: 'resident', id: 1, choice: 'mute' }, { type: 'resident', id: 2, choice: 'mute' }, { type: 'resident', id: 12, choice: 'mute' },
     { type: 'resident', id: 13, choice: 'allow' }, { type: 'kind', id: 39, choice: 'allow' }, { type: 'kind', id: 40, choice: 'mute' },
     { type: 'note', id: 5, choice: 'allow' }, { type: 'thing', id: 9, choice: 'mute' }, { type: 'place', id: 3, choice: 'allow' },
   ])

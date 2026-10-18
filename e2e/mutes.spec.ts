@@ -113,22 +113,44 @@ test('a storage event from another tab changes the picture without a reload', as
   expect(diagnostics.errors).toEqual([])
 })
 
-test('the founder stays in a muted place, even when the founder owns it, and only the others are hidden', async ({ page }) => {
+test('both founders stay in a muted place, even when a founder owns it, and only the others are hidden', async ({ page }) => {
   const diagnostics = await keepFixtureOffline(page)
   await openRoom(page, liveFixtureUrl, '3')
-  await expect.poll(() => figureIds(page), { timeout: 30_000 }).toEqual(expect.arrayContaining([1, 135, 186]))
-  const others = (await figureIds(page)).filter(id => id !== 1).length
+  await expect.poll(() => figureIds(page), { timeout: 30_000 }).toEqual(expect.arrayContaining([1, 2, 135, 186]))
+  const others = (await figureIds(page)).filter(id => id !== 1 && id !== 2).length
 
   for (const place of [3, 2]) {
     await storeAndAnnounce(page, [{ type: 'place', id: place, choice: 'mute' }])
-    await expect.poll(() => figureIds(page)).toEqual([1])
+    await expect.poll(() => figureIds(page)).toEqual([1, 2])
     // Everyone else here is counted, with any of their things the list hides.
     await expect.poll(async () => Number(/(\d+) hidden by your mutes in this browser/
       .exec(await page.locator('#live-status').textContent() ?? '')?.[1] ?? 0)).toBeGreaterThanOrEqual(others)
     await expect(page.locator('#follow-picker option[value="1"]')).toHaveCount(1)
+    await expect(page.locator('#follow-picker option[value="2"]')).toHaveCount(1)
   }
   await storeAndAnnounce(page, [{ type: 'resident', id: 1, choice: 'mute' }])
-  await expect.poll(() => figureIds(page)).toEqual(expect.arrayContaining([1, 135, 186]))
+  await expect.poll(() => figureIds(page)).toEqual(expect.arrayContaining([1, 2, 135, 186]))
+  expect(diagnostics.external).toEqual([])
+  expect(diagnostics.errors).toEqual([])
+})
+
+test('a mute naming the second founder hides nothing and counts nothing, even with its place muted', async ({ page }) => {
+  // Resident #2 (1f3d9-founder) stands in place 3 with the founder in the saved census.
+  await storeBeforeLoad(page, [{ type: 'resident', id: 2, choice: 'mute' }])
+  const diagnostics = await keepFixtureOffline(page)
+  await openRoom(page, liveFixtureUrl, '3')
+  await expect.poll(() => figureIds(page), { timeout: 30_000 }).toEqual(expect.arrayContaining([1, 2, 135, 186]))
+  await expect(page.locator('#live-status')).not.toContainText(COUNT_WORDS)
+  await expect(page.locator('#follow-picker option[value="2"]')).toHaveCount(1)
+  const others = (await figureIds(page)).filter(id => id !== 1 && id !== 2).length
+
+  await storeAndAnnounce(page, [{ type: 'resident', id: 1, choice: 'mute' }, { type: 'resident', id: 2, choice: 'mute' },
+    { type: 'place', id: 3, choice: 'mute' }])
+  await expect.poll(() => figureIds(page)).toEqual([1, 2])
+  await expect.poll(async () => Number(/(\d+) hidden by your mutes in this browser/
+    .exec(await page.locator('#live-status').textContent() ?? '')?.[1] ?? 0)).toBeGreaterThanOrEqual(others)
+  await expect(page.locator('#follow-picker option[value="1"]')).toHaveCount(1)
+  await expect(page.locator('#follow-picker option[value="2"]')).toHaveCount(1)
   expect(diagnostics.external).toEqual([])
   expect(diagnostics.errors).toEqual([])
 })

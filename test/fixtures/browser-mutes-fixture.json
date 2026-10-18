@@ -3,7 +3,10 @@
  "key": "1f3d9:mutes:v1",
  "version": 1,
  "max_items": 1000,
- "founder_resident_id": 1,
+ "founder_resident_ids": [
+  1,
+  2
+ ],
  "parse": [
   {
    "name": "no stored value",
@@ -220,6 +223,55 @@
    "name": "a list naming only the founder is empty",
    "raw": "{\"version\":1,\"items\":[{\"type\":\"resident\",\"id\":1,\"choice\":\"mute\"}]}",
    "items": []
+  },
+  {
+   "name": "the second founder cannot be muted: an entry naming resident 2 is dropped",
+   "raw": "{\"version\":1,\"items\":[{\"type\":\"resident\",\"id\":2,\"choice\":\"mute\"},{\"type\":\"resident\",\"id\":12,\"choice\":\"mute\"}]}",
+   "items": [
+    {
+     "type": "resident",
+     "id": 12,
+     "choice": "mute"
+    }
+   ]
+  },
+  {
+   "name": "a list naming both founders is empty",
+   "raw": "{\"version\":1,\"items\":[{\"type\":\"resident\",\"id\":1,\"choice\":\"mute\"},{\"type\":\"resident\",\"id\":2,\"choice\":\"mute\"}]}",
+   "items": []
+  },
+  {
+   "name": "an allow on the second founder is dropped",
+   "raw": "{\"version\":1,\"items\":[{\"type\":\"resident\",\"id\":2,\"choice\":\"allow\"},{\"type\":\"kind\",\"id\":39,\"choice\":\"allow\"}]}",
+   "items": [
+    {
+     "type": "kind",
+     "id": 39,
+     "choice": "allow"
+    }
+   ]
+  },
+  {
+   "name": "a place numbered 2 is not a founder",
+   "raw": "{\"version\":1,\"items\":[{\"type\":\"place\",\"id\":2,\"choice\":\"mute\"}]}",
+   "items": [
+    {
+     "type": "place",
+     "id": 2,
+     "choice": "mute"
+    }
+   ]
+  },
+  {
+   "name": "resident 3 is not a founder",
+   "raw": "{\"version\":1,\"items\":[{\"type\":\"resident\",\"id\":3,\"choice\":\"mute\"}]}",
+   "items": [
+    {
+     "type": "resident",
+     "id": 3,
+     "choice": "mute"
+    }
+   ]
   },
   {
    "name": "a note numbered 1 is not the founder",
@@ -1563,6 +1615,446 @@
    "subject": {
     "type": "line",
     "id": 77,
+    "author_id": 12,
+    "place_id": 3
+   },
+   "hidden": true
+  },
+  {
+   "name": "the second founder whatever the list says",
+   "items": [
+    {
+     "type": "resident",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "resident",
+    "id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "the second founder in a muted place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "resident",
+    "id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "the second founder listening in a muted place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "mark",
+    "id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "the second founder listening, named by the list",
+   "items": [
+    {
+     "type": "resident",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "mark",
+    "id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "resident 3 is not a founder",
+   "items": [
+    {
+     "type": "resident",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "resident",
+    "id": 3,
+    "place_id": 3
+   },
+   "hidden": true
+  },
+  {
+   "name": "a second founder note in a muted place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "note",
+    "id": 7,
+    "author_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a second founder note muted by number",
+   "items": [
+    {
+     "type": "note",
+     "id": 8,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "note",
+    "id": 8,
+    "author_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a second founder note when the list names the second founder",
+   "items": [
+    {
+     "type": "resident",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "note",
+    "id": 9,
+    "author_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a thing the second founder owns, muted by number",
+   "items": [
+    {
+     "type": "thing",
+     "id": 2343,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "thing",
+    "id": 2343,
+    "author_id": 156,
+    "owner_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a thing the second founder owns, made by a muted resident",
+   "items": [
+    {
+     "type": "resident",
+     "id": 156,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "thing",
+    "id": 2343,
+    "author_id": 156,
+    "owner_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a thing the second founder made, in a muted place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "thing",
+    "id": 2275,
+    "author_id": 2,
+    "owner_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a thing the founder made, of a muted kind",
+   "items": [
+    {
+     "type": "kind",
+     "id": 39,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "thing",
+    "id": 2276,
+    "author_id": 1,
+    "owner_id": 156,
+    "kind_id": 39,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a thing the second founder made, of a muted kind",
+   "items": [
+    {
+     "type": "kind",
+     "id": 39,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "thing",
+    "id": 2277,
+    "author_id": 2,
+    "owner_id": 156,
+    "kind_id": 39,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a thing the second founder made, when the list names the second founder",
+   "items": [
+    {
+     "type": "resident",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "thing",
+    "id": 2278,
+    "author_id": 2,
+    "owner_id": 156,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a second founder line in a muted place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "line",
+    "id": 9003,
+    "author_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a second founder line when the list names the second founder",
+   "items": [
+    {
+     "type": "resident",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "line",
+    "id": 9004,
+    "author_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a second founder event in a muted place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "event",
+    "author_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a second founder event naming a muted thing",
+   "items": [
+    {
+     "type": "thing",
+     "id": 2491,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "event",
+    "author_id": 2,
+    "thing_id": 2491,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a second founder event naming a muted note",
+   "items": [
+    {
+     "type": "note",
+     "id": 10,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "event",
+    "author_id": 2,
+    "note_id": 10,
+    "place_id": 249
+   },
+   "hidden": false
+  },
+  {
+   "name": "a place the second founder owns is never marked hidden",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "place",
+    "id": 3,
+    "owner_id": 2
+   },
+   "hidden": false
+  },
+  {
+   "name": "a place the second founder owns inside a muted place it owns",
+   "items": [
+    {
+     "type": "place",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "place",
+    "id": 3,
+    "owner_id": 2
+   },
+   "hidden": false
+  },
+  {
+   "name": "a place another resident owns inside a muted place the second founder owns",
+   "items": [
+    {
+     "type": "place",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "place",
+    "id": 249,
+    "owner_id": 12
+   },
+   "hidden": true
+  },
+  {
+   "name": "a resident in a muted place the second founder owns",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "resident",
+    "id": 12,
+    "place_id": 3
+   },
+   "hidden": true
+  },
+  {
+   "name": "the second founder in a muted place it owns",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "resident",
+    "id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a thing the second founder owns in a muted place it owns",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "thing",
+    "id": 2491,
+    "author_id": 12,
+    "owner_id": 2,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a line by another resident in a muted place the second founder owns",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "line",
+    "id": 78,
     "author_id": 12,
     "place_id": 3
    },

@@ -127,10 +127,10 @@ test('the opening room skips places the list hides, as it skips quiet ones', () 
   assert.equal(resolveRoomLink(parseRoomLink('?place=4'), town, census, new Set([2])).roomId, 3)
 })
 
-test('a muted place keeps the founder: only other residents standing in it are hidden', () => {
+test('a muted place keeps both founders: only other residents standing in it are hidden', () => {
   const rules = new LiveMutes([mute('place', 3), mute('resident', 20)]).rules
   const rooms = new LiveMutes([mute('place', 3)]).rooms(places)
-  const standing = [{ id: 1, placeId: 3 }, { id: 12, placeId: 3 }, { id: 13, placeId: 10 }, { id: 14, placeId: null }, { id: 20, placeId: 10 }]
+  const standing = [{ id: 1, placeId: 3 }, { id: 2, placeId: 3 }, { id: 12, placeId: 3 }, { id: 13, placeId: 10 }, { id: 14, placeId: null }, { id: 20, placeId: 10 }]
   assert.deepEqual([...hiddenResidents(rules, rooms, standing)].sort((left, right) => left - right), [12, 20])
   const parent = new LiveMutes([mute('place', 2)])
   assert.deepEqual([...hiddenResidents(parent.rules, parent.rooms(places), standing)].sort((left, right) => left - right), [12, 13, 20])
@@ -144,14 +144,17 @@ test('a change row naming no place is judged where it arrives or where its actor
   const mutes = new LiveMutes([mute('place', 3)])
   assert.equal(mutes.eventHidden(event('action', { action: 'make' }), 12, 3, places), true)
   assert.equal(mutes.eventHidden(event('action', { action: 'make' }), 1, 3, places), false, 'the founder is never hidden')
+  assert.equal(mutes.eventHidden(event('action', { action: 'make' }), 2, 3, places), false, 'the second founder is never hidden')
   assert.equal(mutes.eventHidden(event('move', { from_place_id: 3, to_place_id: 10 }), 12, 3, places), false)
 })
 
-test('a muted room keeps its drawing only when the founder owns it', () => {
+test('a muted room keeps its drawing only when a founder owns it', () => {
   const mutes = new LiveMutes([mute('place', 2)])
   const rooms = mutes.rooms(places)
   const shown = (id: number, owner_id: number | null) => ({ id, owner_id, has_drawing: true })
   assert.equal(roomDrawingHidden(mutes.rules, rooms, shown(3, 1)), false)
+  assert.equal(roomDrawingHidden(mutes.rules, rooms, shown(3, 2)), false)
+  assert.equal(roomDrawingHidden(mutes.rules, rooms, shown(3, 3)), true)
   assert.equal(roomDrawingHidden(mutes.rules, rooms, shown(3, 12)), true)
   assert.equal(roomDrawingHidden(mutes.rules, rooms, shown(3, null)), true, 'an owner not yet read is not assumed to be the founder')
   assert.equal(roomDrawingHidden(mutes.rules, rooms, undefined), false)

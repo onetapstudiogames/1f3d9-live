@@ -161,7 +161,7 @@ export class CityScene extends Phaser.Scene {
   private readonly itemDescriptions = new Map<string, string>()
   // This browser's mute list (read only; the city's window writes it). Hidden residents,
   // things, notes, lines and marks are skipped where quiet rooms are skipped. A hidden
-  // place is still drawn as a room, so the founder, who is never hidden, stays in it.
+  // place is still drawn as a room, so both founders, who are never hidden, stay in it.
   private readonly mutes = new LiveMutes(readBrowserMutes())
   private readonly thingIds = new Map<number, ThingIds>()
   private unseenMemo: Readonly<{ sleepers: ReadonlySet<number>; muted: ReadonlySet<number>; ids: ReadonlySet<number> }> | null = null
@@ -1133,7 +1133,7 @@ export class CityScene extends Phaser.Scene {
       .filter(id => id !== this.viewPlaceId || !this.displayLayout?.rooms[id] || this.contentsHidden.has(id) || !roomIsPublic(this.layout!, id)))
   }
   private mutedRooms(): ReadonlySet<number> { return this.mutes.rooms(this.places) }
-  /** Residents the mute list hides right now: muted ones, and anyone but the founder in a hidden place. */
+  /** Residents the mute list hides right now: muted ones, and anyone but the two founders in a hidden place. */
   private muteHidden(): ReadonlySet<number> {
     const rules = this.mutes.rules
     if (rules.empty) return rules.residents

@@ -8,9 +8,10 @@
 // copies; change the rule only together with that file and the window's copy.
 //
 // The rule matches the residents' own rule (the city's src/reader-mutes.ts):
-// - Never hidden: the founder, resident #1, any note, line, thing or event the founder
-//   writes, makes or owns, and a place the founder owns. A mute on a founder-owned place
-//   still hides other residents and their items inside it, and the founder stays.
+// - Never hidden: both founder accounts, residents #1 and #2 (the owner, 2026-10-18:
+//   "Both founders."), any note, line, thing or event either founder writes, makes or
+//   owns, and a place either founder owns. A mute on a founder-owned place still hides
+//   other residents and their items inside it, and both founders stay.
 // - An item allow (a note or a thing) beats every mute; an item mute comes next.
 // - Then a mute on the author or maker, then a mute on the kind.
 // - Then places: the nearest place choice at or above the item's place wins, so an allow
@@ -25,7 +26,12 @@
 export const BROWSER_MUTES_KEY = '1f3d9:mutes:v1'
 export const BROWSER_MUTES_VERSION = 1
 export const BROWSER_MUTES_MAX_ITEMS = 1000
-export const FOUNDER_RESIDENT_ID = 1
+/** Both founder accounts, residents #1 and #2: never muted, never hidden. */
+export const FOUNDER_RESIDENT_IDS: readonly number[] = Object.freeze([1, 2])
+/** Whether a resident number names one of the founder accounts. */
+export function isFounder(id: number | null | undefined): boolean {
+  return typeof id === 'number' && FOUNDER_RESIDENT_IDS.includes(id)
+}
 const MAX_TARGET_ID = 2_147_483_647
 
 export const MUTE_TYPES = Object.freeze(['resident', 'place', 'note', 'thing', 'kind'] as const)
@@ -53,7 +59,7 @@ function entry(value: unknown): BrowserMute | null {
  * The stored list, or an empty list when the value is absent, not JSON, not version 1,
  * longer than the cap, or holds any entry that is not {type, id, choice}. Other keys are
  * ignored. A later entry for the same type and id replaces an earlier one. An entry
- * naming the founder is dropped: the founder cannot be muted.
+ * naming either founder is dropped: neither founder can be muted.
  */
 export function parseBrowserMutes(raw: string | null | undefined): readonly BrowserMute[] {
   if (typeof raw !== 'string') return NONE
@@ -68,7 +74,7 @@ export function parseBrowserMutes(raw: string | null | undefined): readonly Brow
     if (!parsed) return NONE
     const key = `${parsed.type}:${String(parsed.id)}`
     kept.delete(key)
-    if (!(parsed.type === 'resident' && parsed.id === FOUNDER_RESIDENT_ID)) kept.set(key, parsed)
+    if (!(parsed.type === 'resident' && isFounder(parsed.id))) kept.set(key, parsed)
   }
   return kept.size ? Object.freeze([...kept.values()]) : NONE
 }
@@ -103,7 +109,7 @@ export function compileMutes(list: readonly BrowserMute[]): MuteRules {
   const things = { muted: new Set<number>(), allowed: new Set<number>() }
   const places = new Map<number, MuteChoice>()
   for (const { type, id, choice } of list) {
-    if (type === 'resident') { if (choice === 'mute' && id !== FOUNDER_RESIDENT_ID) residents.add(id) }
+    if (type === 'resident') { if (choice === 'mute' && !isFounder(id)) residents.add(id) }
     else if (type === 'kind') { if (choice === 'mute') kinds.add(id) }
     else if (type === 'note') (choice === 'mute' ? notes.muted : notes.allowed).add(id)
     else if (type === 'thing') (choice === 'mute' ? things.muted : things.allowed).add(id)
@@ -166,12 +172,12 @@ const known = (value: number | null | undefined): value is number => typeof valu
 export function hiddenByMutes(subject: MuteSubject, rules: MuteRules, places: ReadonlySet<number>): boolean {
   if (rules.empty) return false
   const inHiddenPlace = known(subject.place_id) && places.has(subject.place_id)
-  if (subject.type === 'place') return subject.owner_id !== FOUNDER_RESIDENT_ID && known(subject.id) && places.has(subject.id)
+  if (subject.type === 'place') return !isFounder(subject.owner_id) && known(subject.id) && places.has(subject.id)
   if (subject.type === 'resident' || subject.type === 'mark') {
-    if (subject.id === FOUNDER_RESIDENT_ID) return false
+    if (isFounder(subject.id)) return false
     return (known(subject.id) && rules.residents.has(subject.id)) || inHiddenPlace
   }
-  if (subject.author_id === FOUNDER_RESIDENT_ID || subject.owner_id === FOUNDER_RESIDENT_ID) return false
+  if (isFounder(subject.author_id) || isFounder(subject.owner_id)) return false
   const noteId = subject.type === 'note' ? subject.id : subject.type === 'event' ? subject.note_id : null
   const thingId = subject.type === 'thing' ? subject.id : subject.type === 'event' ? subject.thing_id : null
   if ((known(noteId) && rules.notes.allowed.has(noteId)) || (known(thingId) && rules.things.allowed.has(thingId))) return false
