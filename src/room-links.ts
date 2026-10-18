@@ -27,9 +27,10 @@ export function parseRoomLink(search: string): RoomLink {
   return id === null ? Object.freeze({ kind: 'invalid', target: 'place' }) : Object.freeze({ kind: 'place', id })
 }
 
-export function resolveRoomLink(link: RoomLink, places: readonly ReplayPlace[], census: readonly Resident[]): OpeningRoom {
+export function resolveRoomLink(link: RoomLink, places: readonly ReplayPlace[], census: readonly Resident[],
+  skipped: ReadonlySet<number> = new Set()): OpeningRoom {
   const fallback = (reason: string | null): OpeningRoom => {
-    const roomId = busiestRoom(places, census)
+    const roomId = busiestRoom(places, census, skipped)
     const ending = roomId === null ? 'No public room is available.' : 'Showing the usual opening room.'
     return Object.freeze({ roomId, following: null, message: reason ? `${reason} ${ending}` : null })
   }

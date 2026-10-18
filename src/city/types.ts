@@ -57,9 +57,11 @@ export type Drawing = Readonly<{
   description?: string | null
 }>
 
-export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean; owner?: string | null; kind?: string | null }>
+// The numbered maker, owner and kind are read only for this browser's mute list.
+export type ThingIds = Readonly<{ makerId?: number | null; ownerId?: number | null; kindId?: number | null }>
+export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean; owner?: string | null; kind?: string | null }> & ThingIds
 export type OutlineThing = Readonly<{ id: number; name: string; placeId: number; hasDrawing: boolean | undefined;
-  owner?: string | null; kind?: string | null }>
+  owner?: string | null; kind?: string | null }> & ThingIds
 export type PlaceOutline = Readonly<{ placeId: number; quiet: boolean; things: readonly OutlineThing[]; totalItems: number;
   hasMore: boolean; lawNames?: readonly string[] | null; name?: string; parentId?: number | null;
   owner?: string | null; ownerId?: number | null; roughRoom?: boolean }>

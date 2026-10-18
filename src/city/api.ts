@@ -1,4 +1,4 @@
-import type { CensusPage, Drawing, PlaceOutline, Resident, Thing } from './types.ts'
+import type { CensusPage, Drawing, PlaceOutline, Resident, Thing, ThingIds } from './types.ts'
 import { parseLawNames } from '../laws.ts'
 import { MAX_ROOM_THINGS } from '../thing-limits.ts'
 
@@ -169,7 +169,21 @@ export async function fetchThing(id: number, search: string = browserSearch()): 
   const kind = typeof record['kind'] === 'string' ? record['kind'].trim()
     : record['kind'] === null ? null : undefined
   return { id, name: record['name'], has_drawing: record['has_drawing'],
-    ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }) }
+    ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }), ...thingIds(record) }
+}
+
+function optionalId(value: unknown): number | null | undefined {
+  if (value === null) return null
+  return Number.isSafeInteger(value) && (value as number) > 0 ? value as number : undefined
+}
+
+/** A thing row's numbered maker, owner and kind, each only when the row carries it. */
+export function thingIds(row: Record<string, unknown>): ThingIds {
+  const makerId = optionalId(row['maker_id'])
+  const ownerId = optionalId('current_owner_id' in row ? row['current_owner_id'] : row['owner_id'])
+  const kindId = optionalId(row['kind_id'])
+  return { ...(makerId === undefined ? {} : { makerId }), ...(ownerId === undefined ? {} : { ownerId }),
+    ...(kindId === undefined ? {} : { kindId }) }
 }
 
 export function createThingLoader(search: string = browserSearch()): (id: number) => Promise<Thing | null> {
@@ -240,7 +254,7 @@ export async function fetchPlaceOutline(id: number, search: string = browserSear
       const kind = typeof row['kind'] === 'string' ? row['kind'].trim()
         : row['kind'] === null ? null : undefined
       const thing = Object.freeze({ id: row['id'] as number, name, placeId: id, hasDrawing,
-        ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }) })
+        ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }), ...thingIds(row) })
       if (things.has(thing.id) || things.size < MAX_ROOM_THINGS) things.set(thing.id, thing)
       else locallyTruncated = true
     }

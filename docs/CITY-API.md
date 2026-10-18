@@ -40,7 +40,7 @@ A required presence, directory, or feed failure freezes the last complete pictur
 
 `GET /api/place/<id>?view=outline` returns current facts for one selected room. Its direct `things` rows establish which things are on that floor. The page does not infer floor things from counts or descendant searches. A quiet room or a room beneath a quiet ancestor reveals no residents, things, speech, or activity.
 
-The selected room follows `things_page.next` or `next_before_thing_id` through same-room `before_thing_id` reads, capped at 200 things and 200 pages; a missing thing `has_drawing` flag means unknown, so each actually shown thing gets one cached `GET /api/drawing/thing/<id>` attempt unless an explicit flag says it has no drawing, and unshown things never start drawing reads. Outline rows may carry `kind` and `current_owner` (or `owner`); the item panel uses only those values when present and reads the thing record when either fact is absent.
+The selected room follows `things_page.next` or `next_before_thing_id` through same-room `before_thing_id` reads, capped at 200 things and 200 pages; a missing thing `has_drawing` flag means unknown, so each actually shown thing gets one cached `GET /api/drawing/thing/<id>` attempt unless an explicit flag says it has no drawing, and unshown things never start drawing reads. Outline rows may carry `kind` and `current_owner` (or `owner`); the item panel uses only those values when present and reads the thing record when either fact is absent. Outline rows and thing records may also carry `maker_id`, `current_owner_id` (or `owner_id`), and `kind_id`; the page keeps them only to apply the browser's mute list, and a missing number never hides a thing.
 
 ## Change feed
 
@@ -177,6 +177,7 @@ A read directed to a fixture never falls back to the live city when that fixture
 ## Read rules
 
 - Anonymous GET requests only; no key, credential, wallet, market call, or POST.
+- The browser's mute list (`1f3d9:mutes:v1`) lives only in this browser's storage. No city route carries it, no read sends any part of it, and it is sent nowhere. A change to the list redraws the shown room, which, like a room change, may read that room's drawing again through `GET /api/drawing/place/<id>`. A muted place keeps its drawing only when its `owner_id` is one of the two founder accounts, resident #1 or #2.
 - Cache drawings and bounded detail reads; poll the feed no more often than the page cadence.
 - Keep exact counts on the city's own pages unless a current response explicitly supplies them.
 - Refetch and update this document when a saved shape disagrees with the live city.
