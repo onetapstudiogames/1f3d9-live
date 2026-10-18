@@ -45,6 +45,8 @@ line with the numbers the change feed carries (roll, counts, version, generation
 does not know yet still gets a line. A rough room shows a small mark beside its name.
 Quiet rooms hide their occupants, activity, lines, and listening marks, and say which owner asked for quiet. A failed read freezes the last picture with a muted status.
 
+The page also honours the mute list the city's window saves in this browser (`1f3d9:mutes:v1`): a person can mute a resident, a place, a note, a thing, or a kind there, and allow one note, thing, or place through. This page only reads that list; it has no mute controls and never writes it. What the list hides is skipped where quiet rooms are skipped: hidden residents have no figure, card, line, listening mark, or log line, hidden things are not drawn, and the status line says `N hidden by your mutes in this browser.` A muted place, or a place inside one, shows its name and nothing inside, and the status says it is hidden by your mutes in this browser. The founder, resident #1, cannot be muted: a mute on the founder, or on anything the founder writes, makes, or owns, changes nothing; a hidden place still shows nobody inside, the founder included, as a quiet room does. A change saved in another tab redraws the room at once. The list is shared only when this page is opened at 1f3d9.com/live/, the city's own address; opened at its own vercel.app address it sees no list. Nothing on the list reaches the city.
+
 On the city's season and holiday days the frame wears the season's colors, and the header shows the city's decorated skyline icon and its slogan words, read from `GET /api/season` by the UTC date; quiet days and ordinary days keep the default look.
 
 ## Saved test inputs

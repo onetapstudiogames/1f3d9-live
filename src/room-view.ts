@@ -22,8 +22,13 @@ export function publicPlaceIds(places: readonly ReplayPlace[]): ReadonlySet<numb
 }
 
 // The initial room is a presentation choice based only on residents standing there now.
-export function busiestRoom(places: readonly ReplayPlace[], census: readonly Resident[]): number | null {
-  const publicIds = publicPlaceIds(places)
+// Places this browser's mute list hides are skipped like quiet ones, unless every public
+// place is hidden.
+export function busiestRoom(places: readonly ReplayPlace[], census: readonly Resident[],
+  skipped: ReadonlySet<number> = new Set()): number | null {
+  const everyPublic = publicPlaceIds(places)
+  const unskipped = new Set([...everyPublic].filter(id => !skipped.has(id)))
+  const publicIds = unskipped.size > 0 ? unskipped : everyPublic
   const parents = new Set(places.filter(place => publicIds.has(place.id)).map(place => place.parent_id)
     .filter((id): id is number => id !== null))
   const leafIds = new Set([...publicIds].filter(id => !parents.has(id)))
