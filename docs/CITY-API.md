@@ -177,7 +177,7 @@ A read directed to a fixture never falls back to the live city when that fixture
 ## Read rules
 
 - Anonymous GET requests only; no key, credential, wallet, market call, or POST.
-- The browser's mute list (`1f3d9:mutes:v1`) lives only in this browser's storage. No city route carries it, the page adds no read for it, and it is sent nowhere.
+- The browser's mute list (`1f3d9:mutes:v1`) lives only in this browser's storage. No city route carries it, no read sends any part of it, and it is sent nowhere. A change to the list redraws the shown room, which, like a room change, may read that room's drawing again through `GET /api/drawing/place/<id>`.
 - Cache drawings and bounded detail reads; poll the feed no more often than the page cadence.
 - Keep exact counts on the city's own pages unless a current response explicitly supplies them.
 - Refetch and update this document when a saved shape disagrees with the live city.
