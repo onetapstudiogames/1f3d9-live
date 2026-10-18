@@ -55,17 +55,14 @@ function includesSpeech(history: readonly string[], speech: string): boolean {
 export class RoomActivityLine {
   private readonly element: HTMLElement
   private readonly context: ActivityContext
-  // A room this browser's mute list hides keeps no log, as a quiet room keeps none.
-  private readonly hiddenRoom: (roomId: number) => boolean
   private state: ActivityState = emptyActivity()
   private selectedRoomId: number | null = null
   private unshownSpeech: string | null = null
   private readonly resize = (): void => this.applyStripHeight()
 
-  constructor(element: HTMLElement, context: ActivityContext, hiddenRoom: (roomId: number) => boolean = () => false) {
+  constructor(element: HTMLElement, context: ActivityContext) {
     this.element = element
     this.context = context
-    this.hiddenRoom = hiddenRoom
     this.applyStripHeight()
     if (typeof window !== 'undefined') window.addEventListener('resize', this.resize)
   }
@@ -156,7 +153,7 @@ export class RoomActivityLine {
   }
 
   private isPublic(): boolean {
-    if (this.selectedRoomId === null || this.hiddenRoom(this.selectedRoomId)) return false
+    if (this.selectedRoomId === null) return false
     const seen = new Set<number>()
     let id: number | null = this.selectedRoomId
     while (id !== null) {

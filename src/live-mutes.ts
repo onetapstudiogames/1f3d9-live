@@ -6,12 +6,31 @@ const NO_PLACES: ReadonlySet<number> = new Set()
 const positive = (value: unknown): number | null =>
   Number.isSafeInteger(value) && (value as number) > 0 ? value as number : null
 
-/** A change-feed row as the mute rule sees it: its actor and the note, thing, kind and place it names. */
-export function eventSubject(event: ReplayEvent, actorId: number | null): MuteSubject {
+/**
+ * A change-feed row as the mute rule sees it: its actor and the note, thing, kind and place
+ * it names. A row naming no place is judged where it arrives (a move) or where its actor
+ * stands.
+ */
+export function eventSubject(event: ReplayEvent, actorId: number | null, actorPlaceId: number | null = null): MuteSubject {
   const detail = event.detail
   return Object.freeze({ type: 'event', author_id: actorId, note_id: positive(detail.note_id),
     thing_id: positive(detail.thing_id) ?? positive(detail.source_thing_id), kind_id: positive(detail['kind_id']),
-    place_id: positive(detail.place_id) })
+    place_id: positive(detail.place_id) ?? positive(detail.to_place_id) ?? positive(actorPlaceId) })
+}
+
+type PlacedResident = Readonly<{ id: number; placeId: number | null }>
+
+/**
+ * Residents the list hides right now: each one it mutes, and everyone but the founder
+ * standing in a place it hides. `rooms` is hiddenPlaces() for the list.
+ */
+export function hiddenResidents(rules: MuteRules, rooms: ReadonlySet<number>, residents: readonly PlacedResident[]): ReadonlySet<number> {
+  const hidden = new Set(rules.residents)
+  if (rooms.size === 0) return hidden
+  for (const row of residents) {
+    if (hiddenByMutes({ type: 'resident', id: row.id, place_id: row.placeId }, rules, rooms)) hidden.add(row.id)
+  }
+  return hidden
 }
 
 /** A thing on the floor as the mute rule sees it, with whatever numbered facts the page has read. */
@@ -50,15 +69,15 @@ export class LiveMutes {
     return this.placesHidden
   }
 
-  /** Residents the list hides wherever they stand. The founder is never among them. */
+  /** Residents the list mutes by number, wherever they stand. The founder is never among them. */
   residents(): ReadonlySet<number> { return this.compiled.residents }
 
   thingHidden(thing: Readonly<{ id: number; placeId: number }>, ids: ThingIds | undefined, places: readonly MutePlace[]): boolean {
     return !this.empty && hiddenByMutes(thingSubject(thing, ids), this.compiled, this.rooms(places))
   }
 
-  eventHidden(event: ReplayEvent, actorId: number | null, places: readonly MutePlace[]): boolean {
-    return !this.empty && hiddenByMutes(eventSubject(event, actorId), this.compiled, this.rooms(places))
+  eventHidden(event: ReplayEvent, actorId: number | null, actorPlaceId: number | null, places: readonly MutePlace[]): boolean {
+    return !this.empty && hiddenByMutes(eventSubject(event, actorId, actorPlaceId), this.compiled, this.rooms(places))
   }
 
   lineHidden(line: Readonly<{ id: number; placeId: number }>, authorId: number | null, places: readonly MutePlace[]): boolean {

@@ -70,8 +70,10 @@ test('a muted resident is not drawn, their line card never shows, and the status
   expect(figures).not.toContain(302)
   expect(figures).toEqual(expect.arrayContaining([301, 303]))
   await expect(page.locator('#live-status')).toContainText(`1 ${COUNT_WORDS}.`)
-  // The pickers still list the muted resident: this page has no control to undo a mute.
-  await expect(page.locator('#follow-picker option[value="302"]')).toHaveCount(1)
+  // The follow picker does not offer the muted resident, so its name is nowhere on the page.
+  await expect(page.locator('#follow-picker option[value="301"]')).toHaveCount(1)
+  await expect(page.locator('#follow-picker option[value="302"]')).toHaveCount(0)
+  expect(await page.content()).not.toContain('buzz')
   expect(diagnostics.external).toEqual([])
   expect(diagnostics.errors).toEqual([])
 })
@@ -98,13 +100,35 @@ test('a storage event from another tab changes the picture without a reload', as
   await expect(page.locator('#live-status')).toContainText(`1 ${COUNT_WORDS}.`)
 
   await storeAndAnnounce(page, [{ type: 'place', id: 731, choice: 'mute' }])
-  await expect(page.locator('#live-status')).toContainText(`This place is ${COUNT_WORDS}.`)
   await expect.poll(() => figureIds(page)).toEqual([])
+  // Its three residents and the room's own drawing (The Hive is not the founder's).
+  await expect(page.locator('#live-status')).toContainText(`4 ${COUNT_WORDS}.`)
   await expect(page.locator('#room-name')).not.toBeEmpty()
+  await expect(page.locator('#follow-picker option[value="301"]')).toHaveCount(0)
 
   await storeAndAnnounce(page, null)
   await expect.poll(() => figureIds(page)).toEqual([301, 302, 303])
   await expect(page.locator('#live-status')).not.toContainText(COUNT_WORDS)
+  expect(diagnostics.external).toEqual([])
+  expect(diagnostics.errors).toEqual([])
+})
+
+test('the founder stays in a muted place, even when the founder owns it, and only the others are hidden', async ({ page }) => {
+  const diagnostics = await keepFixtureOffline(page)
+  await openRoom(page, liveFixtureUrl, '3')
+  await expect.poll(() => figureIds(page), { timeout: 30_000 }).toEqual(expect.arrayContaining([1, 135, 186]))
+  const others = (await figureIds(page)).filter(id => id !== 1).length
+
+  for (const place of [3, 2]) {
+    await storeAndAnnounce(page, [{ type: 'place', id: place, choice: 'mute' }])
+    await expect.poll(() => figureIds(page)).toEqual([1])
+    // Everyone else here is counted, with any of their things the list hides.
+    await expect.poll(async () => Number(/(\d+) hidden by your mutes in this browser/
+      .exec(await page.locator('#live-status').textContent() ?? '')?.[1] ?? 0)).toBeGreaterThanOrEqual(others)
+    await expect(page.locator('#follow-picker option[value="1"]')).toHaveCount(1)
+  }
+  await storeAndAnnounce(page, [{ type: 'resident', id: 1, choice: 'mute' }])
+  await expect.poll(() => figureIds(page)).toEqual(expect.arrayContaining([1, 135, 186]))
   expect(diagnostics.external).toEqual([])
   expect(diagnostics.errors).toEqual([])
 })

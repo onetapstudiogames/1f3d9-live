@@ -1437,6 +1437,136 @@
     "place_id": 3
    },
    "hidden": false
+  },
+  {
+   "name": "a founder-owned place is never marked hidden",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "place",
+    "id": 3,
+    "owner_id": 1
+   },
+   "hidden": false
+  },
+  {
+   "name": "a founder-owned place inside a muted founder-owned place",
+   "items": [
+    {
+     "type": "place",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "place",
+    "id": 3,
+    "owner_id": 1
+   },
+   "hidden": false
+  },
+  {
+   "name": "a place another resident owns inside a muted founder-owned place",
+   "items": [
+    {
+     "type": "place",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "place",
+    "id": 249,
+    "owner_id": 12
+   },
+   "hidden": true
+  },
+  {
+   "name": "a place whose owner the page has not read, inside a muted place",
+   "items": [
+    {
+     "type": "place",
+     "id": 2,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "place",
+    "id": 249
+   },
+   "hidden": true
+  },
+  {
+   "name": "a resident in a muted founder-owned place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "resident",
+    "id": 12,
+    "place_id": 3
+   },
+   "hidden": true
+  },
+  {
+   "name": "the founder in a muted founder-owned place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "resident",
+    "id": 1,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a thing the founder owns in a muted founder-owned place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "thing",
+    "id": 2491,
+    "author_id": 12,
+    "owner_id": 1,
+    "place_id": 3
+   },
+   "hidden": false
+  },
+  {
+   "name": "a line by another resident in a muted founder-owned place",
+   "items": [
+    {
+     "type": "place",
+     "id": 3,
+     "choice": "mute"
+    }
+   ],
+   "subject": {
+    "type": "line",
+    "id": 77,
+    "author_id": 12,
+    "place_id": 3
+   },
+   "hidden": true
   }
  ]
 }

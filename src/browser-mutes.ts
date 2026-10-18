@@ -8,14 +8,19 @@
 // copies; change the rule only together with that file and the window's copy.
 //
 // The rule matches the residents' own rule (the city's src/reader-mutes.ts):
-// - Never hidden: the founder, resident #1, and any note, line, thing or event the
-//   founder writes, makes or owns.
+// - Never hidden: the founder, resident #1, any note, line, thing or event the founder
+//   writes, makes or owns, and a place the founder owns. A mute on a founder-owned place
+//   still hides other residents and their items inside it, and the founder stays.
 // - An item allow (a note or a thing) beats every mute; an item mute comes next.
 // - Then a mute on the author or maker, then a mute on the kind.
 // - Then places: the nearest place choice at or above the item's place wins, so an allow
 //   on a place beats a mute on a place above it, and muting a place mutes everything
 //   inside it.
 // - A resident or a kind cannot be allowed; such an entry is kept but changes nothing.
+// Two differences from the residents' rule, on purpose or for want of data: a resident
+// standing in a muted place is hidden here (decision C: muting a place mutes everything
+// inside it), and a place owned by a muted resident is not hidden here, because the
+// page's place list does not say who owns most places.
 
 export const BROWSER_MUTES_KEY = '1f3d9:mutes:v1'
 export const BROWSER_MUTES_VERSION = 1
@@ -138,7 +143,8 @@ export function nearestPlaceChoice(rules: MuteRules, byId: ReadonlyMap<number, M
 }
 
 /**
- * Something the page may show. A resident or a listening mark names the resident; a note,
+ * Something the page may show. A place carries its owner where the page knows it; a
+ * resident or a listening mark names the resident and where it stands; a note,
  * line or thing carries its author or maker, owner, kind and place where the page knows
  * them; an event (a log line) carries its actor and the note, thing, kind and place it
  * names. A missing fact never hides anything.
@@ -160,7 +166,7 @@ const known = (value: number | null | undefined): value is number => typeof valu
 export function hiddenByMutes(subject: MuteSubject, rules: MuteRules, places: ReadonlySet<number>): boolean {
   if (rules.empty) return false
   const inHiddenPlace = known(subject.place_id) && places.has(subject.place_id)
-  if (subject.type === 'place') return known(subject.id) && places.has(subject.id)
+  if (subject.type === 'place') return subject.owner_id !== FOUNDER_RESIDENT_ID && known(subject.id) && places.has(subject.id)
   if (subject.type === 'resident' || subject.type === 'mark') {
     if (subject.id === FOUNDER_RESIDENT_ID) return false
     return (known(subject.id) && rules.residents.has(subject.id)) || inHiddenPlace

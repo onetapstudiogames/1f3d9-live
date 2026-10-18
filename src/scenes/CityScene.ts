@@ -59,8 +59,8 @@ import { residentPanelFacts, thingPanelFacts, type ItemPanelRect } from '../item
 import { fetchTalkNow, type TalkNow } from '../city/talk-now.ts'
 import type { ThingIds } from '../city/types.ts'
 import { BROWSER_MUTES_KEY, readBrowserMutes } from '../browser-mutes.ts'
-import { LiveMutes } from '../live-mutes.ts'
-import { hiddenInRoom, mutedRoom, muteStatus, statusWithMutes } from '../mute-view.ts'
+import { hiddenResidents, LiveMutes } from '../live-mutes.ts'
+import { hiddenInRoom, muteStatus, roomDrawingHidden, statusWithMutes } from '../mute-view.ts'
 import { LINE_READ_ISSUE, lineEvent } from '../talk-words.ts'
 import { withLineBubble } from '../line-speech.ts'
 import { anchorsAfter, newRoomLines, talkCheckDelay, talkNeedsRead, TALK_CHECK_MS, TALK_IDLE_MS,
@@ -160,11 +160,12 @@ export class CityScene extends Phaser.Scene {
   private itemPanel?: ItemPanelView
   private readonly itemDescriptions = new Map<string, string>()
   // This browser's mute list (read only; the city's window writes it). Hidden residents,
-  // things, notes, lines and marks are skipped where quiet rooms are skipped.
+  // things, notes, lines and marks are skipped where quiet rooms are skipped. A hidden
+  // place is still drawn as a room, so the founder, who is never hidden, stays in it.
   private readonly mutes = new LiveMutes(readBrowserMutes())
   private readonly thingIds = new Map<number, ThingIds>()
   private unseenMemo: Readonly<{ sleepers: ReadonlySet<number>; muted: ReadonlySet<number>; ids: ReadonlySet<number> }> | null = null
-  private hiddenMemo: Readonly<{ contents: ReadonlySet<number>; muted: ReadonlySet<number>; ids: ReadonlySet<number> }> | null = null
+  private muteHiddenMemo: Readonly<{ rules: unknown; rooms: ReadonlySet<number>; residents: unknown; ids: ReadonlySet<number> }> | null = null
   constructor() { super('city') }
   create(): void {
     document.body.dataset['liveReady'] = 'loading'
@@ -306,7 +307,7 @@ export class CityScene extends Phaser.Scene {
       this.talkHead = head
       this.talkHeadAt = Date.now()
       this.talkCheckMs = head.checkMs
-      const room = this.viewPlaceId !== null && this.roomShown(this.viewPlaceId) ? this.viewPlaceId : null
+      const room = this.viewPlaceId !== null && roomIsPublic(this.layout, this.viewPlaceId) ? this.viewPlaceId : null
       if (room === null) {
         this.talkRoomId = null
         this.talkSeen = null
@@ -364,7 +365,8 @@ export class CityScene extends Phaser.Scene {
     } finally {
       this.talkChecking = false
       document.body.dataset['liveTalkMarker'] = this.talkLineMarker ?? ''
-      const shownPublic = this.viewPlaceId !== null && this.roomShown(this.viewPlaceId)
+      const shownPublic = Boolean(this.layout && this.viewPlaceId !== null
+        && roomIsPublic(this.layout, this.viewPlaceId))
       document.body.dataset['liveListening'] = [...listeningIds(this.talkHead,
         shownPublic ? this.viewPlaceId : null, this.talkHeadAt, Date.now())].filter(id => !this.unseen().has(id))
         .sort((left, right) => left - right).join(',')
@@ -405,8 +407,7 @@ export class CityScene extends Phaser.Scene {
       },
     }
     this.activityBase = dynamic
-    this.activityLog = new RoomActivityLine(document.getElementById('room-activity')!, dynamic,
-      roomId => this.mutedRooms().has(roomId))
+    this.activityLog = new RoomActivityLine(document.getElementById('room-activity')!, dynamic)
     this.activity = new SceneActivity(this, this.activityLog, dynamic)
     const log = this.activityLog; const activity = this.activity
     this.removeActivityShutdown = removableOnce(this.events, Phaser.Scenes.Events.SHUTDOWN, () => { activity.destroy(); log.destroy() })
@@ -441,7 +442,8 @@ export class CityScene extends Phaser.Scene {
   private async loadPlaceDrawings(): Promise<void> {
     const cycle = this.issueCycle
     const id = this.viewPlaceId
-    if (id === null || !this.layout || !this.roomShown(id)) return
+    if (id === null || !this.layout || !roomIsPublic(this.layout, id)) return
+    if (roomDrawingHidden(this.mutes.rules, this.mutedRooms(), this.places.find(place => place.id === id))) return
     this.placeDrawingReads += 1
     try {
       const art = await this.readPlaceDrawing(id)
@@ -631,8 +633,9 @@ export class CityScene extends Phaser.Scene {
       sleepers: this.unseen(),
     })
     this.agreementLayer.add(this.residents.startedHandshakes ?? [])
-    this.inventions = stepInventions(this.inventions, this.residents.startedInventions ?? [], this.residents,
-      this.hiddenContents(), this.elapsed)
+    const muteHidden = this.muteHidden()
+    this.inventions = stepInventions(this.inventions, (this.residents.startedInventions ?? [])
+      .filter(item => !muteHidden.has(item.residentId)), this.residents, this.contentsHidden, this.elapsed)
     this.handoverFrame = stepHandovers(this.handovers, events, this.residents, this.layout, this.elapsed)
     this.handovers = this.handoverFrame.state
     const floor = actionFloorEvents(this.heldActionThings, this.handoverFrame.floorEvents, this.residents.residents)
@@ -658,7 +661,7 @@ export class CityScene extends Phaser.Scene {
     if (this.residents) this.residents = dropSleepingResidentBubbles(this.residents, this.sleepers)
     const follow = followRoomState(this.following, this.viewPlaceId, this.residents?.residents ?? {}, this.sleepers)
     this.following = follow.following
-    const muted = this.mutes.residents()
+    const muted = this.muteHidden()
     const entries = sleepActivityEntries(changes.filter(change => change.residentId !== follow.sleepingId
       && !muted.has(change.residentId)), this.layout, Date.now())
     const sleeping = follow.sleepingId === null ? undefined : this.residents?.residents[follow.sleepingId]
@@ -668,7 +671,7 @@ export class CityScene extends Phaser.Scene {
     this.updateFollowChoices()
     const places = new Map(Object.values(this.residents?.residents ?? {}).flatMap(row => row.placeId === null ? [] : [[row.id, row.placeId] as const]))
     this.activity?.observeLooking(muted.size ? census.filter(row => !muted.has(row.id)) : census, Date.now(),
-      !this.liveReadError && this.liveQueue.length === 0, places, this.hiddenContents(), this.elapsed)
+      !this.liveReadError && this.liveQueue.length === 0, places, this.contentsHidden, this.elapsed)
   }
   private updateRooms(): void {
     if (!this.layout) return
@@ -838,12 +841,13 @@ export class CityScene extends Phaser.Scene {
   }
   private configureRoomMotion(): void {
     if (this.layout) this.roomMotion.configure(this.layout, this.shownThingStates(), this.viewport,
-      this.viewPlaceId, this.following, this.hiddenContents(), this.unseen())
+      this.viewPlaceId, this.following, this.contentsHidden, this.unseen())
   }
   private drawResidents(): void {
     const state = this.roomResidents
     const usable = roomViewportUsable(this.viewport.width, this.viewport.height)
-    const shownPublic = this.viewPlaceId !== null && this.roomShown(this.viewPlaceId)
+    const shownPublic = Boolean(this.layout && this.viewPlaceId !== null
+      && roomIsPublic(this.layout, this.viewPlaceId))
     const unseen = this.unseen()
     const listeningResidents = listeningIds(this.talkHead,
       shownPublic ? this.viewPlaceId : null, this.talkHeadAt, Date.now())
@@ -899,7 +903,7 @@ export class CityScene extends Phaser.Scene {
     for (const [id, thing] of this.thingViews) thing.setNameVisible(labels.has(`thing:${id}`))
     for (const [id, figure] of this.figures) figure.setNameVisible(labels.has(String(id)))
     this.activityLog?.setUnshownSpeech(hiddenRoomSpeech(this.residents?.residents ?? {}, this.roomResidents,
-      this.layout, this.viewPlaceId, this.hiddenContents(), this.elapsed, unseen))
+      this.layout, this.viewPlaceId, this.contentsHidden, this.elapsed, unseen))
     this.agreementLayer.draw(this, this.figures, this.displayHiddenRooms())
     recordSpeechFixture(visibleSpeech, this.fixtureMode, this.agreementLayer.count)
     this.updateFollowChoices()
@@ -1091,7 +1095,7 @@ export class CityScene extends Phaser.Scene {
     this.activityLog?.selectRoom(id)
     if (!roomViewportUsable(this.viewport.width, this.viewport.height)) { this.updateHud(); return }
     const source = this.layout.rooms[id]!
-    this.displayLayout = singleRoomLayout({ ...source, quiet: !this.roomShown(id) }, this.viewport.width, this.viewport.height)
+    this.displayLayout = singleRoomLayout({ ...source, quiet: !roomIsPublic(this.layout, id) }, this.viewport.width, this.viewport.height)
     this.roomCrowding = undefined
     this.rooms?.destroy()
     this.rooms = new RoomView(this, this.displayLayout)
@@ -1103,7 +1107,7 @@ export class CityScene extends Phaser.Scene {
   }
   private isResidentDrawn(resident: Simulation['residents'][number]): boolean {
     return resident.visible && !this.unseen().has(resident.id) && resident.placeId !== null && !this.contentsHidden.has(resident.placeId)
-      && this.roomShown(resident.placeId)
+      && Boolean(this.layout && roomIsPublic(this.layout, resident.placeId))
   }
   private updateFollowRoom(): void {
     const diagnostics = this.roomMotion.diagnostics()
@@ -1115,7 +1119,8 @@ export class CityScene extends Phaser.Scene {
     }
   }
   private updateFollowChoices(): void {
-    const residents = awakeRoomChoices(this.residents?.residents ?? {}, this.layout, this.sleepers)
+    // A resident the browser's mute list hides is not offered, so its name is not on the page.
+    const residents = awakeRoomChoices(this.residents?.residents ?? {}, this.layout, this.unseen())
     const choices = JSON.stringify(residents)
     if (choices === this.lastFollowChoices) return
     this.lastFollowChoices = choices
@@ -1125,25 +1130,23 @@ export class CityScene extends Phaser.Scene {
   }
   private displayHiddenRooms(): ReadonlySet<number> {
     return new Set(Object.keys(this.layout?.rooms ?? {}).map(Number)
-      .filter(id => id !== this.viewPlaceId || !this.displayLayout?.rooms[id] || this.contentsHidden.has(id) || !this.roomShown(id)))
+      .filter(id => id !== this.viewPlaceId || !this.displayLayout?.rooms[id] || this.contentsHidden.has(id) || !roomIsPublic(this.layout!, id)))
   }
   private mutedRooms(): ReadonlySet<number> { return this.mutes.rooms(this.places) }
-  /** A public room this browser's mute list does not hide. */
-  private roomShown(id: number): boolean {
-    return Boolean(this.layout && roomIsPublic(this.layout, id)) && !this.mutedRooms().has(id)
+  /** Residents the mute list hides right now: muted ones, and anyone but the founder in a hidden place. */
+  private muteHidden(): ReadonlySet<number> {
+    const rules = this.mutes.rules
+    if (rules.empty) return rules.residents
+    const rooms = this.mutedRooms(); const residents = this.residents?.residents ?? {}
+    const memo = this.muteHiddenMemo
+    if (memo?.rules === rules && memo.rooms === rooms && memo.residents === residents) return memo.ids
+    const ids = hiddenResidents(rules, rooms, Object.values(residents))
+    this.muteHiddenMemo = Object.freeze({ rules, rooms, residents, ids })
+    return ids
   }
-  /** Rooms whose contents are hidden: places being founded, and places the mute list hides. */
-  private hiddenContents(): ReadonlySet<number> {
-    const muted = this.mutedRooms()
-    if (!muted.size) return this.contentsHidden
-    if (this.hiddenMemo?.contents !== this.contentsHidden || this.hiddenMemo.muted !== muted) {
-      this.hiddenMemo = Object.freeze({ contents: this.contentsHidden, muted, ids: new Set([...this.contentsHidden, ...muted]) })
-    }
-    return this.hiddenMemo.ids
-  }
-  /** Residents not drawn: sleepers, and residents the mute list hides. Only sleep changes the pickers. */
+  /** Residents not drawn and not offered in the follow picker: sleepers, and residents the mute list hides. */
   private unseen(): ReadonlySet<number> {
-    const muted = this.mutes.residents()
+    const muted = this.muteHidden()
     if (!muted.size) return this.sleepers
     if (this.unseenMemo?.sleepers !== this.sleepers || this.unseenMemo.muted !== muted) {
       this.unseenMemo = Object.freeze({ sleepers: this.sleepers, muted, ids: new Set([...this.sleepers, ...muted]) })
@@ -1156,7 +1159,10 @@ export class CityScene extends Phaser.Scene {
     return this.residents?.actors.get(handle) ?? this.census.find(row => row.handle === handle)?.id ?? null
   }
   private eventHidden(event: ReplayEvent): boolean {
-    return !this.mutes.empty && this.mutes.eventHidden(event, this.actorId(event.actor), this.places)
+    if (this.mutes.empty) return false
+    const actorId = this.actorId(event.actor)
+    const actorPlaceId = actorId === null ? null : this.residents?.residents[actorId]?.placeId ?? null
+    return this.mutes.eventHidden(event, actorId, actorPlaceId, this.places)
   }
   private rememberThingIds(id: number, row: ThingIds): void {
     const known = this.thingIds.get(id) ?? {}
@@ -1184,20 +1190,23 @@ export class CityScene extends Phaser.Scene {
   }
   private muteStatusText(): string {
     const id = this.viewPlaceId
-    if (this.mutes.empty || id === null) return ''
-    const room = mutedRoom(this.mutes.rules, this.places, id)
-    if (room) return muteStatus({ room, hiddenCount: 0 })
-    if (this.contentsHidden.has(id) || !this.roomShown(id)) return ''
-    const muted = this.mutes.residents()
+    if (this.mutes.empty || id === null || !this.layout || this.contentsHidden.has(id) || !roomIsPublic(this.layout, id)) return ''
+    const muted = this.muteHidden()
     const residents = Object.values(this.residents?.residents ?? {}).filter(row => !this.sleepers.has(row.id))
-    return muteStatus({ room: null, hiddenCount: hiddenInRoom(id, residents, Object.values(this.things?.things ?? {}), {
+    const place = this.places.find(row => row.id === id)
+    return muteStatus(hiddenInRoom(id, residents, Object.values(this.things?.things ?? {}), {
       resident: residentId => muted.has(residentId),
       thing: thing => this.mutes.thingHidden(thing, this.thingIds.get(thing.id), this.places),
-    }) })
+      drawing: Boolean(place?.has_drawing) && roomDrawingHidden(this.mutes.rules, this.mutedRooms(), place),
+    }))
   }
-  /** A storage event for the list: read it again and redraw from what the page holds. */
+  /**
+   * A storage event for the list: read it again and redraw from what the page holds. The
+   * room log starts again, so nothing the new list hides stays in it.
+   */
   private applyMutes(): void {
     if (!this.mutes.replace(readBrowserMutes())) return
+    this.activity?.reset()
     if (this.viewPlaceId !== null && this.layout) this.showRoom(this.viewPlaceId)
     this.activityLog?.selectRoom(this.viewPlaceId)
     this.prepareRoomPresentation(); this.drawThings(); this.drawResidents()
@@ -1219,11 +1228,9 @@ export class CityScene extends Phaser.Scene {
     }
     const room = this.viewPlaceId === null ? undefined : this.layout?.rooms[this.viewPlaceId]
     document.body.dataset['liveLayoutRevision'] = String(this.layoutRevision)
-    const { needsOutline, quiet } = roomPictureAccess(this.layout, this.viewPlaceId, this.hiddenContents())
-    // A room the mute list hides is drawn like a quiet one, so it settles like one too.
-    const mutedView = this.viewPlaceId !== null && this.mutedRooms().has(this.viewPlaceId)
+    const { needsOutline, quiet } = roomPictureAccess(this.layout, this.viewPlaceId, this.contentsHidden)
     document.body.dataset['livePictureSettled'] = String(roomPictureSettled({
-      ready: ready && Boolean(roomAnchorPair(this.layout, this.displayLayout, this.viewPlaceId) || quiet || mutedView)
+      ready: ready && Boolean(roomAnchorPair(this.layout, this.displayLayout, this.viewPlaceId) || quiet)
         && roomViewportUsable(this.viewport.width, this.viewport.height),
       firstPollMerged: this.liveCaughtUp, needsOutline,
       outline: room ? this.outlineResolutions[room.id] ?? 'pending' : 'pending',
