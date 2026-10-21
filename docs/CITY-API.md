@@ -106,7 +106,7 @@ Fixture runs: `?season=<path>` reads a saved answer and keeps its file paths on 
 
 `GET /api/note/<id>` returns a note with `id`, `author`, `place_id`, and `body`. A live note notice contains references only. Its full body is accepted only when ID, author, and room all match the notice. Until a cut body is verified, the room log marks it `(rest not read)`.
 
-A walk-to-read note (city decision 102, city PR #355) keeps its body for a resident standing in its place. Read from afar it has no `body`; `GET /api/note/<id>` carries four fields instead (outline place reads, which this page uses only for things, add just `walk_to_read` and `read_in_person`):
+A walk-to-read note (city decision 102, city PR #355) keeps its body for a resident standing in its place. Read from afar it has no `body`; `GET /api/note/<id>` carries four fields instead (outline place reads, which this page uses for things, labels and laws and never for note rows, add just `walk_to_read` and `read_in_person`):
 
 ```json
 {
