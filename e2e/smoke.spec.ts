@@ -38,7 +38,7 @@ type FactsState = { labels?: readonly string[]; laws?: readonly typeof factsLaw[
 async function factsFixture(page: Page, state: () => FactsState = () => ({ labels: ['local-condition'], laws: [factsLaw] }),
   directory = () => factsPlaces) {
   await page.clock.install({ time: Date.parse('2026-09-07T01:30:42.383Z') })
-  await page.clock.pauseAt(Date.parse('2026-09-07T01:30:42.383Z'))
+  await page.clock.pauseAt(Date.parse('2026-09-07T01:31:42.383Z'))
   const diagnostics = await keepFixtureOffline(page)
   const reads: number[] = []
   await page.route('**/fixtures/map-current-page1.json', route => json(route, { view: 'directory', places: directory() }))
