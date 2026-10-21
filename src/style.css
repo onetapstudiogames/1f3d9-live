@@ -275,6 +275,22 @@ body {
   min-width: 0;
 }
 
+#room-facts { min-width: 0; font-size: 12px; }
+#room-facts > summary { width: fit-content; cursor: pointer; color: var(--accent); }
+#room-facts-content {
+  max-height: min(160px, 20dvh);
+  margin: 4px 0 0;
+  padding: 4px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+#room-facts dt { font-weight: 600; }
+#room-facts dd { margin: 0 0 6px; }
+#room-facts ul { margin: 0; padding-left: 18px; }
+#room-facts a { color: var(--accent); text-underline-offset: 2px; }
+#room-facts :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 #live-status {
   height: 1.35em;
   min-height: 1em;
