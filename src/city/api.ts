@@ -1,5 +1,5 @@
 import type { CensusPage, Drawing, PlaceOutline, Resident, Thing, ThingIds } from './types.ts'
-import { parseLawNames } from '../laws.ts'
+import { parseCurrentLaws } from '../laws.ts'
 import { MAX_ROOM_THINGS } from '../thing-limits.ts'
 
 export const CITY_ORIGIN = 'https://1f3d9.com'
@@ -197,6 +197,11 @@ export function createThingLoader(search: string = browserSearch()): (id: number
   }
 }
 
+function parsePlaceLabels(value: unknown): readonly string[] | null {
+  return Array.isArray(value) && value.every(label => typeof label === 'string')
+    ? Object.freeze([...value]) : null
+}
+
 export async function fetchPlaceOutline(id: number, search: string = browserSearch()): Promise<PlaceOutline | null> {
   if (!Number.isSafeInteger(id) || id < 1) throw new Error('invalid place outline request: expected a positive safe integer id')
   const root = searchValue(search, 'places') || (fixtureMode(search) ? 'fixtures/places' : null)
@@ -231,9 +236,12 @@ export async function fetchPlaceOutline(id: number, search: string = browserSear
       || !Number.isSafeInteger(page['total_items']) || (page['total_items'] as number) < 0 || typeof page['has_more'] !== 'boolean') {
       throw new Error(`the city returned an invalid place outline ${id} page ${pageNumber}`)
     }
+    const laws = place['quiet'] ? null : parseCurrentLaws(place['laws'])
     metadata = Object.freeze({ placeId: id, name: (place['name'] as string).trim(), parentId: place['parent_id'] as number | null,
       owner: place['owner'] as string | null, ownerId: place['owner_id'] as number | null,
-      quiet: place['quiet'] as boolean, totalItems: page['total_items'] as number, lawNames: parseLawNames(place['laws']),
+      quiet: place['quiet'] as boolean, totalItems: page['total_items'] as number,
+      labels: place['quiet'] ? null : parsePlaceLabels(place['labels']), laws,
+      lawNames: laws && Object.freeze(laws.map(law => law.name)),
       // City decision #109: a rough room says so on its place read. Only an explicit true marks it.
       ...(place['rough_room'] === true ? { roughRoom: true } : {}) })
     if (metadata.quiet) {

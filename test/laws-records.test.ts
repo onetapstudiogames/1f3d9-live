@@ -24,6 +24,32 @@ test('effective laws preserve the exact published names and distinguish empty fr
   assert.equal(parseLawNames([{}]), null)
 })
 
+test('current law records keep distinct defining places and positions without changing their source', () => {
+  const source = read('places/place-97.json').place.laws[0]
+  const rows = [Object.freeze({ ...source, sourcePlaceId: 440, position: 0 }),
+    Object.freeze({ ...source, sourcePlaceId: 1124, position: 1 })]
+  const laws = parseCurrentLaws(Object.freeze(rows))
+  assert.deepEqual(laws, [
+    { traitId: source.traitId, name: source.name, sourcePlaceId: 440, position: 0 },
+    { traitId: source.traitId, name: source.name, sourcePlaceId: 1124, position: 1 },
+  ])
+  assert.deepEqual(parseLawNames(rows), [source.name, source.name])
+  assert.ok(Object.isFrozen(laws))
+  assert.ok(laws?.every(law => Object.isFrozen(law)))
+  assert.equal(rows[0]?.sourcePlaceId, 440)
+})
+
+test('current law records distinguish an empty list from unavailable or incomplete source data', () => {
+  const law = read('places/place-97.json').place.laws[0]
+  assert.deepEqual(parseCurrentLaws([]), [])
+  for (const value of [undefined, null, {}, 'laws', [law, {}],
+    [law, { ...law, sourcePlaceId: undefined }], [law, { ...law, sourcePlaceId: 0 }],
+    [law, { ...law, sourcePlaceId: '440' }], [law, { ...law, sourcePlaceId: 1.5 }]]) {
+    assert.equal(parseCurrentLaws(value), null)
+    assert.equal(parseLawNames(value), null)
+  }
+})
+
 test('the six real blocked attempts identify scree and move but supply no current countdown', () => {
   const blocked = events.filter(event => blockedAttemptFor(event))
   assert.deepEqual(blocked.map(event => event.id), [84651, 84650, 84649, 84648, 84647, 84641])
