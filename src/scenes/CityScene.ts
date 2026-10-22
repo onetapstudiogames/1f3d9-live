@@ -122,6 +122,8 @@ export class CityScene extends Phaser.Scene {
   private outlineResolutions: Readonly<Record<number, OutlineResolution>> = {}
   private outlineActive = 0
   private outlinePending = new Map<number, PlaceOutline>()
+  private roomFacts: Pick<PlaceOutline, 'placeId' | 'labels' | 'laws'> | null = null
+  private roomFactsSignature = ''
   private readonly roughRooms = new Map<number, boolean>()
   private outlineGeneration = 0
   private rooms?: RoomView
@@ -233,7 +235,7 @@ export class CityScene extends Phaser.Scene {
       addThingTexture(this, 'thing-default', null)
       this.viewPlaceId = selected
       this.showRoom(selected)
-      if (outline) this.mergeOutline(outline)
+      if (outline) { this.noteRoomFacts(outline); this.mergeOutline(outline) }
       else if (selected !== null) this.outlineResolutions = { ...this.outlineResolutions, [selected]: 'unmergeable' }
       if (selected !== null) this.outlineReads.add(selected)
       this.observeLooking(census)
@@ -562,10 +564,13 @@ export class CityScene extends Phaser.Scene {
       this.roomMotion.forgetResidents(refreshed.snappedIds)
       this.observeLooking(census)
       this.liveQueue = Object.freeze([...this.liveQueue, ...eventsAfterMarker(visual, this.liveDeliveredMarker)])
-      if (outline) this.noteRoughRoom(outline)
+      if (outline) { this.noteRoomFacts(outline); this.noteRoughRoom(outline) }
       if (outline && this.roomHasMotion(outline.placeId)) this.outlinePending.set(outline.placeId, outline)
       else if (outline) this.mergeOutline(outline)
-      else if (outlineId !== null) this.outlineResolutions = { ...this.outlineResolutions, [outlineId]: 'unmergeable' }
+      else if (outlineId !== null) {
+        this.clearRoomFacts(outlineId)
+        this.outlineResolutions = { ...this.outlineResolutions, [outlineId]: 'unmergeable' }
+      }
       this.liveCaughtUp = true
       if (returning) {
         this.liveDeliveredMarker = Number(nextState.marker)
@@ -735,17 +740,21 @@ export class CityScene extends Phaser.Scene {
         if (generation !== this.outlineGeneration || cycle !== this.issueCycle) return
         if (issue) this.thingReadIssue(issue, cycle)
         if (!outline) {
+          this.clearRoomFacts(room.id)
           this.outlineResolutions = { ...this.outlineResolutions, [room.id]: 'unmergeable' }
           return
         }
         if (this.contentsHidden.has(room.id)) {
+          this.clearRoomFacts(room.id)
           this.outlineResolutions = { ...this.outlineResolutions, [room.id]: 'unmergeable' }; return
         }
+        this.noteRoomFacts(outline)
         this.noteRoughRoom(outline)
         if (this.roomHasMotion(room.id)) this.outlinePending.set(room.id, outline)
         else this.mergeOutline(outline)
       }).catch(error => {
         if (generation !== this.outlineGeneration || cycle !== this.issueCycle) return
+        this.clearRoomFacts(room.id)
         this.outlineResolutions = { ...this.outlineResolutions, [room.id]: 'unmergeable' }
         console.error(error)
         this.thingReadIssue('This room could not be drawn; its last picture is kept.', cycle)
@@ -774,6 +783,7 @@ export class CityScene extends Phaser.Scene {
     }
     if (!this.layout || !this.residents || !this.things || outline.quiet
       || !roomIsPublic(this.layout, outline.placeId) || this.contentsHidden.has(outline.placeId)) {
+      this.clearRoomFacts(outline.placeId)
       this.outlineResolutions = { ...this.outlineResolutions, [outline.placeId]: 'unmergeable' }; return
     }
     const blockers: StageStandingSpot[] = Object.values(this.residents.residents).flatMap(resident => {
@@ -1088,6 +1098,7 @@ export class CityScene extends Phaser.Scene {
   private showRoom(id: number | null): void {
     if (id === null || !this.layout?.rooms[id]) return
     if (this.viewPlaceId !== id) {
+      this.roomFacts = null
       this.itemPanel?.close()
       this.outlineReads.delete(id); this.activity?.resetPresentation()
     }
@@ -1212,6 +1223,50 @@ export class CityScene extends Phaser.Scene {
     this.prepareRoomPresentation(); this.drawThings(); this.drawResidents()
     this.updateHud()
   }
+  private factsVisible(id: number): boolean {
+    const place = this.places.find(row => row.id === id)
+    return Boolean(place && place.name !== '[removed by maintainer]' && this.layout && roomIsPublic(this.layout, id)
+      && !this.contentsHidden.has(id) && !roomDrawingHidden(this.mutes.rules, this.mutedRooms(), place))
+  }
+  private clearRoomFacts(id: number): void {
+    if (this.roomFacts?.placeId === id) this.roomFacts = null
+  }
+  // Facts follow each successful read immediately, even when the floor waits for a walk.
+  private noteRoomFacts(outline: PlaceOutline): void {
+    if (outline.placeId !== this.viewPlaceId) return
+    this.roomFacts = !outline.quiet && outline.name !== '[removed by maintainer]' && this.factsVisible(outline.placeId)
+      ? { placeId: outline.placeId, labels: outline.labels, laws: outline.laws } : null
+  }
+  private updateRoomFacts(): void {
+    if (this.viewPlaceId === null || !this.factsVisible(this.viewPlaceId) || this.liveReadError) this.roomFacts = null
+    const facts = this.roomFacts
+    const labels = facts?.labels == null ? 'Unavailable.' : facts.labels.length ? facts.labels.join(', ') : 'None.'
+    const laws = facts?.laws?.map(law => {
+      if (law.name === '[removed by maintainer]') return { text: 'Removed by the maintainer.', source: null }
+      const source = this.factsVisible(law.sourcePlaceId) ? this.places.find(place => place.id === law.sourcePlaceId)! : null
+      return { text: source ? law.name : 'Defining place unavailable.', source }
+    })
+    const signature = JSON.stringify([this.viewPlaceId, labels, laws, window.location.href])
+    if (signature === this.roomFactsSignature) return
+    this.roomFactsSignature = signature
+    document.getElementById('room-labels')!.textContent = labels
+    const list = document.createElement('ul')
+    for (const law of laws ?? []) {
+      const item = document.createElement('li')
+      item.append(document.createTextNode(law.text))
+      if (law.source) {
+        const url = new URL(window.location.href)
+        url.searchParams.delete('resident'); url.searchParams.set('place', String(law.source.id))
+        const link = document.createElement('a')
+        link.href = `${url.pathname}${url.search}${url.hash}`
+        link.textContent = `${law.source.name} (place #${law.source.id})`
+        item.append(document.createTextNode(' - Defined in '), link)
+      }
+      list.append(item)
+    }
+    document.getElementById('room-laws')!.replaceChildren(laws?.length ? list
+      : document.createTextNode(laws == null ? 'Unavailable.' : 'None.'))
+  }
   private updateHud(): void {
     const ready = document.body.dataset['liveReady'] === 'true'
     const failed = this.liveReadError || document.body.dataset['liveReady'] === 'error'
@@ -1255,6 +1310,7 @@ export class CityScene extends Phaser.Scene {
     document.getElementById('live-status')!.textContent = idleTalk
       ? [status, talkIdleSentence(this.talkCheckMs)].filter(Boolean).join(' ')
       : status
+    this.updateRoomFacts()
     const picker = document.querySelector<HTMLSelectElement>('#place-picker')!
     const places = this.places
     const signature = JSON.stringify(places.map(place => [place.id, place.name]))

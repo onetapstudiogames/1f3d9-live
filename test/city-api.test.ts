@@ -55,8 +55,102 @@ test('place outline loader reads fresh direct things and preserves drawing flags
     { id: 9, name: 'parcel', placeId: 3, hasDrawing: undefined },
     { id: 8, name: 'painted', placeId: 3, hasDrawing: true, owner: 'northstar', kind: 'painted-thing' },
     { id: 6, name: 'plain', placeId: 3, hasDrawing: false },
-  ], totalItems: 3, hasMore: false, lawNames: null })
+  ], totalItems: 3, hasMore: false, lawNames: null, labels: null, laws: null })
   assert.deepEqual(calls, ['/fixtures/places/place-3.json', '/fixtures/places/place-3.json'])
+})
+
+test('focused outlines keep local labels and law sources and replace them after expiry', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 })
+  const expiresAt = 2_000
+  const calls: string[] = []
+  const law = { traitId: 478, name: 'shared condition', sourcePlaceId: 440, position: 0, recipe: null }
+  t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+    calls.push(String(input))
+    const expired = Date.now() >= expiresAt
+    return Response.json({
+      place: { id: 1124, name: 'child room', parent_id: 440, owner: 'serein', owner_id: 10, quiet: false,
+        labels: expired ? ['still-here'] : ['local-condition', 'still-here'],
+        laws: [{ ...law, sourcePlaceId: expired ? 1124 : 440 }] },
+      things: [], things_page: { total_items: 0, has_more: false },
+    })
+  })
+  const first = await fetchPlaceOutline(1124, '')
+  assert.deepEqual(first?.labels, ['local-condition', 'still-here'])
+  assert.deepEqual(first?.laws, [{ traitId: 478, name: 'shared condition', sourcePlaceId: 440, position: 0 }])
+  assert.deepEqual(first?.lawNames, ['shared condition'])
+  assert.ok(Object.isFrozen(first?.labels))
+  assert.ok(Object.isFrozen(first?.laws))
+  t.mock.timers.tick(1_000)
+  const afterExpiry = await fetchPlaceOutline(1124, '')
+  assert.deepEqual(afterExpiry?.labels, ['still-here'])
+  assert.deepEqual(afterExpiry?.laws, [{ traitId: 478, name: 'shared condition', sourcePlaceId: 1124, position: 0 }])
+  assert.deepEqual(first?.labels, ['local-condition', 'still-here'])
+  assert.equal(first?.laws?.[0]?.sourcePlaceId, 440)
+  assert.deepEqual(calls, Array(2).fill('https://1f3d9.com/api/place/1124?view=outline'))
+})
+
+test('outline facts distinguish known empty lists from missing or malformed data on fresh reads', async t => {
+  const law = { traitId: 478, name: 'shared condition', sourcePlaceId: 440, position: 0, recipe: null }
+  const cases = [
+    { fields: { labels: ['local-condition'], laws: [law] }, labels: ['local-condition'], laws: [law], names: ['shared condition'] },
+    { fields: { labels: [], laws: [] }, labels: [], laws: [], names: [] },
+    { fields: {}, labels: null, laws: null, names: null },
+    { fields: { labels: null, laws: null }, labels: null, laws: null, names: null },
+    { fields: { labels: 'local-condition', laws: {} }, labels: null, laws: null, names: null },
+    { fields: { labels: ['local-condition', 7], laws: [law] }, labels: null, laws: [law], names: ['shared condition'] },
+    { fields: { labels: [], laws: [law, { ...law, sourcePlaceId: null }] }, labels: [], laws: null, names: null },
+  ]
+  let call = 0
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    place: { id: 1124, name: 'child room', parent_id: 440, owner: 'serein', owner_id: 10, quiet: false,
+      ...cases[call++]!.fields },
+    things: [], things_page: { total_items: 0, has_more: false },
+  }))
+  for (const expected of cases) {
+    const outline = await fetchPlaceOutline(1124, '')
+    assert.deepEqual(outline?.labels, expected.labels)
+    assert.deepEqual(outline?.laws, expected.laws?.map(({ recipe: _recipe, ...law }) => law) ?? null)
+    assert.deepEqual(outline?.lawNames, expected.names)
+  }
+})
+
+test('a quiet focused outline clears labels and laws even when its response includes them', async t => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({
+    place: { id: 7, name: 'quiet room', parent_id: 2, owner: null, owner_id: null, quiet: true,
+      labels: ['local-condition'],
+      laws: [{ traitId: 478, name: 'shared condition', sourcePlaceId: 2, position: 0, recipe: null }] },
+    things: [{ id: 9, name: 'parcel', place_id: 7 }], things_page: { total_items: 1, has_more: true },
+  }))
+  const outline = await fetchPlaceOutline(7, '')
+  assert.deepEqual(outline?.things, [])
+  assert.equal(outline?.hasMore, false)
+  assert.equal(outline?.labels, null)
+  assert.equal(outline?.laws, null)
+  assert.equal(outline?.lawNames, null)
+})
+
+test('unavailable focused reads return no cached facts and recovery can be known empty', async t => {
+  let call = 0
+  t.mock.method(globalThis, 'fetch', async () => {
+    call += 1
+    if (call === 2) return new Response('', { status: 404 })
+    if (call === 3) return new Response('', { status: 503 })
+    return Response.json({
+      place: { id: 7, name: 'room', parent_id: 2, owner: null, owner_id: null, quiet: false,
+        labels: call === 1 ? ['local-condition'] : [],
+        laws: call === 1 ? [{ traitId: 478, name: 'shared condition', sourcePlaceId: 2, position: 0, recipe: null }] : [] },
+      things: [], things_page: { total_items: 0, has_more: false },
+    })
+  })
+  const first = await fetchPlaceOutline(7, '')
+  assert.deepEqual(first?.labels, ['local-condition'])
+  assert.equal(first?.laws?.[0]?.sourcePlaceId, 2)
+  assert.equal(await fetchPlaceOutline(7, ''), null)
+  await assert.rejects(fetchPlaceOutline(7, ''), /503.*place outline 7 page 1/)
+  const recovered = await fetchPlaceOutline(7, '')
+  assert.deepEqual(recovered?.labels, [])
+  assert.deepEqual(recovered?.laws, [])
+  assert.deepEqual(recovered?.lawNames, [])
 })
 
 test('place outline loader follows bounded thing pages for the same room', async (t) => {
@@ -211,7 +305,9 @@ test('a later quiet outline page clears accumulated things and stops reading', a
     calls += 1
     const quiet = calls === 2
     return Response.json({
-      place: { id: 7, name: quiet ? 'private room' : 'room', parent_id: 2, owner: null, owner_id: null, quiet },
+      place: { id: 7, name: quiet ? 'private room' : 'room', parent_id: 2, owner: null, owner_id: null, quiet,
+        labels: ['local-condition'],
+        laws: [{ traitId: 478, name: 'shared condition', sourcePlaceId: 2, position: 0, recipe: null }] },
       things: [{ id: calls, name: 'private thing', place_id: 7 }],
       things_page: { total_items: 2, returned_items: 1, has_more: !quiet, next_before_thing_id: quiet ? null : 9 },
     })
@@ -223,6 +319,9 @@ test('a later quiet outline page clears accumulated things and stops reading', a
   assert.equal(outline?.quiet, true)
   assert.equal(outline?.name, 'private room')
   assert.deepEqual(outline?.things, [])
+  assert.equal(outline?.labels, null)
+  assert.equal(outline?.laws, null)
+  assert.equal(outline?.lawNames, null)
 })
 
 test('fetchCensus advances named fixture pages without live calls', async (t) => {

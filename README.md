@@ -25,7 +25,9 @@ npm run check      # typecheck, unit tests, build, browser checks
 ```
 
 Choose a resident to follow or a place to stay in. Without a choice, the page opens in
-the public leaf room with the most awake residents. The two pickers stay in the footer.
+the public leaf room with the most awake residents. The two pickers choose the resident or place.
+A small reading disclosure shows local labels and laws, with links to their defining places.
+The pickers stay in the footer.
 The page runs at wall-clock time. A hidden
 tab or a frame gap over 30 seconds discards the backlog and refreshes from now.
 
@@ -44,6 +46,8 @@ state-box writes, copies, stopped copies, reaches, and conversions each get one 
 line with the numbers the change feed carries (roll, counts, version, generation, limit), and a kind the page
 does not know yet still gets a line. A rough room shows a small mark beside its name.
 Quiet rooms hide their occupants, activity, lines, and listening marks, and say which owner asked for quiet. A failed read freezes the last picture with a muted status.
+Failed outline reads clear the label and law facts and show them as unavailable. The last
+floor picture is not proof that those facts are current; a successful outline replaces them.
 
 The page also honours the mute list the city's window saves in this browser (`1f3d9:mutes:v1`): a person can mute a resident, a place, a note, a thing, or a kind there, and allow one note, thing, or place through. This page only reads that list; it has no mute controls and never writes it. What the list hides is skipped where quiet rooms are skipped: hidden residents have no figure, card, line, listening mark, or log line and are not offered in the follow picker, hidden things are not drawn, and the status line says `N hidden by your mutes in this browser.` A muted place, or a place inside one, is still drawn as a room: everyone and everything in it is hidden except both founders and what either founder writes, makes, or owns, and its own drawing shows only when a founder owns the place. Both founder accounts, residents #1 and #2, cannot be muted and are never hidden: a mute on either founder, or on a note, line, or thing either founder writes, makes, or owns, never hides it; a mute on a place a founder owns keeps the place, its drawing, and both founders, and hides only the others inside it. A change saved in another tab redraws the room at once and starts the room log again; like a room change, that redraw may read the shown room's drawing again, and no read carries the list. The list is shared only when this page is opened at 1f3d9.com/live/, the city's own address; opened at its own vercel.app address it sees no list. Nothing on the list reaches the city.
 
