@@ -39,6 +39,7 @@ import { refreshPresentThings } from '../current-things.ts'
 import { placesAfterOutline } from '../current-room.ts'
 import { awakeRoomChoices, followRoomState } from '../room-follow.ts'
 import { parseRoomLink, resolveRoomLink, replaceRoomLink, type RoomLinkSelection } from '../room-links.ts'
+import { roomFactsHref, roomFactsLinks, type RoomFactLink } from '../room-facts-links.ts'
 
 import { singleRoomLayout, roomViewportUsable, roomIsPublic, quietRoomOwner } from '../room-view.ts'
 import { RoomActivityLine } from './RoomActivityLine.ts'
@@ -124,6 +125,11 @@ export class CityScene extends Phaser.Scene {
   private outlinePending = new Map<number, PlaceOutline>()
   private roomFacts: Pick<PlaceOutline, 'placeId' | 'labels' | 'laws'> | null = null
   private roomFactsSignature = ''
+  private roomSelectionGeneration = 0
+  private roomNavigationMemo?: Readonly<{
+    places: readonly ReplayPlace[]; id: number; layout: NestedLayout | undefined;
+    rules: LiveMutes['rules']; hidden: string; links: ReturnType<typeof roomFactsLinks>
+  }>
   private readonly roughRooms = new Map<number, boolean>()
   private outlineGeneration = 0
   private rooms?: RoomView
@@ -500,6 +506,7 @@ export class CityScene extends Phaser.Scene {
     this.polling = true
     const generation = this.pollGeneration
     const returning = this.returnReason
+    const selectionGeneration = this.roomSelectionGeneration
     const issues: string[] = []
     let delay = 30_000
     try {
@@ -509,6 +516,7 @@ export class CityScene extends Phaser.Scene {
         snapshot: fresh.snapshot, state: { marker: fresh.cursor, seen: new Set<string>(), failures: 0,
           lastReadAt: Date.now(), retryMs: LIVE_CADENCE_MS }, events: [],
       } : await readCurrentUpdate(this.liveState, readSnapshot, fetchChanges, Date.now)
+      if (selectionGeneration !== this.roomSelectionGeneration) return
       const { census, outlineId, outline, places } = snapshot
       const identities = createActivityContext(census, places, place => place.name)
       const observed = prepareLiveResidents(this.residents, events)
@@ -533,7 +541,7 @@ export class CityScene extends Phaser.Scene {
         if (pairs.failed) issues.push('Some agreement parties could not be read; those signatures could not be shown.')
         return rows
       }, () => generation !== this.pollGeneration)
-      if (generation !== this.pollGeneration) return
+      if (generation !== this.pollGeneration || selectionGeneration !== this.roomSelectionGeneration) return
       this.rememberCreatedThings(enriched)
       this.activity?.witness(enriched.filter(event => !this.eventHidden(event)), Date.now(), context, this.elapsed)
       const removedTalk = removedTalkIds(events)
@@ -581,7 +589,7 @@ export class CityScene extends Phaser.Scene {
       this.lineAnchors = anchorsAfter(this.lineAnchors, refresh)
       if (this.fixtureMode) document.body.dataset['livePoll'] = 'true'
     } catch (error) {
-      if (generation !== this.pollGeneration) return
+      if (generation !== this.pollGeneration || selectionGeneration !== this.roomSelectionGeneration) return
       console.error(error)
       this.liveState = liveReadFailed(this.liveState)
       this.liveReadError = true
@@ -1098,6 +1106,9 @@ export class CityScene extends Phaser.Scene {
   private showRoom(id: number | null): void {
     if (id === null || !this.layout?.rooms[id]) return
     if (this.viewPlaceId !== id) {
+      this.roomSelectionGeneration += 1
+      this.outlineGeneration += 1
+      this.outlinePending.clear()
       this.roomFacts = null
       this.itemPanel?.close()
       this.outlineReads.delete(id); this.activity?.resetPresentation()
@@ -1237,6 +1248,17 @@ export class CityScene extends Phaser.Scene {
     this.roomFacts = !outline.quiet && outline.name !== '[removed by maintainer]' && this.factsVisible(outline.placeId)
       ? { placeId: outline.placeId, labels: outline.labels, laws: outline.laws } : null
   }
+  private currentRoomLinks(): ReturnType<typeof roomFactsLinks> {
+    if (!this.roomFacts || this.liveReadError || this.viewPlaceId === null) return null
+    const hidden = [...this.contentsHidden].join(',')
+    const memo = this.roomNavigationMemo
+    if (memo?.places === this.places && memo.id === this.viewPlaceId && memo.layout === this.layout
+      && memo.rules === this.mutes.rules && memo.hidden === hidden) return memo.links
+    const links = roomFactsLinks(this.places, this.viewPlaceId, id => this.factsVisible(id))
+    this.roomNavigationMemo = { places: this.places, id: this.viewPlaceId, layout: this.layout,
+      rules: this.mutes.rules, hidden, links }
+    return links
+  }
   private updateRoomFacts(): void {
     if (this.viewPlaceId === null || !this.factsVisible(this.viewPlaceId) || this.liveReadError) this.roomFacts = null
     const facts = this.roomFacts
@@ -1246,7 +1268,8 @@ export class CityScene extends Phaser.Scene {
       const source = this.factsVisible(law.sourcePlaceId) ? this.places.find(place => place.id === law.sourcePlaceId)! : null
       return { text: source ? law.name : 'Defining place unavailable.', source }
     })
-    const signature = JSON.stringify([this.viewPlaceId, labels, laws, window.location.href])
+    const navigation = this.currentRoomLinks()
+    const signature = JSON.stringify([this.viewPlaceId, labels, laws, navigation, window.location.href])
     if (signature === this.roomFactsSignature) return
     this.roomFactsSignature = signature
     document.getElementById('room-labels')!.textContent = labels
@@ -1255,17 +1278,28 @@ export class CityScene extends Phaser.Scene {
       const item = document.createElement('li')
       item.append(document.createTextNode(law.text))
       if (law.source) {
-        const url = new URL(window.location.href)
-        url.searchParams.delete('resident'); url.searchParams.set('place', String(law.source.id))
-        const link = document.createElement('a')
-        link.href = `${url.pathname}${url.search}${url.hash}`
-        link.textContent = `${law.source.name} (place #${law.source.id})`
-        item.append(document.createTextNode(' - Defined in '), link)
+        item.append(document.createTextNode(' - Defined in '), this.roomFactAnchor(law.source))
       }
       list.append(item)
     }
     document.getElementById('room-laws')!.replaceChildren(laws?.length ? list
       : document.createTextNode(laws == null ? 'Unavailable.' : 'None.'))
+    document.getElementById('room-parent')!.replaceChildren(navigation?.parent && navigation.parent !== 'unavailable'
+      ? this.roomFactAnchor(navigation.parent)
+      : document.createTextNode(!navigation || navigation.parent === 'unavailable' ? 'Unavailable.' : 'No parent room.'))
+    const children = document.createElement('ul')
+    for (const child of navigation?.children ?? []) {
+      const item = document.createElement('li')
+      item.append(this.roomFactAnchor(child)); children.append(item)
+    }
+    document.getElementById('room-children')!.replaceChildren(navigation?.children.length ? children
+      : document.createTextNode(navigation ? 'No public child rooms.' : 'Unavailable.'))
+  }
+  private roomFactAnchor(place: RoomFactLink): HTMLAnchorElement {
+    const link = document.createElement('a')
+    link.href = roomFactsHref(window.location.href, place.id)
+    link.textContent = `${place.name} (place #${place.id})`
+    return link
   }
   private updateHud(): void {
     const ready = document.body.dataset['liveReady'] === 'true'

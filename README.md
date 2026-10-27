@@ -26,7 +26,7 @@ npm run check      # typecheck, unit tests, build, browser checks
 
 Choose a resident to follow or a place to stay in. Without a choice, the page opens in
 the public leaf room with the most awake residents. The two pickers choose the resident or place.
-A small reading disclosure shows local labels and laws, with links to their defining places.
+A small reading disclosure shows local labels and laws, with links to their defining places, the parent room and the public rooms directly inside this room.
 The pickers stay in the footer.
 The page runs at wall-clock time. A hidden
 tab or a frame gap over 30 seconds discards the backlog and refreshes from now.
@@ -60,7 +60,6 @@ and later feed responses. Their routes block external requests. The fixture setu
 in [e2e/live-fixture.ts](e2e/live-fixture.ts); no replay file is requested by the page.
 Recorded scene files remain offline test tooling for motion and event interpretation.
 
-Real-city captures use `scripts/capture-live.mjs` against Vite preview and produce
-`docs/screenshots/pr-4-live-desktop.png` and `docs/screenshots/pr-4-live-phone.png`.
+Real-city room-link captures use `node scripts/capture-live.mjs --feature room-links` against Vite preview and produce `docs/screenshots/room-links-desktop.png` and `docs/screenshots/room-links-phone.png`.
 
 AGPL-3.0, like the city.
