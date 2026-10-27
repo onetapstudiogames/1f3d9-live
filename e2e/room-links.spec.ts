@@ -91,7 +91,23 @@ test('Room facts hide muted and removed targets while keeping both founder-owned
   await expect(page.locator('#room-children a')).toHaveCount(2)
   places = places.map(row => row.id === 1201 ? { ...row, name: '[removed by maintainer]' }
     : row.id === 1202 ? { ...row, owner_id: 223 } : row)
-  await advanceToLivePoll(page)
+  // Clock movement starts the refresh; hold its directory until the jumps finish.
+  let directoryRequested = false
+  let releaseDirectory!: () => void
+  const heldDirectory = new Promise<void>(resolve => { releaseDirectory = resolve })
+  await page.route('**/fixtures/map-current-page1.json', async route => {
+    directoryRequested = true
+    await heldDirectory
+    await json(route, { view: 'directory', places })
+  })
+  try {
+    await advanceToLivePoll(page)
+    await expect.poll(() => directoryRequested).toBe(true)
+    await expect(page.locator('#room-children a')).toHaveCount(2)
+  } finally {
+    releaseDirectory()
+  }
+  await expect(page.locator('body')).toHaveAttribute('data-live-poll', 'true')
   await expect(page.locator('#room-children')).toHaveText('No public child rooms.')
   const snapshot = await page.locator('#room-facts').ariaSnapshot()
   expect(snapshot).not.toContain('first child'); expect(snapshot).not.toContain('second child')
