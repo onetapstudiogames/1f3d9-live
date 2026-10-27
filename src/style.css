@@ -288,6 +288,8 @@ body {
 #room-facts dt { font-weight: 600; }
 #room-facts dd { margin: 0 0 6px; }
 #room-facts ul { margin: 0; padding-left: 18px; }
+#room-children li + li { margin-top: 3px; }
+#room-parent a, #room-children a { display: inline-block; padding: 2px 0; }
 #room-facts a { color: var(--accent); text-underline-offset: 2px; }
 #room-facts :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 

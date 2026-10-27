@@ -105,6 +105,13 @@ test('no public opening gives an honest status rather than claiming a room is di
 
 const fixtureSearch = 'census=fixtures%2Fpresence.json&map=map.json&cursor=head.json&changes=feed.json&drawings=art&places=rooms'
 const address = `https://viewer.example/live/?${fixtureSearch}&place=1&resident=old#room`
+test('a Room facts anchor preserves the hosted path and fixtures while clearing every follow selection', async () => {
+  const { roomFactsHref } = await import('../src/room-facts-links.ts')
+  const href = roomFactsHref(`${address.replace('#room', '')}&resident=12&place=8#room`, 3)
+  assert.equal(href, `/live/?${fixtureSearch}&place=3#room`)
+  assert.deepEqual(open(new URL(href, address).search), { roomId: 3, following: null, message: null })
+})
+
 const changes: ReadonlyArray<Readonly<{ label: string; selection: RoomLinkSelection; expected: string }>> = [
   { label: 'choosing a place', selection: { kind: 'place', id: 3 }, expected: '&place=3' },
   { label: 'choosing a resident', selection: { kind: 'resident', handle: 'neighbor-12' }, expected: '&resident=neighbor-12' },

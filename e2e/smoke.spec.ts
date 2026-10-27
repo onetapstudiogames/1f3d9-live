@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { mkdir, readFile } from 'node:fs/promises'
-import { advanceToLivePoll, json, keepFixtureOffline, liveFixtureUrl } from './live-fixture.ts'
+import { advanceToLivePoll, factsFixture, factsLaw, factsPlaces, keepFixtureOffline, liveFixtureUrl, type FactsState } from './live-fixture.ts'
 
 const fixtureUrl = liveFixtureUrl
 const removedControlIds = ['pause', 'rewind', 'normal', 'fast', 'live-now', 'replay-day', 'nearby', 'city', 'follow-stop', 'show-sleepers', 'minimap-toggle', 'minimap-canvas', 'ui-toggle', 'activity-panel', 'activity-filter', 'activity-toggle']
@@ -28,34 +28,6 @@ async function visibleFigures(page: Page): Promise<Array<{ id: number; x: number
   return page.evaluate(() => JSON.parse(document.body.dataset['liveFigures'] ?? '[]'))
 }
 
-const factsLaw = { traitId: 478, name: 'shared condition', sourcePlaceId: 440, position: 0, recipe: null }
-const factsPlaces = [
-  { id: 440, name: 'source room', parent_id: null, owner: 'serein', owner_id: 223, quiet: false, has_drawing: false },
-  { id: 1124, name: 'child room', parent_id: 440, owner: 'serein', owner_id: 223, quiet: false, has_drawing: false },
-]
-type FactsState = { labels?: readonly string[]; laws?: readonly typeof factsLaw[]; quiet?: boolean; name?: string; status?: number }
-
-async function factsFixture(page: Page, state: () => FactsState = () => ({ labels: ['local-condition'], laws: [factsLaw] }),
-  directory = () => factsPlaces) {
-  await page.clock.install({ time: Date.parse('2026-09-07T01:30:42.383Z') })
-  await page.clock.pauseAt(Date.parse('2026-09-07T01:31:42.383Z'))
-  const diagnostics = await keepFixtureOffline(page)
-  const reads: number[] = []
-  await page.route('**/fixtures/map-current-page1.json', route => json(route, { view: 'directory', places: directory() }))
-  await page.route('**/fixtures/changes-live.json*', route => json(route,
-    { change_marker: '100297', next_since: '100297', has_more: false, unchanged: true, changes: [] }))
-  await page.route('**/fixtures/places/place-*.json*', route => {
-    const id = Number(/place-(\d+)/.exec(route.request().url())![1])
-    reads.push(id)
-    const facts = id === 1124 ? state() : { labels: ['shared-condition'], laws: [factsLaw] }
-    const place = directory().find(row => row.id === id)
-    return json(route, { place: { ...place, ...facts }, things: [], things_page: { total_items: 0, has_more: false } }, facts.status ?? 200)
-  })
-  await page.goto(`${fixtureUrl}&place=1124`)
-  await waitUntilReady(page)
-  return { ...diagnostics, reads }
-}
-
 async function openFacts(page: Page): Promise<void> {
   const summary = page.locator('#room-facts > summary')
   await expect(summary).toHaveText('Room facts')
@@ -73,7 +45,7 @@ test('room facts show local labels and keyboard links to the defining place', as
   await expect(page.locator('#room-labels')).not.toContainText('shared-condition')
   await expect(page.locator('#room-laws')).toContainText('shared condition')
   expect(diagnostics.reads).toEqual([1124])
-  const link = page.getByRole('link', { name: 'source room (place #440)' })
+  const link = page.locator('#room-laws').getByRole('link', { name: 'source room (place #440)' })
   const href = new URL(await link.getAttribute('href') ?? '', page.url())
   expect(href.searchParams.get('place')).toBe('440')
   expect(href.searchParams.has('resident')).toBe(false)
@@ -148,6 +120,8 @@ for (const hidden of ['quiet', 'mute', 'moderation'] as const) {
     }
     await expect(page.locator('#room-labels')).toHaveText('Unavailable.')
     await expect(page.locator('#room-laws')).toHaveText('Unavailable.')
+    await expect(page.locator('#room-parent')).toHaveText('Unavailable.')
+    await expect(page.locator('#room-children')).toHaveText('Unavailable.')
     await expect(page.locator('#room-facts')).not.toContainText('local-condition')
     await expect(page.locator('#room-facts a')).toHaveCount(0)
     await expect(page.locator('body')).toHaveAttribute('data-live-read-error', 'false')
@@ -280,7 +254,10 @@ test('phone layout keeps the room large and controls at the bottom', async ({ pa
   const diagnostics = await factsFixture(page, () => ({
     labels: Array.from({ length: 40 }, (_, index) => `condition-${index}-${'long'.repeat(30)}`),
     laws: Array.from({ length: 20 }, (_, index) => ({ ...factsLaw, traitId: 478 + index, name: `law-${index}` })),
-  }))
+  }), () => [...factsPlaces, ...Array.from({ length: 40 }, (_, index) => ({
+    ...factsPlaces[1]!, id: 2000 + index, parent_id: 1124, name: `Child ${index} ${'long'.repeat(30)}`,
+  }))])
+  const pickerBoxes = await page.locator('#room-controls').boundingBox()
   const header = await page.locator('header').boundingBox()
   const controls = await page.locator('#room-footer').boundingBox()
   const app = await page.locator('#app').boundingBox()
@@ -298,6 +275,10 @@ test('phone layout keeps the room large and controls at the bottom', async ({ pa
   expect(openApp!.height).toBeGreaterThan(400)
   expect(facts!.height).toBeLessThanOrEqual(160)
   expect(await page.locator('header').boundingBox()).toEqual(header)
+  await expect(page.locator('#room-children a')).toHaveCount(40)
+  await page.locator('#room-children a').last().focus()
+  await expect(page.locator('#room-children a').last()).toBeInViewport()
+  expect(await page.locator('#room-controls').boundingBox()).toEqual(pickerBoxes)
   await page.locator('#room-facts-content').focus()
   await page.keyboard.press('End')
   await expect.poll(() => page.locator('#room-facts-content').evaluate(node => node.scrollTop)).toBeGreaterThan(0)

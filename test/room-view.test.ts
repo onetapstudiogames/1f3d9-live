@@ -4,7 +4,7 @@ import test from 'node:test'
 import type { ReplayPlace, Resident } from '../src/city/types.ts'
 import type { NestedLayout, Room } from '../src/ground/nested.ts'
 import { allocateRoomCrowdingFrame } from '../src/room-crowding.ts'
-import { busiestRoom, projectRoomPoint, quietRoomOwner, roomIsPublic, roomViewportUsable, singleRoomLayout } from '../src/room-view.ts'
+import { busiestRoom, projectRoomPoint, publicPlaceIds, quietRoomOwner, roomIsPublic, roomViewportUsable, singleRoomLayout } from '../src/room-view.ts'
 
 const room = (id: number, parentId: number | null, quiet = false): Room => Object.freeze({
   id, parentId, name: `room ${id}`, quiet, depth: parentId === null ? 0 : 1,
@@ -25,6 +25,15 @@ const place = (id: number, parent_id: number | null, quiet = false): ReplayPlace
 const resident = (id: number, placeId: number | null, asleep = false): Resident => ({
   id, handle: `resident-${id}`, model: '', joined_at: '', has_drawing: true,
   current_place_id: placeId, asleep,
+})
+
+test('navigation ancestry excludes unknown parents and cycles as well as quiet descendants', () => {
+  const places = [place(1, null), place(2, 1), place(3, 1, true), place(4, 3),
+    place(5, 99), place(6, 7), place(7, 6), place(8, 8)]
+  assert.deepEqual([...publicPlaceIds(places)], [1, 2])
+  for (const id of [3, 4, 5, 6, 7, 8, 99]) {
+    assert.equal(roomIsPublic(layout(places.map(row => room(row.id, row.parent_id, row.quiet))), id), false)
+  }
 })
 test('the opening room is the public leaf with the most residents standing now', () => {
   const places = [place(1, null), place(2, 1), place(3, 1)]
