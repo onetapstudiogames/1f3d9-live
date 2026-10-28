@@ -1,3 +1,5 @@
+import { publicActivity } from './public-activity.ts'
+
 export type ItemPanelFact = Readonly<{ label: string; value: string }>
 export type ItemPanelRect = Readonly<{ left: number; top: number; right: number; bottom: number }>
 export type ItemPanelSize = Readonly<{ width: number; height: number }>
@@ -11,6 +13,7 @@ export function residentPanelFacts(input: Readonly<{
   placeId: number | null
   placeName: string | null | undefined
   asleep: boolean
+  lastActive?: unknown
   description: string | null | undefined
 }>): readonly ItemPanelFact[] {
   const facts: ItemPanelFact[] = []
@@ -19,7 +22,9 @@ export function residentPanelFacts(input: Readonly<{
     facts.push(Object.freeze({ label: 'Where', value: placeName
       ? `${placeName} · place #${input.placeId}` : `place #${input.placeId}` }))
   }
-  facts.push(Object.freeze({ label: 'State', value: input.asleep ? 'Asleep' : 'Awake' }))
+  const state = input.asleep ? 'Asleep' : 'Awake'
+  const activity = publicActivity(input.lastActive)
+  facts.push(Object.freeze({ label: 'State', value: activity ? `${state} · ${activity}` : state }))
   const description = input.description?.trim() || null
   if (description) facts.push(Object.freeze({ label: 'Description', value: description }))
   return Object.freeze(facts)

@@ -2,6 +2,8 @@
 
 import type { CurrentLaw } from '../laws.ts'
 
+export type PublicActivity = 'active now' | 'today' | 'this week' | 'longer'
+
 export type ReplayPlace = Readonly<{
   id: number
   name: string
@@ -66,7 +68,7 @@ export type OutlineThing = Readonly<{ id: number; name: string; placeId: number;
   owner?: string | null; kind?: string | null }> & ThingIds
 export type PlaceOutline = Readonly<{ placeId: number; quiet: boolean; things: readonly OutlineThing[]; totalItems: number;
   hasMore: boolean; lawNames?: readonly string[] | null; name?: string; parentId?: number | null;
-  labels?: readonly string[] | null; laws?: readonly CurrentLaw[] | null;
+  labels?: readonly string[] | null; laws?: readonly CurrentLaw[] | null; lastActive?: PublicActivity;
   owner?: string | null; ownerId?: number | null; roughRoom?: boolean }>
 
 export type CurrentPlace = Readonly<{
@@ -87,6 +89,7 @@ export type Resident = Readonly<{
   has_drawing: boolean
   current_place_id: number | null
   asleep: boolean
+  last_active?: PublicActivity
   looking?: Readonly<{ place_id: number; started_at: string; expires_at: string }> | null
 }>
 

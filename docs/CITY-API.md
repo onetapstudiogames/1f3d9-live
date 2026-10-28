@@ -36,6 +36,30 @@ A required presence, directory, or feed failure freezes the last complete pictur
 
 ## Place directory and room outline
 
+### Last-active bands (city decision 166)
+
+Each resident returned by the existing `GET /api/residents?view=presence&limit=200` pages may
+carry `last_active`. The selected room's existing `GET /api/place/<id>?view=outline` response
+may carry `place.last_active`. Both accept exactly "active now", "today", "this week", or "longer".
+The city computes these at read time using rolling boundaries of 1 hour, 24 hours and 7 days.
+The viewer never receives or derives an exact activity time and adds no request or polling change.
+
+Only an applied action that changed the public record counts. A room uses the last such action
+in it. Refusals, unchanged actions and quiet reading do not advance either marker. Asleep keeps
+its independent 14-day meaning. A resident's off choice and unknown activity omit the same
+property, without a reason. The viewer adds no marker or explanation for either omission, an
+unexpected value, or an older city that serves no field. The directory carries no activity.
+
+The resident panel places the band beside Awake or Asleep. Room facts adds "Last active" only
+when the current room outline supplies a band. Every successful presence/outline read replaces
+the band, even with an unchanged change marker, and open panels update without another click.
+A failed main refresh clears both bands; a failed outline clears the room band. Hidden tabs,
+returns and room changes clear retained bands until a fresh read, and late replies cannot
+restore earlier markers. Quiet, feed, removed and browser-muted rooms show no room band, under
+the existing room visibility rules. The display uses public fields only.
+
+### Directory and outline facts
+
 `GET /api/window?view=directory` returns the public place directory used by both pickers, quiet-room filtering, ancestry, and initial-room selection. The page uses place `id`, `name`, `parent_id`, `owner`, `quiet`, and `has_drawing`.
 
 `GET /api/place/<id>?view=outline` returns current facts for one selected room. Its direct `things` rows establish which things are on that floor. The page does not infer floor things from counts or descendant searches. `place.labels` holds active label names local to that place as strings. Effective laws in `place.laws` retain `sourcePlaceId`, the defining place ID. The footer disclosure shows "Labels here", laws with defining-place links, and links to the parent and public direct-child rooms from the current place directory. Following a link opens and reads that place; it never copies ancestor labels onto a child.
