@@ -1,6 +1,7 @@
 import type { CensusPage, Drawing, PlaceOutline, Resident, Thing, ThingIds } from './types.ts'
 import { parseCurrentLaws } from '../laws.ts'
 import { MAX_ROOM_THINGS } from '../thing-limits.ts'
+import { publicActivity } from '../public-activity.ts'
 
 export const CITY_ORIGIN = 'https://1f3d9.com'
 const READ_TIMEOUT_MS = 15_000
@@ -32,7 +33,9 @@ function requireResident(value: unknown, page: number): Resident {
     || typeof item['asleep'] !== 'boolean') {
     throw new Error(`the census page ${page} contains an invalid resident`)
   }
-  return value as Resident
+  const { last_active, ...resident } = item
+  const activity = publicActivity(last_active)
+  return { ...resident, ...(activity ? { last_active: activity } : {}) } as Resident
 }
 
 function requireCensusPage(value: unknown, pageNumber: number): CensusPage {
@@ -237,11 +240,14 @@ export async function fetchPlaceOutline(id: number, search: string = browserSear
       throw new Error(`the city returned an invalid place outline ${id} page ${pageNumber}`)
     }
     const laws = place['quiet'] ? null : parseCurrentLaws(place['laws'])
+    const lastActive = place['quiet'] || place['feed'] === true || place['name'] === '[removed by maintainer]'
+      ? undefined : publicActivity(place['last_active'])
     metadata = Object.freeze({ placeId: id, name: (place['name'] as string).trim(), parentId: place['parent_id'] as number | null,
       owner: place['owner'] as string | null, ownerId: place['owner_id'] as number | null,
       quiet: place['quiet'] as boolean, totalItems: page['total_items'] as number,
       labels: place['quiet'] ? null : parsePlaceLabels(place['labels']), laws,
       lawNames: laws && Object.freeze(laws.map(law => law.name)),
+      ...(lastActive ? { lastActive } : {}),
       // City decision #109: a rough room says so on its place read. Only an explicit true marks it.
       ...(place['rough_room'] === true ? { roughRoom: true } : {}) })
     if (metadata.quiet) {

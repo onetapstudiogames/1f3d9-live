@@ -57,6 +57,7 @@ import { actionFloorEvents, type HeldActionThingEvent } from '../action-delivery
 import { positionNameLayer } from './NameReveal.ts'
 import { ItemPanelView, type ItemPanelDetails } from '../item-panel-view.ts'
 import { residentPanelFacts, thingPanelFacts, type ItemPanelRect } from '../item-panel.ts'
+import { withoutResidentActivity } from '../public-activity.ts'
 import { fetchTalkNow, type TalkNow } from '../city/talk-now.ts'
 import type { ThingIds } from '../city/types.ts'
 import { BROWSER_MUTES_KEY, readBrowserMutes } from '../browser-mutes.ts'
@@ -123,7 +124,8 @@ export class CityScene extends Phaser.Scene {
   private outlineResolutions: Readonly<Record<number, OutlineResolution>> = {}
   private outlineActive = 0
   private outlinePending = new Map<number, PlaceOutline>()
-  private roomFacts: Pick<PlaceOutline, 'placeId' | 'labels' | 'laws'> | null = null
+  private roomFacts: Pick<PlaceOutline, 'placeId' | 'labels' | 'laws' | 'lastActive'> | null = null
+  private activityGeneration = 0
   private roomFactsSignature = ''
   private roomSelectionGeneration = 0
   private roomNavigationMemo?: Readonly<{
@@ -221,10 +223,13 @@ export class CityScene extends Phaser.Scene {
     void this.loadCity()
   }
   private async loadCity(): Promise<void> {
+    const activityGeneration = this.activityGeneration
     try {
       const issues: string[] = []
       const { cursor: marker, snapshot } = await readCurrentStart(fetchChangeCursor, () => this.readSnapshot(true, issues))
-      const { census, places, capacity, layout, outline, outlineId: selected } = snapshot
+      const { places, capacity, layout, outline, outlineId: selected } = snapshot
+      const activityCurrent = activityGeneration === this.activityGeneration && !document.hidden
+      const census = activityCurrent ? snapshot.census : withoutResidentActivity(snapshot.census)
       this.commitIssues(issues)
       this.places = places; this.census = census; this.layout = layout; this.roomCapacities = capacity
       this.liveReadError = false
@@ -241,7 +246,7 @@ export class CityScene extends Phaser.Scene {
       addThingTexture(this, 'thing-default', null)
       this.viewPlaceId = selected
       this.showRoom(selected)
-      if (outline) { this.noteRoomFacts(outline); this.mergeOutline(outline) }
+      if (outline) { this.noteRoomFacts(outline, activityCurrent); this.mergeOutline(outline) }
       else if (selected !== null) this.outlineResolutions = { ...this.outlineResolutions, [selected]: 'unmergeable' }
       if (selected !== null) this.outlineReads.add(selected)
       this.observeLooking(census)
@@ -257,6 +262,7 @@ export class CityScene extends Phaser.Scene {
       console.error(error)
       this.liveReadError = true
       document.body.dataset['liveReady'] = 'error'
+      this.clearPublicActivity()
       this.updateHud()
       this.pollTimer = window.setTimeout(() => void this.loadCity(), 30_000)
     }
@@ -278,6 +284,7 @@ export class CityScene extends Phaser.Scene {
     this.readIssues = readIssuesAfterCycle(this.readIssues, issues, true)
   }
   private requestCurrentReturn(reason: LiveReturnReason): void {
+    this.clearPublicActivity()
     if (!this.liveState) return
     const next = beginCurrentReturn({ returnReason: this.returnReason, liveQueue: this.liveQueue,
       pollGeneration: this.pollGeneration, polling: this.polling }, reason, document.hidden)
@@ -586,6 +593,7 @@ export class CityScene extends Phaser.Scene {
       }
       this.updateFollowRoom(); this.showRoom(this.viewPlaceId)
       this.prepareRoomPresentation(); this.drawThings(); this.drawResidents()
+      this.updateResidentPanel()
       this.lineAnchors = anchorsAfter(this.lineAnchors, refresh)
       if (this.fixtureMode) document.body.dataset['livePoll'] = 'true'
     } catch (error) {
@@ -593,6 +601,7 @@ export class CityScene extends Phaser.Scene {
       console.error(error)
       this.liveState = liveReadFailed(this.liveState)
       this.liveReadError = true
+      this.clearPublicActivity()
       delay = this.liveState.retryMs ?? 30_000
     } finally {
       if (generation === this.pollGeneration) {
@@ -741,6 +750,7 @@ export class CityScene extends Phaser.Scene {
         && roomIsPublic(this.layout!, room!.id) && !this.outlineReads.has(room!.id)).slice(0, slots)
     for (const room of candidates) {
       const generation = this.outlineGeneration
+      const activityGeneration = this.activityGeneration
       const cycle = this.issueCycle
       this.outlineReads.add(room.id)
       this.outlineActive += 1
@@ -756,7 +766,7 @@ export class CityScene extends Phaser.Scene {
           this.clearRoomFacts(room.id)
           this.outlineResolutions = { ...this.outlineResolutions, [room.id]: 'unmergeable' }; return
         }
-        this.noteRoomFacts(outline)
+        this.noteRoomFacts(outline, activityGeneration === this.activityGeneration && !document.hidden)
         this.noteRoughRoom(outline)
         if (this.roomHasMotion(room.id)) this.outlinePending.set(room.id, outline)
         else this.mergeOutline(outline)
@@ -970,7 +980,7 @@ export class CityScene extends Phaser.Scene {
       imageUrl: this.panelImageUrl(texture),
       imageAlt: resident.handle ? `Pixel portrait of ${resident.handle}` : `Resident #${resident.id} pixel portrait`,
       facts: residentPanelFacts({ placeId: resident.current_place_id, placeName: place?.name,
-        asleep: resident.asleep, description: this.itemDescriptions.get(key) }),
+        asleep: resident.asleep, lastActive: resident.last_active, description: this.itemDescriptions.get(key) }),
       recordUrl: `${CITY_ORIGIN}/api/drawing/resident/${resident.id}`, recordLabel: 'See the drawing',
     }
   }
@@ -993,7 +1003,7 @@ export class CityScene extends Phaser.Scene {
     const figure = this.figures.get(id)
     if (!resident || !state || !figure || !this.isResidentDrawn(state) || state.placeId !== this.viewPlaceId
       || !this.followResident(id)) return
-    const details = this.residentPanelDetails(resident)
+    const details = this.residentPanelDetails(this.census.find(row => row.id === id)!)
     this.itemPanel?.open(details, this.panelAnchor(figure.sprite))
     if (!resident.has_drawing) return
     const key = `resident:${id}`
@@ -1106,6 +1116,7 @@ export class CityScene extends Phaser.Scene {
   private showRoom(id: number | null): void {
     if (id === null || !this.layout?.rooms[id]) return
     if (this.viewPlaceId !== id) {
+      if (this.viewPlaceId !== null) this.clearPublicActivity()
       this.roomSelectionGeneration += 1
       this.outlineGeneration += 1
       this.outlinePending.clear()
@@ -1232,6 +1243,7 @@ export class CityScene extends Phaser.Scene {
     if (this.viewPlaceId !== null && this.layout) this.showRoom(this.viewPlaceId)
     this.activityLog?.selectRoom(this.viewPlaceId)
     this.prepareRoomPresentation(); this.drawThings(); this.drawResidents()
+    this.updateResidentPanel()
     this.updateHud()
   }
   private factsVisible(id: number): boolean {
@@ -1242,11 +1254,32 @@ export class CityScene extends Phaser.Scene {
   private clearRoomFacts(id: number): void {
     if (this.roomFacts?.placeId === id) this.roomFacts = null
   }
+  private updateResidentPanel(): void {
+    const resident = this.census.find(row => this.itemPanel?.isOpenFor(`resident:${row.id}`))
+    if (!resident) return
+    const state = this.roomResidents[resident.id]
+    if (!state || !this.isResidentDrawn(state) || state.placeId === null || !this.factsVisible(state.placeId)) {
+      this.itemPanel?.close()
+      return
+    }
+    this.itemPanel?.update(this.residentPanelDetails(resident))
+  }
+  private clearPublicActivity(): void {
+    this.activityGeneration += 1
+    this.census = withoutResidentActivity(this.census)
+    if (this.roomFacts) {
+      const { lastActive: _activity, ...facts } = this.roomFacts
+      this.roomFacts = facts
+    }
+    this.updateResidentPanel()
+    this.updateRoomFacts()
+  }
   // Facts follow each successful read immediately, even when the floor waits for a walk.
-  private noteRoomFacts(outline: PlaceOutline): void {
+  private noteRoomFacts(outline: PlaceOutline, activityCurrent = true): void {
     if (outline.placeId !== this.viewPlaceId) return
     this.roomFacts = !outline.quiet && outline.name !== '[removed by maintainer]' && this.factsVisible(outline.placeId)
-      ? { placeId: outline.placeId, labels: outline.labels, laws: outline.laws } : null
+      ? { placeId: outline.placeId, labels: outline.labels, laws: outline.laws,
+        ...(activityCurrent && outline.lastActive ? { lastActive: outline.lastActive } : {}) } : null
   }
   private currentRoomLinks(): ReturnType<typeof roomFactsLinks> {
     if (!this.roomFacts || this.liveReadError || this.viewPlaceId === null) return null
@@ -1269,9 +1302,18 @@ export class CityScene extends Phaser.Scene {
       return { text: source ? law.name : 'Defining place unavailable.', source }
     })
     const navigation = this.currentRoomLinks()
-    const signature = JSON.stringify([this.viewPlaceId, labels, laws, navigation, window.location.href])
+    const signature = JSON.stringify([this.viewPlaceId, labels, laws, navigation, facts?.lastActive, window.location.href])
     if (signature === this.roomFactsSignature) return
     this.roomFactsSignature = signature
+    document.getElementById('room-last-active-label')?.remove()
+    document.getElementById('room-last-active')?.remove()
+    if (facts?.lastActive) {
+      const label = document.createElement('dt')
+      label.id = 'room-last-active-label'; label.textContent = 'Last active'
+      const value = document.createElement('dd')
+      value.id = 'room-last-active'; value.textContent = facts.lastActive
+      document.getElementById('room-facts-content')!.prepend(label, value)
+    }
     document.getElementById('room-labels')!.textContent = labels
     const list = document.createElement('ul')
     for (const law of laws ?? []) {

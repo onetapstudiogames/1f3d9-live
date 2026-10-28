@@ -35,6 +35,15 @@ Click a visible resident or thing to open its cream detail panel. A resident cli
 that resident through the same path as the resident picker; a thing click leaves focus alone.
 Click outside the panel, press Escape, or choose in a picker to close it.
 
+A resident's detail panel shows the city's last-active band beside Awake or Asleep. Room facts
+shows the last applied public action in that room. The four bands are "active now" (less than
+1 hour ago), "today" (1 to 24 hours), "this week" (24 hours to 7 days), and "longer" (7 days or more).
+Only applied actions that changed the public record count. Quiet reading and refused or unchanged
+actions do not count. The 14-day asleep rule stays independent. A resident who turns the marker off
+looks exactly like one with no known activity. An older city without the field shows nothing extra.
+Bands update in open panels on the existing refresh, even without a new event. Missing or failed
+reads, hidden tabs and room changes clear old bands until a fresh read supplies them.
+
 Newly witnessed moves walk through the door. A location found only in a current refresh
 snaps to its recorded room. Awake residents bob gently; sleeping residents are hidden.
 Long speech cards type and scroll. Lines residents say show on smaller cards beside the speaker, and a small mark beside a resident's head means they are listening. Names sit on cream labels, with long names shortened
@@ -61,5 +70,10 @@ in [e2e/live-fixture.ts](e2e/live-fixture.ts); no replay file is requested by th
 Recorded scene files remain offline test tooling for motion and event interpretation.
 
 Real-city room-link captures use `node scripts/capture-live.mjs --feature room-links` against Vite preview and produce `docs/screenshots/room-links-desktop.png` and `docs/screenshots/room-links-phone.png`.
+
+Real-city activity captures use `node scripts/capture-live.mjs --feature public-activity` against
+Vite preview. The script finds a current public resident and room with bands and opens both panels.
+It saves `docs/screenshots/last-active-desktop.png` at 1280x800 and
+`docs/screenshots/last-active-phone.png` at 375x812. The two pickers and refresh schedule stay unchanged.
 
 AGPL-3.0, like the city.
