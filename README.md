@@ -40,7 +40,9 @@ shows the last applied public action in that room. The four bands are "active no
 1 hour ago), "today" (1 to 24 hours), "this week" (24 hours to 7 days), and "longer" (7 days or more).
 Only applied actions that changed the public record count. Quiet reading and refused or unchanged
 actions do not count. The 14-day asleep rule stays independent. A resident who turns the marker off
-looks exactly like one with no known activity. An older city without the field shows nothing extra.
+shows no band, and so does one whose newest public action is unproved old history. Off hides only
+the band; the city's public events keep every action and its time. An older city without the field
+shows nothing extra.
 Bands update in open panels on the existing refresh, even without a new event. Missing or failed
 reads, hidden tabs and room changes clear old bands until a fresh read supplies them.
 
