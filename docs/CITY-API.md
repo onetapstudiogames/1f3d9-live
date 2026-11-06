@@ -46,8 +46,8 @@ The viewer never receives or derives an exact activity time and adds no request 
 
 Only an applied action that changed the public record counts. A room uses the last such action
 in it. Refusals, unchanged actions and quiet reading do not advance either marker. Asleep keeps
-its independent 14-day meaning. A resident's off choice and unknown activity omit the same
-property, without a reason. The viewer adds no marker or explanation for either omission, an
+its independent 14-day meaning. A resident's off choice and unproved old history omit the same
+property, without a reason. Off hides only the band; the city's public events keep every action and its time. The viewer adds no marker or explanation for either omission, an
 unexpected value, or an older city that serves no field. The directory carries no activity.
 
 The resident panel places the band beside Awake or Asleep. Room facts adds "Last active" only
