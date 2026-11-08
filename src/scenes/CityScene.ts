@@ -825,7 +825,9 @@ export class CityScene extends Phaser.Scene {
       rememberOutlineThingDetails(row, { namesRead: this.thingReads, drawingHints: this.thingDrawingHints,
         applyName: (id, name) => this.thingNames.set(id, name) })
       const known = this.thingFacts.get(row.id) ?? {}
-      this.thingFacts.set(row.id, Object.freeze({ ...known,
+      // A row with no end drops any ending an earlier read kept: its owner may have cleared it.
+      const { ending: _ending, endingReadFor: _readFor, ...withoutEnding } = known
+      this.thingFacts.set(row.id, Object.freeze({ ...(row.ends ? known : withoutEnding),
         ...(row.kind === undefined ? {} : { kind: row.kind }),
         ...(row.owner === undefined ? {} : { owner: row.owner }),
         ends: row.ends ?? null,
@@ -1004,7 +1006,8 @@ export class CityScene extends Phaser.Scene {
       imageUrl: this.panelImageUrl(texture),
       imageAlt: `Pixel drawing of ${thing?.name ?? this.thingNames.get(id) ?? `Thing #${id}`}`,
       facts: thingPanelFacts({ kind: facts.kind, owner: facts.owner, description: this.itemDescriptions.get(key),
-        ending: facts.ending, endProgramSummary: facts.endProgramSummary }),
+        // The ending shows only while the current row carries an end.
+        ending: facts.ends ? facts.ending : null, endProgramSummary: facts.endProgramSummary }),
       recordUrl: `${CITY_ORIGIN}/api/thing/${id}`, recordLabel: 'See the record',
       thingEnd: thingIsRemnant(facts.ends) ? 'ended' : facts.ends ? 'set' : null,
     }
@@ -1041,10 +1044,11 @@ export class CityScene extends Phaser.Scene {
     this.itemPanel?.open(this.thingPanelDetails(id), this.panelAnchor(view.sprite))
     const known = this.thingFacts.get(id) ?? {}
     const needRecord = known.kind === undefined || known.owner === undefined || !this.thingDrawingHints.has(id)
-    // A thing whose row carries an end is read past the cache once per status, for its ending.
-    const endingStale = this.thingEndingStale(id)
-    if (needRecord || endingStale) {
-      void this.readThingRecord(id, endingStale).then(() => {
+    // A thing whose row carries an end is read past the cache on every open, for its uses left
+    // and any change its row's short status does not show.
+    const readEnding = Boolean(known.ends)
+    if (needRecord || readEnding) {
+      void this.readThingRecord(id, readEnding).then(() => {
         if (this.itemPanel?.isOpenFor(`thing:${id}`)) this.itemPanel.update(this.thingPanelDetails(id))
         this.readPanelThingDrawing(id)
       }).catch(error => {

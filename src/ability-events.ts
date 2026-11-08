@@ -92,9 +92,9 @@ export function roomSettleWords(detail: AbilityDetail, roomName: string): string
 // Why an end came, from the thing_ended row's cause (the five ways an end can be set).
 const END_CAUSES: Readonly<Record<string, string>> = Object.freeze({
   at: 'its end date came',
-  after_setting_seconds: 'its time after setting ran out',
+  after_setting_seconds: 'its time limit ran out',
   uses: 'its uses ran out',
-  idle_seconds: 'it went unused too long',
+  idle_seconds: 'its unused deadline came',
   label_added: 'the label it ends on was put on it',
 })
 

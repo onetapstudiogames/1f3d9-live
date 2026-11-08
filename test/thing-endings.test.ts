@@ -195,7 +195,7 @@ const feedRow = (change: Record<string, any>): ReplayEvent => ({ actor: change.a
 test('the room log captions thing_ended by the city with its cause, and a settle names the ends it wrote down', () => {
   const [ended, settled] = json('changes-thing-ended.json').changes.map(feedRow)
   assert.equal(activityEntry(ended!, context())?.text,
-    'the city recorded the end of a paper boat, one day long: its time after setting ran out; it is a remnant now.')
+    'the city recorded the end of a paper boat, one day long: its time limit ran out; it is a remnant now.')
   assert.equal(activityEntry(settled!, context())?.text,
     'serein arrived; the still room settled and nothing woke: 0 tried, 0 woke, 1 thing ended.')
 })
@@ -209,7 +209,7 @@ test('a thing_ended row in a quiet room stays out of the log, as thing_edited do
 test('thing_ended words name each cause plainly and drop an unknown one', () => {
   assert.equal(thingEndedWords({ cause: 'at' }, 'a lamp'), 'recorded the end of a lamp: its end date came; it is a remnant now')
   assert.equal(thingEndedWords({ cause: 'uses' }, 'a lamp'), 'recorded the end of a lamp: its uses ran out; it is a remnant now')
-  assert.equal(thingEndedWords({ cause: 'idle_seconds' }, 'a lamp'), 'recorded the end of a lamp: it went unused too long; it is a remnant now')
+  assert.equal(thingEndedWords({ cause: 'idle_seconds' }, 'a lamp'), 'recorded the end of a lamp: its unused deadline came; it is a remnant now')
   assert.equal(thingEndedWords({ cause: 'label_added' }, 'a lamp'), 'recorded the end of a lamp: the label it ends on was put on it; it is a remnant now')
   assert.equal(thingEndedWords({ cause: 'something new' }, 'a lamp'), 'recorded the end of a lamp; it is a remnant now')
 })

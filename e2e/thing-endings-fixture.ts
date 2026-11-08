@@ -11,20 +11,26 @@ export const remnantId = 40002
 export const ordinaryId = 2534
 export const endingClock = Date.parse('2026-11-08T03:10:30.000Z')
 
-const root = 'public/fixtures/thing-endings'
+export const endingRoot = 'public/fixtures/thing-endings'
+const root = endingRoot
 const thingFiles: Readonly<Record<number, string>> = {
   [endingSetId]: `${root}/thing-40001-ending-set.json`,
   [remnantId]: `${root}/thing-40002-remnant.json`,
   [ordinaryId]: `${root}/thing-2534-live.json`,
 }
 
-export async function installEndingRoom(page: Page): Promise<{ external: string[]; errors: string[]; thingReads: number[] }> {
+/** Bodies a test may swap after the room opens: the room outline and single thing reads. */
+export type EndingRoomServes = { outline?: string; things: Map<number, string> }
+
+export async function installEndingRoom(page: Page): Promise<{ external: string[]; errors: string[]; thingReads: number[]
+  outlineReads: number[]; serves: EndingRoomServes }> {
   const directory = await fixtureDirectory()
   const placeById = new Map((directory['places'] as Array<Record<string, unknown>>).map(place => [place['id'] as number, place]))
   const outline = await readFile(`${root}/place-498-outline.json`, 'utf8')
   const changes = await readFile(`${root}/changes-thing-ended.json`, 'utf8')
   const drawing2534 = await readFile('public/fixtures/drawings/thing-2534.json', 'utf8')
-  const external: string[] = []; const errors: string[] = []; const thingReads: number[] = []
+  const external: string[] = []; const errors: string[] = []; const thingReads: number[] = []; const outlineReads: number[] = []
+  const serves: EndingRoomServes = { things: new Map() }
   let changesServed = false
   const fixtureOrigin = new URL(test.info().project.use.baseURL!).origin
   page.on('pageerror', error => errors.push(error.message))
@@ -44,7 +50,10 @@ export async function installEndingRoom(page: Page): Promise<{ external: string[
       } else { changesServed = true; await route.fulfill({ contentType: 'application/json', body: changes }) }
       return
     }
-    if (url.pathname === `/fixtures/places/place-${endingRoomId}.json`) { await route.fulfill({ contentType: 'application/json', body: outline }); return }
+    if (url.pathname === `/fixtures/places/place-${endingRoomId}.json`) {
+      outlineReads.push(endingRoomId)
+      await route.fulfill({ contentType: 'application/json', body: serves.outline ?? outline }); return
+    }
     const otherOutline = /^\/fixtures\/places\/place-(\d+)\.json$/.exec(url.pathname)
     if (otherOutline) {
       const id = Number(otherOutline[1]); const place = placeById.get(id)
@@ -58,7 +67,9 @@ export async function installEndingRoom(page: Page): Promise<{ external: string[
     if (thing) {
       const id = Number(thing[1]); thingReads.push(id)
       const file = thingFiles[id]
-      if (file) await route.fulfill({ contentType: 'application/json', body: await readFile(file, 'utf8') })
+      const swapped = serves.things.get(id)
+      if (swapped !== undefined) await route.fulfill({ contentType: 'application/json', body: swapped })
+      else if (file) await route.fulfill({ contentType: 'application/json', body: await readFile(file, 'utf8') })
       else await json(route, {}, 404)
       return
     }
@@ -70,7 +81,7 @@ export async function installEndingRoom(page: Page): Promise<{ external: string[
     }
     await route.continue()
   })
-  return { external, errors, thingReads }
+  return { external, errors, thingReads, outlineReads, serves }
 }
 
 export function endingRoomUrl(): string {

@@ -39,7 +39,7 @@ export function localEndTime(iso: string): string {
 }
 
 /**
- * The thing read's ending as panel facts, in the city window's words: "Ends" with each
+ * The thing read's ending as panel facts, following the city window's thing view: "Ends" with each
  * condition the read computed, joined by "or" (the first to come ends it), followed by the
  * city's own end program sentence; or "Ended" with the recorded end, or the due time while
  * the end has come and is not yet written down. Nothing when no end is set.
