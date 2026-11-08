@@ -66,9 +66,8 @@ test('the panel re-reads a thing with an end on every open, and an end its owner
   await clickThing(page, endingSetId)
   await expect.poll(async () => { await page.clock.runFor(50); return await facts.textContent() }).toContain('after 1 more use')
   expect(reads()).toBeGreaterThan(firstReads)
-  await page.keyboard.press('Escape')
 
-  // The owner clears the end: the row loses ends and the thing read says none is set.
+  // The owner clears the end while the panel stays open: the row loses ends and the thing read says none is set.
   const cleared = structuredClone(thingBody)
   cleared.thing.ending = { ...cleared.thing.ending, status: 'permitted_but_unset', conditions: [], soonest_known_end: null, uses_left: null }
   diagnostics.serves.things.set(endingSetId, JSON.stringify(cleared))
@@ -79,6 +78,14 @@ test('the panel re-reads a thing with an end on every open, and an end its owner
   await advanceToLivePoll(page)
   await expect.poll(async () => { await page.clock.runFor(50); return diagnostics.outlineReads.length }).toBeGreaterThan(outlineReads)
   await settle()
+  await expect(panel).toBeVisible()
+  await expect(panel).not.toHaveAttribute('data-thing-end', /.+/)
+  await expect(facts).toContainText('Owner')
+  await expect(facts).not.toContainText('Ends')
+  await expect(facts).not.toContainText('When it ends')
+
+  // Reopened, it still shows no end.
+  await page.keyboard.press('Escape')
   await clickThing(page, endingSetId)
   await expect(panel).toBeVisible()
   await settle()

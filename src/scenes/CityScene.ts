@@ -832,7 +832,10 @@ export class CityScene extends Phaser.Scene {
         ...(row.owner === undefined ? {} : { owner: row.owner }),
         ends: row.ends ?? null,
       }))
-      if (this.itemPanel?.isOpenFor(`thing:${row.id}`) && this.thingEndingStale(row.id)) this.refreshThingEnding(row.id)
+      if (!this.itemPanel?.isOpenFor(`thing:${row.id}`)) continue
+      if (this.thingEndingStale(row.id)) this.refreshThingEnding(row.id)
+      // An end its owner cleared drops out of a panel that stays open.
+      else if (known.ends && !row.ends) this.itemPanel.update(this.thingPanelDetails(row.id))
     }
   }
   private drawHandovers(): void {
