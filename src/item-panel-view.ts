@@ -10,6 +10,8 @@ export type ItemPanelDetails = Readonly<{
   facts: readonly ItemPanelFact[]
   recordUrl: string
   recordLabel: string
+  /** A thing's short end status from its current row: an end set, or ended (a remnant). */
+  thingEnd?: 'set' | 'ended' | null
 }>
 
 export class ItemPanelView {
@@ -57,6 +59,7 @@ export class ItemPanelView {
     this.root.hidden = true
     this.root.removeAttribute('data-side')
     this.root.removeAttribute('data-item-kind')
+    this.root.removeAttribute('data-thing-end')
     this.image.removeAttribute('src')
     this.image.alt = ''
     this.title.textContent = ''
@@ -80,6 +83,8 @@ export class ItemPanelView {
 
   private render(details: ItemPanelDetails): void {
     this.root.dataset['itemKind'] = details.kind
+    if (details.thingEnd) this.root.dataset['thingEnd'] = details.thingEnd
+    else this.root.removeAttribute('data-thing-end')
     this.image.src = details.imageUrl
     this.image.alt = details.imageAlt
     this.title.textContent = details.name || (details.kind === 'resident' ? 'Resident' : 'Thing')

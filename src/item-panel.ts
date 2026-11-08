@@ -1,4 +1,5 @@
 import { publicActivity } from './public-activity.ts'
+import { endingTime, type ThingEnding } from './city/thing-ending.ts'
 
 export type ItemPanelFact = Readonly<{ label: string; value: string }>
 export type ItemPanelRect = Readonly<{ left: number; top: number; right: number; bottom: number }>
@@ -30,10 +31,61 @@ export function residentPanelFacts(input: Readonly<{
   return Object.freeze(facts)
 }
 
+export type EndTimeFormat = (iso: string) => string
+
+/** The viewer's local date and time, as the city window shows an end. */
+export function localEndTime(iso: string): string {
+  return new Date(iso).toLocaleString()
+}
+
+/**
+ * The thing read's ending as panel facts, in the city window's words: "Ends" with each
+ * condition the read computed, joined by "or" (the first to come ends it), followed by the
+ * city's own end program sentence; or "Ended" with the recorded end, or the due time while
+ * the end has come and is not yet written down. Nothing when no end is set.
+ */
+export function thingEndingFacts(ending: ThingEnding | null | undefined, summary: string | null | undefined,
+  formatTime: EndTimeFormat = localEndTime): readonly ItemPanelFact[] {
+  if (!ending) return Object.freeze([])
+  const when = (value: unknown): string | null => {
+    const iso = endingTime(value)
+    return iso ? formatTime(iso) : null
+  }
+  if (ending.status === 'ended' || ending.status === 'due_waiting_settle') {
+    const at = when(ending.endedAt) ?? when(ending.soonestKnownEnd)
+    return Object.freeze([Object.freeze({ label: 'Ended', value: at ? `on ${at}; it is a remnant now` : 'it is a remnant now' })])
+  }
+  if (ending.status !== 'active') return Object.freeze([])
+  const parts = ending.conditions.flatMap(condition => {
+    if (Object.hasOwn(condition, 'at')) { const at = when(condition['at']); return at ? [`on ${at}`] : [] }
+    if (Object.hasOwn(condition, 'after_setting_seconds')) { const at = when(condition['ends_at']); return at ? [`on ${at}`] : [] }
+    if (Object.hasOwn(condition, 'uses')) {
+      const left = condition['uses_left']
+      return Number.isSafeInteger(left) && (left as number) >= 0
+        ? [`after ${String(left)} more ${left === 1 ? 'use' : 'uses'}`] : []
+    }
+    if (Object.hasOwn(condition, 'idle_seconds')) {
+      const at = when(condition['unused_deadline']); return at ? [`if unused until ${at}`] : []
+    }
+    if (Object.hasOwn(condition, 'label_added')) {
+      const label = typeof condition['label_added'] === 'string' ? condition['label_added'].trim() : ''
+      return label ? [`when labeled ${label}`] : []
+    }
+    return []
+  })
+  const facts: ItemPanelFact[] = [Object.freeze({ label: 'Ends', value: parts.length ? parts.join(' or ') : 'an end is set' })]
+  const sentence = summary?.trim()
+  if (sentence) facts.push(Object.freeze({ label: 'When it ends', value: sentence }))
+  return Object.freeze(facts)
+}
+
 export function thingPanelFacts(input: Readonly<{
   kind: string | null | undefined
   owner: string | null | undefined
   description: string | null | undefined
+  ending?: ThingEnding | null | undefined
+  endProgramSummary?: string | null | undefined
+  formatTime?: EndTimeFormat
 }>): readonly ItemPanelFact[] {
   const facts: ItemPanelFact[] = []
   const kind = input.kind?.trim() || null
@@ -41,6 +93,7 @@ export function thingPanelFacts(input: Readonly<{
   const description = input.description?.trim() || null
   if (kind) facts.push(Object.freeze({ label: 'Kind', value: kind }))
   if (owner) facts.push(Object.freeze({ label: 'Owner', value: owner }))
+  facts.push(...thingEndingFacts(input.ending, input.endProgramSummary, input.formatTime))
   if (description) facts.push(Object.freeze({ label: 'Description', value: description }))
   return Object.freeze(facts)
 }

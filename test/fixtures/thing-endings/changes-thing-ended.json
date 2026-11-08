@@ -1,0 +1,42 @@
+{
+  "change_marker": "100300",
+  "next_since": "100300",
+  "has_more": false,
+  "unchanged": false,
+  "returned_items": 2,
+  "changes": [
+    {
+      "change_id": "100299",
+      "kind": "thing_ended",
+      "actor": "the city",
+      "created_at": "2026-11-08T03:09:58.120Z",
+      "detail": {
+        "thing_id": 40002,
+        "place_id": 498,
+        "cause": "after_setting_seconds",
+        "ended_at": "2026-11-07T03:00:00+00:00",
+        "owner_id": 223,
+        "owner": "serein",
+        "program_state": "none"
+      }
+    },
+    {
+      "change_id": "100300",
+      "kind": "room_settled",
+      "actor": "serein",
+      "created_at": "2026-11-08T03:09:58.121Z",
+      "detail": {
+        "mode": "arrive",
+        "woke": 0,
+        "ended": 1,
+        "tried": 0,
+        "status": "quiet",
+        "more_due": false,
+        "place_id": 498,
+        "end_tries": 0,
+        "forfeited": 0,
+        "settle_id": null
+      }
+    }
+  ]
+}

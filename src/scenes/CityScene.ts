@@ -1,5 +1,7 @@
 import Phaser from 'phaser'
-import { CITY_ORIGIN, createDrawingLoader, createThingLoader, fetchPlaceOutline } from '../city/api.ts'
+import { CITY_ORIGIN, createDrawingLoader, createThingLoader, fetchPlaceOutline, fetchThing } from '../city/api.ts'
+import { shortEndsKey, thingIsRemnant, type ShortEnds, type ThingEnding } from '../city/thing-ending.ts'
+import { thingTextureKey } from '../thing-art.ts'
 import type { PlaceOutline, ReplayEvent, ReplayPlace, Resident, Thing } from '../city/types.ts'
 import { nestedLayout, type NestedLayout } from '../ground/nested.ts'
 import { blocksLiveDelivery, createPresentResidents, dropSleepingResidentBubbles, prepareLiveResidents, stepResidents, type Simulation } from '../replay/simulation.ts'
@@ -112,8 +114,12 @@ export class CityScene extends Phaser.Scene {
   private inventions: InventionState = Object.freeze({ moments: [], pending: false, issues: [] }); private inventionLayer?: InventionLayer
   private thingViews = new Map<number, ThingView>()
   private thingNames = new Map<number, string>()
-  private thingFacts = new Map<number, Readonly<{ kind?: string | null; owner?: string | null }>>()
+  // ends comes from the current outline row; ending and its sentence from the thing read,
+  // with the short status that read was made under, so a changed end reads the record again.
+  private thingFacts = new Map<number, Readonly<{ kind?: string | null; owner?: string | null; ends?: ShortEnds | null;
+    ending?: ThingEnding | null; endProgramSummary?: string | null; endingReadFor?: string }>>()
   private thingReads = new Set<number>()
+  private thingEndingReads = new Map<number, string>()
   private thingDrawingReads = new Set<number>()
   private thingDrawingHints = new Map<number, boolean | undefined>()
   private readingThings = false
@@ -822,7 +828,9 @@ export class CityScene extends Phaser.Scene {
       this.thingFacts.set(row.id, Object.freeze({ ...known,
         ...(row.kind === undefined ? {} : { kind: row.kind }),
         ...(row.owner === undefined ? {} : { owner: row.owner }),
+        ends: row.ends ?? null,
       }))
+      if (this.itemPanel?.isOpenFor(`thing:${row.id}`) && this.thingEndingStale(row.id)) this.refreshThingEnding(row.id)
     }
   }
   private drawHandovers(): void {
@@ -987,14 +995,18 @@ export class CityScene extends Phaser.Scene {
   private thingPanelDetails(id: number): ItemPanelDetails {
     const thing = this.roomThings[id]
     const key = `thing:${id}`
-    const texture = this.textures.exists(`thing-${id}`) ? `thing-${id}` : 'thing-default'
     const facts = this.thingFacts.get(id) ?? {}
+    const art = this.textures.exists(`thing-${id}`) ? `thing-${id}` : 'thing-default'
+    const remnantArt = thingTextureKey(art, thing?.remnant === true)
+    const texture = this.textures.exists(remnantArt) ? remnantArt : art
     return {
       key, kind: 'thing', id, name: thing?.name ?? this.thingNames.get(id) ?? '',
       imageUrl: this.panelImageUrl(texture),
       imageAlt: `Pixel drawing of ${thing?.name ?? this.thingNames.get(id) ?? `Thing #${id}`}`,
-      facts: thingPanelFacts({ kind: facts.kind, owner: facts.owner, description: this.itemDescriptions.get(key) }),
+      facts: thingPanelFacts({ kind: facts.kind, owner: facts.owner, description: this.itemDescriptions.get(key),
+        ending: facts.ending, endProgramSummary: facts.endProgramSummary }),
       recordUrl: `${CITY_ORIGIN}/api/thing/${id}`, recordLabel: 'See the record',
+      thingEnd: thingIsRemnant(facts.ends) ? 'ended' : facts.ends ? 'set' : null,
     }
   }
   private openResidentPanel(id: number): void {
@@ -1029,8 +1041,10 @@ export class CityScene extends Phaser.Scene {
     this.itemPanel?.open(this.thingPanelDetails(id), this.panelAnchor(view.sprite))
     const known = this.thingFacts.get(id) ?? {}
     const needRecord = known.kind === undefined || known.owner === undefined || !this.thingDrawingHints.has(id)
-    if (needRecord) {
-      void this.readThingRecord(id).then(() => {
+    // A thing whose row carries an end is read past the cache once per status, for its ending.
+    const endingStale = this.thingEndingStale(id)
+    if (needRecord || endingStale) {
+      void this.readThingRecord(id, endingStale).then(() => {
         if (this.itemPanel?.isOpenFor(`thing:${id}`)) this.itemPanel.update(this.thingPanelDetails(id))
         this.readPanelThingDrawing(id)
       }).catch(error => {
@@ -1055,8 +1069,26 @@ export class CityScene extends Phaser.Scene {
       this.thingReadIssue('This thing drawing could not be read.')
     })
   }
-  private async readThingRecord(id: number): Promise<Thing | null> {
-    const detail = await this.readThing(id)
+  /** True when the outline row says an end is set or came and no thing read under that status was kept. */
+  private thingEndingStale(id: number): boolean {
+    const known = this.thingFacts.get(id)
+    return Boolean(known?.ends) && known?.endingReadFor !== shortEndsKey(known?.ends)
+  }
+  /** Reads the thing again, past the record cache, for its current ending, and updates an open panel. */
+  private refreshThingEnding(id: number): void {
+    const readFor = shortEndsKey(this.thingFacts.get(id)?.ends)
+    if (this.thingEndingReads.get(id) === readFor) return
+    this.thingEndingReads.set(id, readFor)
+    void this.readThingRecord(id, true).then(() => {
+      if (this.itemPanel?.isOpenFor(`thing:${id}`)) this.itemPanel.update(this.thingPanelDetails(id))
+    }).catch(error => {
+      console.error(error)
+      this.thingReadIssue('This thing record could not be read.')
+    }).finally(() => { if (this.thingEndingReads.get(id) === readFor) this.thingEndingReads.delete(id) })
+  }
+  private async readThingRecord(id: number, fresh = false): Promise<Thing | null> {
+    const readFor = shortEndsKey(this.thingFacts.get(id)?.ends)
+    const detail = fresh ? await fetchThing(id) : await this.readThing(id)
     if (!detail) return null
     this.thingNames.set(id, detail.name)
     this.thingReads.add(id)
@@ -1066,6 +1098,9 @@ export class CityScene extends Phaser.Scene {
     this.thingFacts.set(id, Object.freeze({ ...existing,
       ...(detail.kind === undefined ? {} : { kind: detail.kind }),
       ...(detail.owner === undefined ? {} : { owner: detail.owner }),
+      // Only a read past the cache is known to be as fresh as the outline status it ran under.
+      ...(detail.ending === undefined ? {} : { ending: detail.ending, ...(fresh ? { endingReadFor: readFor } : {}) }),
+      ...(detail.endProgramSummary === undefined ? {} : { endProgramSummary: detail.endProgramSummary }),
     }))
     return detail
   }

@@ -1,0 +1,100 @@
+{
+  "thing": {
+    "id": 40002,
+    "place_id": 498,
+    "name": "a paper boat, one day long",
+    "body": "Folded to last a day. The day is over.",
+    "maker_id": 223,
+    "made_by": "serein",
+    "current_owner_id": 223,
+    "current_owner": "serein",
+    "owner_id": 223,
+    "owner": "serein",
+    "open_to_use": true,
+    "shared_use_may_destroy": false,
+    "kind_id": null,
+    "kind": null,
+    "birth_revision": null,
+    "current_revision": null,
+    "born_as": null,
+    "was": [],
+    "was_total": 0,
+    "labels": [],
+    "labels_total": 0,
+    "open_to_reach": false,
+    "open_to_convert": false,
+    "has_drawing": false,
+    "wake_enabled": false,
+    "generation": 0,
+    "parent_thing_id": null,
+    "family_id": 40002,
+    "family_maker": "serein",
+    "copies_made": 0,
+    "growth_mark": null,
+    "wake": null,
+    "state": {
+      "values": {},
+      "version": 0,
+      "last_write": null
+    },
+    "created_at": "2026-11-06T02:58:00.000Z",
+    "on_use": "Using it puts no labels on you.",
+    "ending": {
+      "status": "ended",
+      "permission_source": "kindless_owner",
+      "permitted_modes": [],
+      "conditions": [
+        {
+          "after_setting_seconds": 86400,
+          "ends_at": "2026-11-07T03:00:00.000Z"
+        }
+      ],
+      "soonest_known_end": "2026-11-07T03:00:00.000Z",
+      "uses_left": null,
+      "unused_deadline": null,
+      "label": null,
+      "grant": {
+        "kindless": true,
+        "allowed": [
+          "at",
+          "after_setting_seconds",
+          "uses",
+          "idle_seconds",
+          "label_added"
+        ],
+        "limits": {
+          "max_seconds": 31622400,
+          "max_uses": 10000,
+          "labels": null
+        },
+        "city_limits_version": 1
+      },
+      "still_permitted": {
+        "after_setting_seconds": true
+      },
+      "copy_origin": null,
+      "set_by": {
+        "id": 223,
+        "handle": "serein"
+      },
+      "set_at": "2026-11-06T03:00:00.000Z",
+      "renewable_before_end": false,
+      "remains": "remnant",
+      "ended_at": "2026-11-07T03:00:00.000Z",
+      "ended_cause": "after_setting_seconds",
+      "owner_at_end": {
+        "id": 223,
+        "handle": "serein"
+      },
+      "program": {
+        "state": "none",
+        "result": null,
+        "has_end_trait": false,
+        "would_run": null,
+        "blocked_by": null
+      },
+      "checked_at": "2026-11-08T03:10:00.000Z"
+    },
+    "end_program_summary": "When this ends it becomes a remnant."
+  }
+}

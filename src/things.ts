@@ -2,6 +2,7 @@ import type { PlaceOutline, ReplayEvent, ReplayFile } from './city/types.ts'
 import type { NestedLayout } from './ground/nested.ts'
 import { stageFindFreeSpots, type StageStandingEntry, type StageStandingSpot } from './ground/stage-ground.ts'
 import { ROOM_THING_SIZE } from './room-appearance.ts'
+import { thingIsRemnant } from './city/thing-ending.ts'
 
 export type ThingEffectKind = 'puff' | 'glow' | 'crumbs'
 export type ThingEffect = Readonly<{ kind: ThingEffectKind; startedAt: number; expiresAt: number }>
@@ -13,6 +14,8 @@ export type ThingState = Readonly<{
   y: number
   visible: boolean
   effect: ThingEffect | null
+  /** True when the thing's own current row says its end came (city PR #489); never from events. */
+  remnant?: boolean
 }>
 export type ThingSpot = Readonly<{ id: number; placeId: number; x: number; y: number }>
 export type ThingReservations = Readonly<Record<number, readonly StageStandingSpot[]>>
@@ -109,7 +112,7 @@ export function addPresentThings(
     const point = spot
       ? { id: thing.id, placeId: thing.placeId, x: spot.x + 16, y: spot.y + 16 }
       : { id: thing.id, placeId: thing.placeId, ...provisional }
-    things[thing.id] = thingAt(point, thing.name, null)
+    things[thing.id] = Object.freeze({ ...thingAt(point, thing.name, null), remnant: thingIsRemnant(thing.ends) })
   }
   const roomReservations = [...oldSpots, ...Object.values(placed).filter(spot => spot.kind === 'thing')]
   const reservations = { ...state.reservations, [outline.placeId]: roomReservations }
