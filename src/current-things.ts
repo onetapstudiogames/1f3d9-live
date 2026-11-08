@@ -4,8 +4,9 @@ import type { StageStandingSpot } from './ground/stage-ground.ts'
 import { addPresentThings, type ThingReservations, type ThingSimulation, type ThingState } from './things.ts'
 import { roomIsPublic } from './room-view.ts'
 import { MAX_ROOM_THINGS } from './thing-limits.ts'
+import { thingIsRemnant } from './city/thing-ending.ts'
 
-/** Reconciles one current room outline without consulting recorded thing history. */
+/** Reconciles one current room outline, names and remnant status included, without consulting recorded thing history. */
 export function refreshPresentThings(
   state: ThingSimulation,
   outline: PlaceOutline,
@@ -40,8 +41,12 @@ export function refreshPresentThings(
     if (existing.placeId !== outline.placeId) {
       delete things[item.id]
       removed.add(item.id)
-    } else if (existing.name !== item.name) {
-      things[item.id] = Object.freeze({ ...existing, name: item.name })
+    } else {
+      // The end shows from the thing's own current row, never from a thing_ended event.
+      const remnant = thingIsRemnant(item.ends)
+      if (existing.name !== item.name || Boolean(existing.remnant) !== remnant) {
+        things[item.id] = Object.freeze({ ...existing, name: item.name, remnant })
+      }
     }
   }
 

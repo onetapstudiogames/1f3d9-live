@@ -1,6 +1,7 @@
 // Shapes of the city's public responses this page reads. Source of truth: docs/CITY-API.md.
 
 import type { CurrentLaw } from '../laws.ts'
+import type { ShortEnds, ThingEnding } from './thing-ending.ts'
 
 export type PublicActivity = 'active now' | 'today' | 'this week' | 'longer'
 
@@ -63,9 +64,12 @@ export type Drawing = Readonly<{
 
 // The numbered maker, owner and kind are read only for this browser's mute list.
 export type ThingIds = Readonly<{ makerId?: number | null; ownerId?: number | null; kindId?: number | null }>
-export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean; owner?: string | null; kind?: string | null }> & ThingIds
+// A thing read's ending and end program sentence, and an outline row's short ends, are kept
+// only when the answer carries them (city PR #489).
+export type Thing = Readonly<{ id: number; name: string; has_drawing: boolean; owner?: string | null; kind?: string | null;
+  ending?: ThingEnding | null; endProgramSummary?: string | null }> & ThingIds
 export type OutlineThing = Readonly<{ id: number; name: string; placeId: number; hasDrawing: boolean | undefined;
-  owner?: string | null; kind?: string | null }> & ThingIds
+  owner?: string | null; kind?: string | null; ends?: ShortEnds | null }> & ThingIds
 export type PlaceOutline = Readonly<{ placeId: number; quiet: boolean; things: readonly OutlineThing[]; totalItems: number;
   hasMore: boolean; lawNames?: readonly string[] | null; name?: string; parentId?: number | null;
   labels?: readonly string[] | null; laws?: readonly CurrentLaw[] | null; lastActive?: PublicActivity;

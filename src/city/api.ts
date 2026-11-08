@@ -2,6 +2,7 @@ import type { CensusPage, Drawing, PlaceOutline, Resident, Thing, ThingIds } fro
 import { parseCurrentLaws } from '../laws.ts'
 import { MAX_ROOM_THINGS } from '../thing-limits.ts'
 import { publicActivity } from '../public-activity.ts'
+import { parseShortEnds, parseThingEnding } from './thing-ending.ts'
 
 export const CITY_ORIGIN = 'https://1f3d9.com'
 const READ_TIMEOUT_MS = 15_000
@@ -171,8 +172,15 @@ export async function fetchThing(id: number, search: string = browserSearch()): 
     : currentOwner === null ? null : undefined
   const kind = typeof record['kind'] === 'string' ? record['kind'].trim()
     : record['kind'] === null ? null : undefined
+  // Thing endings (city PR #489): kept only when the read carries them; unreadable reads as none.
+  const ending = 'ending' in record ? parseThingEnding(record['ending']) : undefined
+  const summary = 'end_program_summary' in record
+    ? typeof record['end_program_summary'] === 'string' && record['end_program_summary'].trim()
+      ? record['end_program_summary'].trim() : null
+    : undefined
   return { id, name: record['name'], has_drawing: record['has_drawing'],
-    ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }), ...thingIds(record) }
+    ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }),
+    ...(ending === undefined ? {} : { ending }), ...(summary === undefined ? {} : { endProgramSummary: summary }), ...thingIds(record) }
 }
 
 function optionalId(value: unknown): number | null | undefined {
@@ -267,8 +275,11 @@ export async function fetchPlaceOutline(id: number, search: string = browserSear
         : currentOwner === null ? null : undefined
       const kind = typeof row['kind'] === 'string' ? row['kind'].trim()
         : row['kind'] === null ? null : undefined
+      // The short status rides only on a row whose thing has an end (city PR #489).
+      const ends = parseShortEnds(row['ends'])
       const thing = Object.freeze({ id: row['id'] as number, name, placeId: id, hasDrawing,
-        ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }), ...thingIds(row) })
+        ...(owner === undefined ? {} : { owner }), ...(kind === undefined ? {} : { kind }),
+        ...(ends === null ? {} : { ends }), ...thingIds(row) })
       if (things.has(thing.id) || things.size < MAX_ROOM_THINGS) things.set(thing.id, thing)
       else locallyTruncated = true
     }

@@ -5,7 +5,8 @@ type AbilityDetail = Readonly<Record<string, unknown>>
 // #359, #360, and #368). Since city PR #368 the change feed also carries the numbers: a
 // roll's roll, sides, percent, purpose, and outcome; a settle's tried, woke, and forfeited;
 // a state write's key, op, and version; a copy's generation; a conversion's from_kind_id and
-// law_trait_id; and two kinds of their own, copy_skipped and room_reached. Each number is
+// law_trait_id; and two kinds of their own, copy_skipped and room_reached. Since city PR
+// #489 a settle names the ends it wrote down, and thing_ended says why a thing ended. Each number is
 // shown only when the row carries it in the expected shape, so an older row, or a row the
 // city trimmed, reads exactly as it did before and nothing is ever guessed.
 
@@ -77,7 +78,30 @@ export function roomSettleWords(detail: AbilityDetail, roomName: string): string
   const base = detail.status === 'woke' ? `${lead} and things woke in ${roomName}` : `${lead}; ${roomName} settled and nothing woke`
   const tried = count(detail.tried); const woke = count(detail.woke); const forfeited = count(detail.forfeited)
   if (tried === null || woke === null) return base
-  return `${base}: ${tried} tried, ${woke} woke${forfeited ? `, ${forfeited} dropped` : ''}`
+  // Since city PR #489 a settle also says how many ends it wrote down, how many end tries
+  // ran, and whether more ends waited than one settle writes down.
+  const ended = positive(detail.ended); const endTries = positive(detail.end_tries)
+  const ends = [
+    ...(ended !== null ? [plural(ended, 'thing ended', 'things ended')] : []),
+    ...(endTries !== null ? [`${plural(endTries, 'end try', 'end tries')} ran`] : []),
+    ...(detail.more_due === true ? ['more ends wait for the next settle'] : []),
+  ]
+  return `${base}: ${tried} tried, ${woke} woke${forfeited ? `, ${forfeited} dropped` : ''}${ends.map(part => `, ${part}`).join('')}`
+}
+
+// Why an end came, from the thing_ended row's cause (the five ways an end can be set).
+const END_CAUSES: Readonly<Record<string, string>> = Object.freeze({
+  at: 'its end date came',
+  after_setting_seconds: 'its time limit ran out',
+  uses: 'its uses ran out',
+  idle_seconds: 'its unused deadline came',
+  label_added: 'the label it ends on was put on it',
+})
+
+/** A thing_ended row: the city wrote down a thing's end, so it is a remnant now. */
+export function thingEndedWords(detail: AbilityDetail, thingName: string): string {
+  const cause = typeof detail.cause === 'string' && Object.hasOwn(END_CAUSES, detail.cause) ? END_CAUSES[detail.cause] : undefined
+  return `recorded the end of ${thingName}${cause ? `: ${cause}` : ''}; it is a remnant now`
 }
 
 /** Words for a thing_edited row's ability modes, or null to keep the ordinary "changed" line. */

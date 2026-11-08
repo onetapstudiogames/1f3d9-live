@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import type { Drawing } from '../city/types.ts'
-import { thingDrawingCells, thingParticles } from '../thing-art.ts'
+import { REMNANT_TEXTURE_SUFFIX, remnantDrawingCells, thingDrawingCells, thingParticles, thingTextureKey } from '../thing-art.ts'
 import { effectFrame, type ThingState } from '../things.ts'
 import { ROOM_THING_SIZE, roomFigureStyle } from '../room-appearance.ts'
 import { NameLabel, type NameLabelBounds } from './NameLabel.ts'
@@ -24,6 +24,9 @@ export class ThingView {
     const frame = thing.effect ? effectFrame(thing.effect, now) : null
     const visible = thing.visible && !carried && !frame?.crumbs
     const lift = frame?.puff ? Math.round(12 * (1 - frame.progress)) : 0
+    // A remnant wears the faded copy of whichever art the thing has now.
+    const wanted = thingTextureKey(this.sprite.texture.key, thing.remnant === true)
+    if (wanted !== this.sprite.texture.key && this.sprite.scene.textures.exists(wanted)) this.sprite.setTexture(wanted)
     this.sprite.setPosition(thing.x, thing.y - lift).setVisible(visible)
     this.name.setContent(label ?? '', 'thing')
     this.nameAllowed = visible && label !== null && zoom >= 0.55 && labelClear
@@ -55,10 +58,18 @@ export class ThingView {
   }
 }
 
+/** Adds a thing's art and its remnant copy (key plus REMNANT_TEXTURE_SUFFIX). */
 export function addThingTexture(scene: Phaser.Scene, key: string, drawing: Drawing | null): void {
   if (scene.textures.exists(key)) return
+  const cells = thingDrawingCells(drawing)
+  paintTexture(scene, key, cells)
+  paintTexture(scene, `${key}${REMNANT_TEXTURE_SUFFIX}`, remnantDrawingCells(cells))
+}
+
+function paintTexture(scene: Phaser.Scene, key: string, cells: ReturnType<typeof thingDrawingCells>): void {
+  if (scene.textures.exists(key)) return
   const paint = scene.make.graphics({ x: 0, y: 0 })
-  for (const cell of thingDrawingCells(drawing)) paint.fillStyle(cell.color, 1).fillRect(cell.x, cell.y, 1, 1)
+  for (const cell of cells) paint.fillStyle(cell.color, 1).fillRect(cell.x, cell.y, 1, 1)
   paint.generateTexture(key, 8, 8)
   scene.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST)
   paint.destroy()

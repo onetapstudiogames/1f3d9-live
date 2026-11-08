@@ -1,5 +1,5 @@
 import type { ReplayEvent, ReplayPlace, Resident } from './city/types.ts'
-import { chanceRollWords, copyLine, copySkippedWords, roomReachedWords, roomSettleWords, thingEditWords, unknownKindWords } from './ability-events.ts'
+import { chanceRollWords, copyLine, copySkippedWords, roomReachedWords, roomSettleWords, thingEditWords, thingEndedWords, unknownKindWords } from './ability-events.ts'
 import { noteWords } from './note-words.ts'
 import { answerLogText, lineLogText, pingLogText } from './talk-words.ts'
 import { appliedMove } from './replay/index.ts'
@@ -34,7 +34,7 @@ const eventKinds: Readonly<Record<string, readonly [string, ActivityCue]>> = {
   home_set: ['set home here', 'home'], place_created: ['founded', 'make'], place_edited: ['changed', 'change'], place_renamed: ['renamed', 'change'],
   place_retired: ['retired', 'change'], place_restored: ['restored', 'change'], kind_invented: ['invented', 'make'], kind_revised: ['revised', 'change'],
   trait_coined: ['coined', 'make'], thing_created: ['created', 'make'], thing_crafted: ['crafted', 'make'], thing_edited: ['changed', 'change'],
-  thing_moved: ['moved', 'action'], thing_upgraded: ['upgraded', 'change'], thing_withdrawn: ['withdrew', 'change'], laws_changed: ['changed the local laws', 'rules'],
+  thing_moved: ['moved', 'action'], thing_upgraded: ['upgraded', 'change'], thing_withdrawn: ['withdrew', 'change'], thing_ended: ['recorded the end of', 'change'], laws_changed: ['changed the local laws', 'rules'],
   effect_scheduled: ['scheduled an effect', 'wait'], effect_resolved: ['resolved an effect', 'effect'], gazette_printed: ['printed The Gazette', 'make'],
   chance_rolled: ['rolled a public chance', 'effect'], room_settled: ['settled a room', 'effect'],
   room_reached: ['reached across a room', 'effect'], copy_skipped: ['had a copy stopped by a growth limit', 'effect'],
@@ -46,7 +46,7 @@ const eventKinds: Readonly<Record<string, readonly [string, ActivityCue]>> = {
 const requiredId: Readonly<Record<string, string>> = {
   resident_edited: 'resident_id', home_set: 'place_id', place_created: 'place_id', place_edited: 'place_id', place_renamed: 'place_id',
   place_retired: 'place_id', place_restored: 'place_id', laws_changed: 'place_id', kind_invented: 'kind_id', kind_revised: 'kind_id', trait_coined: 'trait_id',
-  thing_created: 'thing_id', thing_crafted: 'thing_id', thing_edited: 'thing_id', thing_moved: 'thing_id', thing_upgraded: 'thing_id', thing_withdrawn: 'thing_id',
+  thing_created: 'thing_id', thing_crafted: 'thing_id', thing_edited: 'thing_id', thing_moved: 'thing_id', thing_upgraded: 'thing_id', thing_withdrawn: 'thing_id', thing_ended: 'thing_id',
   effect_scheduled: 'effect_id', effect_resolved: 'effect_id', chance_rolled: 'place_id', room_settled: 'place_id', room_reached: 'place_id', copy_skipped: 'place_id', gazette_printed: 'issue_number', agreement: 'agreement_id', agreement_accession: 'agreement_id',
   agreement_sign: 'agreement_id', transfer_offer: 'offer_id', transfer_cancel: 'offer_id', flag: 'target_id', moderation: 'target_id',
 }
@@ -211,7 +211,8 @@ export function activityEntry(event: ReplayEvent, context: ActivityContext, peer
   let [words, cue] = descriptor; const thingName = knownThing?.entity.name || name || (thingId ? `thing #${thingId}` : '')
   if (event.kind.startsWith('thing_')) {
     if (!thingId || !thingName) return null
-    words = event.kind === 'thing_edited' ? thingEditWords(detail, thingName) ?? `${words} ${thingName}` : `${words} ${thingName}`
+    words = event.kind === 'thing_edited' ? thingEditWords(detail, thingName) ?? `${words} ${thingName}`
+      : event.kind === 'thing_ended' ? thingEndedWords(detail, thingName) : `${words} ${thingName}`
   }
   else if (event.kind === 'chance_rolled') words = chanceRollWords(detail, knownThing?.entity.name ?? (thingId ? `thing #${thingId}` : ''), place?.name ?? null)
   else if (event.kind === 'room_settled') { if (!place) return null; words = roomSettleWords(detail, place.name) }
